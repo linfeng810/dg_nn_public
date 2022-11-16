@@ -1,0 +1,33 @@
+from command prompt with directory the same one as where decomp.f90 is installed (and probably f2py.py):
+
+python2 -m numpy.f2py -c building_volume_frac.f90 -m building_volume_frac
+
+
+python2 -m numpy.f2py -c building_volume_frac.f90 -fbounds-check -ffpe-trap=invalid,zero,overflow -m building_volume_frac
+
+python2 f2py_build.py
+
+FORTRAN COMPILING: 
+gfortran -ffree-line-length-none -ffixed-line-length-none   -fdefault-real-8 -fbounds-check -ffpe-trap=invalid,zero,overflow -o shape_functions shape_functions.f90
+
+COMPILING MULTIPLE FILES:
+gfortran -c -o programA.o programA.f90
+gfortran -c -o programB.o programB.f90
+gfortran -c -o programC.o programC.f90
+gfortran -o output mainprogram.f90 programA.o programB.o programC.o
+
+HERE:
+gfortran -ffree-line-length-none -ffixed-line-length-none -fdefault-real-8 space_filling_decomp_new_random_decide_v1.o  space_filling_decomp_new_random_decide_v1.f90
+
+gfortran -o shape_functions shape_functions.f90 space_filling_decomp_new_random_decide_v1
+
+gfortran -ffree-line-length-none -ffixed-line-length-none   -fdefault-real-8 -fbounds-check -ffpe-trap=invalid,zero,overflow -o shape_functions shape_functions.f90 space_filling_decomp_new_random_decide_v1.o
+
+
+
+Dont include programme main in space_filling_decomp_new_random_decide_v1_w to produce a *.o file:
+
+gfortran   -ffree-line-length-none -ffixed-line-length-none -c -fdefault-real-8 -o space_filling_decomp_new_random_decide_v1_w.o  space_filling_decomp_new_random_decide_v1_w.f90
+
+gfortran -ffree-line-length-none -ffixed-line-length-none   -fdefault-real-8 -fbounds-check -ffpe-trap=invalid,zero,overflow -o shape_functions shape_functions.f90 space_filling_decomp_new_random_decide_v1_w.o
+
