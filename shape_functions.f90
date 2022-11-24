@@ -4,17 +4,33 @@
            call main32
         else if(.false.) then! solver example...
            call main7
-        else ! solver example...
+        else if (.false.) then! solver example...
 !           call cty_filter_orig ! linear cty element filters
 ! all the filters: linear, quadratic etc cty filters
            call set_up_cty_filter_quadratic_and_higher_fem
 !           call main4 ! linear DG element filters
+        else
+           call getdgoneelefilter
         endif
         end program mains
 ! 
 ! 
 ! 
 ! 
+        subroutine getdgoneelefilter 
+         implicit none 
+         real :: a_filter(10,10), k(10), x_all(2,3), dt=1.0
+         x_all = reshape( (/ &
+         0.0, 0.0, &
+         1.0, 0.0, &
+         0.0, 1.0 /), (/2,3/))
+         k = 1.0
+
+         call get_dg_inele_filter(a_filter, k, x_all, dt, 10)
+        end subroutine getdgoneelefilter
+
+
+
         subroutine main32 ! voronoi grid to triangles testing
         implicit none
 ! integers representing the length of arrays...
@@ -6379,8 +6395,105 @@
         return
         end subroutine get_fe_matrix_eqn
 ! 
-
-
+         subroutine get_dg_inele_filter( a_filter, k, x_all, dt, nloc)
+         ! this subroutine finds filters for volume integral in DG method
+         ! (inside element). The filter is applied on each node 
+         ! respectively in a 1D node-list, where the list contains
+         ! the nodes within this element.
+!
+            implicit none 
+            ! a_filter = return filter, is a nloc x nloc matrix. Each row is the 
+            ! filter for one node.
+            ! k = diffusion coefficient stores on nodes, dimension (nloc)
+            ! x_all contains the coordinates
+            !  and x_all(idim, (ele-1)*nloc+iloc) contains the idim'th coorindate for element number ele and local node 
+            !  number iloc associated with element ele. 
+            !  That is idim=1 corresponds to x coord, idim=2 y coordinate, idim=3 z coordinate.
+            ! dt = timestep
+            ! nloc = number of local nodes
+            integer, intent( in ) :: nloc
+            real, intent( inout ) :: a_filter(nloc, nloc) !, bc_filter(:,:) ! nloc , nloc
+            real, intent( in ) :: k(nloc) ! nloc
+            real, intent( in ) :: x_all(2,nloc) ! ndim , 3
+            real, intent( in ) :: dt
+            ! local variables
+            integer, parameter :: totele=1,sngi=3, ngi=7, &
+               ndim=2, nface=3, max_face_list_no=2, snloc=4, &
+               npoly=3, ele_type=200 ! what is ele_type?? if(ele_type < 100) then ! not triangle...
+            real, allocatable :: x_loc(:,:), kgi(:)
+            real, allocatable :: n(:,:), nlx(:,:,:), weight(:)
+            real, allocatable :: nx(:,:,:), detwei(:), inv_jac(:,:,:)
+            integer iloc, nodi, ele, jloc, idim, i
+            integer, allocatable :: ndglno(:) ! nloc*totele
+            real, allocatable :: nxnx_k(:,:), nn(:,:)
+            real, allocatable :: face_sn(:,:,:), face_sn2(:,:,:)
+            real, allocatable :: face_snlx(:,:,:,:), face_sweigh(:,:) 
+            ! auxilary variable in matrix inversion
+            real, allocatable :: mat(:,:), mat2(:,:),x(:),b(:)
+            ! dirichlet bc nodes number
+            !  10
+            !  | \
+            !  8  9
+            !  |   \
+            !  5 6  7
+            !  |     \
+            !  1-2-3--4
+            integer, dimension(7) :: bc_nodes=(/1,2,3,4,5,8,10/)
+!
+            allocate( n(ngi,nloc), nlx(ngi,ndim,nloc), weight(ngi) )
+            allocate( face_sn(sngi,snloc,nface) )
+            allocate( face_sn2(sngi,snloc,max_face_list_no) )
+            allocate( face_snlx(sngi,ndim-1,snloc,nface), face_sweigh(sngi,nface) )
+    
+            allocate(nx(ngi,ndim,nloc),detwei(ngi),inv_jac(ngi,ndim,ndim))
+            allocate(x_loc(ndim,nloc)) 
+    !
+            allocate( mat(nloc,nloc), mat2(nloc,nloc), x(nloc), b(nloc) )
+    !
+            print *,'going into get_shape_funs_with_faces'
+            call get_shape_funs_with_faces(n, nlx, weight,  &
+                   nloc, snloc, sngi, ngi, ndim, nface,max_face_list_no, &
+                   face_sn, face_sn2, face_snlx, face_sweigh, &
+                   npoly,ele_type) 
+            print *, 'out of get_shape_funs_with_faces'
+ !           
+            x_loc(:,:) = x_all(:,(ele-1)*nloc+1:ele*nloc)
+            call det_nlx( x_loc, n, nlx, nx, detwei, weight, ndim, nloc, ngi, INV_JAC )
+!
+            kgi = 0.0
+            do iloc=1,nloc 
+               nodi = ndglno((ele-1)*nloc+iloc)
+               ! cgi = n(:,iloc)*c(nodi) ! quantity to diffuse (eg temperature, concentration)
+               kgi(:) = kgi(:) + n(:,iloc)*k(nodi) ! diffusion coefficient
+            enddo
+            do iloc=1,nloc 
+               nodi = ndglno((ele-1)*nloc+iloc)
+               do jloc=1,nloc
+                  do idim=1,ndim
+                     nxnx_k(iloc,jloc) = nxnx_k(iloc,jloc) + sum( nx(:,idim,iloc)*kgi(:)*nx(:,idim,jloc)*detwei(:) )
+                  enddo
+               enddo
+               nn(iloc,jloc) = sum( n(:,iloc) * n(:,jloc) )
+            enddo
+ !           
+            ! calculate M^-1 and store in a_filter
+            a_filter = nn 
+            call MATINV(a_filter, nloc, nloc, mat, mat2, x, b )
+            ! M^-1 K / delta t
+            a_filter = matmul(a_filter, nxnx_k)/dt
+            ! + I
+            do iloc=1,nloc 
+               a_filter(iloc,iloc) = a_filter(iloc,iloc) + 1.0
+            enddo
+            ! setting boundary conditions
+            do i=1, size(bc_nodes)
+               iloc=bc_nodes(i)
+               a_filter(:,iloc) = 0.0
+               a_filter(iloc, iloc) = 1.0
+            enddo
+!
+         end subroutine
+!
 !subroutine det_nlx( x_loc, n, nlx, nx, detwei, weight, ndim, nloc, ngi, jac )
    subroutine det_nlx( x_loc, n, nlx, nx, detwei, weight, ndim, nloc, ngi, INV_JAC )
   ! ****************************************************
