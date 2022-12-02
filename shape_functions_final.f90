@@ -19,14 +19,87 @@
 ! 
         subroutine getdgoneelefilter 
          implicit none 
-         real :: a_filter(10,10), k(10), x_all(2,3), dt=1.0
-         x_all = reshape( (/ &
-         0.0, 0.01, &
-         1.01, 0.02, &
-         0.03, 1.02 /), (/2,3/))
+         real, allocatable :: a_filter(:,:), k(:), x_all(:,:), c(:,:)
+         real :: dt=1.e-3, finish_time=1
+         integer :: nloc, ndim , final_timestep, itime
+         real :: acctim ! current time
+
+         final_timestep = ceiling(finish_time/dt)+1
+         print *, final_timestep
+         ndim =2
+         nloc=10
+         allocate( a_filter(nloc, nloc), k(nloc), x_all(ndim, nloc) )
+         allocate( c(nloc, final_timestep) )
+         a_filter = 0.0
+
+         if (nloc.eq.10) then 
+            ! x_all = reshape( (/ &
+            ! 1.0, 0.0, &
+            ! 0.0, 1.0, &
+            ! 0.0, 0.0, &
+            !    2./3., 1./3., &
+            !    1./3., 2./3., &
+            !    0., 2./3., &
+            !    0., 1./3., &
+            !    1./3., 0., &
+            !    2./3., 0., &
+            !    1./3., 1./3. /), (/2,nloc/))
+            x_all = reshape( (/ &
+               0.0, 0.0, &
+               1.0, 0.0, &
+               0.0, 1.0, &
+               1./3., 0., &
+               2./3., 0., &
+               2./3., 1./3., &
+               1./3., 2./3., &
+               0., 2./3., &
+               0., 1./3., &
+               1./3., 1./3. /), (/2,nloc/))
+         elseif (nloc.eq.6) then 
+            x_all = reshape( (/ &
+               0.0, 0.0, &
+               1.0, 0.0, &
+               0.0, 1.0, &
+               1./2., 0., &
+               1./2., 1./2., &
+               0., 1./2. /), (/2,nloc/))
+         endif
          k = 1.0
 
-         call get_dg_inele_filter(a_filter, k, x_all, dt, 10)
+         call get_dg_inele_filter(a_filter, k, x_all, dt, nloc)
+
+         print * ,'afilter', a_filter
+         acctim = 0
+         itime=1
+         open(100, file="outputc.txt")
+         if (.true.) then  ! I, II both dirichlet bcs
+            if (nloc.eq.10) then 
+               c(:,1) = (/0,0,1,0,0,0,0,1,1,0/) ! initial condition
+            elseif (nloc.eq.6) then 
+               c(:,1) = (/0,0,1,0,-1,1/)
+            endif
+         else ! only I is diricelet bc
+            if (nloc.eq.10) then 
+               c(:,1) = (/1,1,1,1,1,1,1,1,1,1/) ! initial condition
+            elseif (nloc.eq.6) then 
+               c(:,1) = (/1,1,0,1,0,0/)
+            endif
+         endif
+         write(100,*), c(:,1)
+         ! test a time loop 
+         Loop_time: do 
+            acctim = acctim + dt 
+            itime=itime+1
+            if (acctim > finish_time + 0.001*dt) then 
+               exit Loop_time 
+            endif
+            c(:,itime) = matmul(a_filter, c(:,itime-1))
+            write(100,*), c(:,itime)
+            ! print *, 'itime, acctim', itime, acctim
+         end do Loop_time 
+         print *, 'c'
+         ! print *, c
+         close(100)
         end subroutine getdgoneelefilter
 
 
@@ -6450,31 +6523,81 @@
             real, intent( in ) :: x_all(2,nloc) ! ndim , 3
             real, intent( in ) :: dt
             ! local variables
-            integer :: totele=1,sngi=3, ngi=7, &
-               ndim=2, nface=3, max_face_list_no=2, snloc=4, &
-               npoly=3, ele_type=200 ! what is ele_type?? if(ele_type < 100) then ! not triangle...
+            integer :: totele=1,sngi=2, ngi=14, &
+               ndim=2, nface=3, max_face_list_no=2, snloc=2, &
+               npoly=3, ele_type=100 ! what is ele_type?? if(ele_type < 100) then ! not triangle...
             real, allocatable :: x_loc(:,:), kgi(:)
             real, allocatable :: n(:,:), nlx(:,:,:), weight(:)
             real, allocatable :: nx(:,:,:), detwei(:), inv_jac(:,:,:)
             integer iloc, nodi, ele, jloc, idim, i
-            integer, allocatable :: ndglno(:) ! nloc*totele
+            ! integer, allocatable :: ndglno(:) ! nloc*totele
             real, allocatable :: nxnx_k(:,:), nn(:,:)
             real, allocatable :: face_sn(:,:,:), face_sn2(:,:,:)
             real, allocatable :: face_snlx(:,:,:,:), face_sweigh(:,:) 
             real, allocatable :: l1(:), l2(:), l3(:), l4(:)
+            real, allocatable :: ml(:)
             ! auxilary variable in matrix inversion
             real, allocatable :: mat(:,:), mat2(:,:),x(:),b(:)
             logical :: d3, triangle_or_tet_high_order
             ! dirichlet bc nodes number
-            !  10
+            ! a reference cubic element looks like this:
+            !  y
+            !  | 
+            !  2
             !  | \
-            !  8  9
+            !  6  5
             !  |   \
-            !  5 6  7
+            !  7 10 4
             !  |     \
-            !  1-2-3--4
-            integer, dimension(7) :: bc_nodes=(/1,2,3,4,5,8,10/)
+            !  3-8-9--1--x
+            integer, dimension(:), allocatable :: bc_nodes
+            
+            if (.true. ) then  ! both I and II are dirichlet bcs
+               if (nloc.eq.10) then 
+                  allocate(bc_nodes(7))
+                  bc_nodes=(/1,4,5,2,3,8,9/)
+               elseif (nloc.eq.6) then 
+                  allocate(bc_nodes(5))
+                  bc_nodes=(/1,2,3,4,6/)
+               endif
+            else ! only I is dirichlet bc
+               if (nloc.eq.10) then 
+                  allocate(bc_nodes(4))
+                  bc_nodes=(/1,4,5,2/)
+               elseif (nloc.eq.6) then 
+                  allocate(bc_nodes(3))
+                  bc_nodes=(/1,4,2/)
+               endif
+            endif
 !
+            triangle_or_tet_high_order=.false.
+            if( ((nloc==3).or.(nloc==6).or.(nloc==10).or.(nloc==15)) .and.(ndim==2)) then
+               triangle_or_tet_high_order= .true. 
+            endif
+            if( ((nloc==4).or.(nloc==10).or.(nloc==20).or.(nloc==35)) .and.(ndim==3)) then
+               triangle_or_tet_high_order= .true. 
+            endif
+        ! 
+            if(ele_type.ge.100) then ! triangle or tet...
+               if(ndim==2) then
+                  sngi=2; ngi=3; nface=3; max_face_list_no=2
+                  snloc=2
+                  if(triangle_or_tet_high_order) ngi=13
+               else if(ndim==3) then
+                  sngi=3; ngi=4; nface=4; max_face_list_no=3
+                  snloc=3
+                  if(triangle_or_tet_high_order) ngi=45
+               endif
+            else ! rectangle...
+               if(ndim==2) then
+                  sngi=3; ngi=9; nface=4; max_face_list_no=2
+                  snloc=2
+               else if(ndim==3) then
+                  sngi=9; ngi=27; nface=6; max_face_list_no=4
+                  snloc=4
+               endif
+            endif
+
             allocate( n(ngi,nloc), nlx(ngi,ndim,nloc), weight(ngi) )
             allocate( face_sn(sngi,snloc,nface) )
             allocate( face_sn2(sngi,snloc,max_face_list_no) )
@@ -6486,35 +6609,9 @@
             allocate( mat(nloc,nloc), mat2(nloc,nloc), x(nloc), b(nloc) )
             allocate( kgi(ngi) )
             allocate( nxnx_k(nloc, nloc), nn(nloc,nloc) )
+            allocate( ml(nloc) )
       !
-            triangle_or_tet_high_order=.false.
-            if( ((nloc==3).or.(nloc==6).or.(nloc==10).or.(nloc==15)) .and.(ndim==2)) then
-               triangle_or_tet_high_order= .true. 
-            endif
-            if( ((nloc==4).or.(nloc==10).or.(nloc==20).or.(nloc==35)) .and.(ndim==3)) then
-               triangle_or_tet_high_order= .true. 
-            endif
-        ! 
-                if(ele_type.ge.100) then ! triangle or tet...
-                   if(ndim==2) then
-                      sngi=2; ngi=3; nface=3; max_face_list_no=2
-                      snloc=2
-                      if(triangle_or_tet_high_order) ngi=14
-                   else if(ndim==3) then
-                      sngi=3; ngi=4; nface=4; max_face_list_no=3
-                      snloc=3
-                      if(triangle_or_tet_high_order) ngi=45
-                   endif
-                else ! rectangle...
-                   if(ndim==2) then
-                      sngi=3; ngi=9; nface=4; max_face_list_no=2
-                      snloc=2
-                   else if(ndim==3) then
-                      sngi=9; ngi=27; nface=6; max_face_list_no=4
-                      snloc=4
-                   endif
-                endif
-
+            ! print*, 'a_filter (in get_dg_inele_filter', a_filter
 ! form the shape functions...
             if(triangle_or_tet_high_order) then
                allocate(l1(ngi), l2(ngi), l3(ngi), l4(ngi) ) 
@@ -6525,11 +6622,12 @@
                call TRIQUAold(L1, L2, L3, L4, WEIGHT, D3,NGI)
        
        !        print *,'d3,nloc,ngi,ndim:',d3,nloc,ngi,ndim
-       !        print *,'l1,l2,l3:',l1,l2,l3
-       !        print *,'weight:',weight
+              print *,'l1,l2,l3:',l1,l2,l3
+              print *,'weight:',weight
        !       print *,'****GOING bbbbbonkers 2'
                call SHATRInew(L1, L2, L3, L4, weight, &
                  nloc,ngi,ndim,  n,nlx) 
+              print *, 'nlx', nlx
        !       print *,'****GOING bbbbbonkers 3'
        !       stop 2821
              else
@@ -6543,40 +6641,61 @@
    !           
             ele=1
             x_loc(:,:) = x_all(:,(ele-1)*nloc+1:ele*nloc)
+            print *, 'x_loc', x_loc(:,1),'|', x_loc(:,2),'|',x_loc(:,10)
             call det_nlx( x_loc, n, nlx, nx, detwei, weight, ndim, nloc, ngi, INV_JAC )
-!
+            ! print *, 'out of det_nlx'
+            print *,'ele_type, ndim, totele,nloc,ngi:', &
+               ele_type, ndim, totele,nloc,ngi
+            ! print *,'n:',n
+            print *,'det_nlx,nx:',nx
+            print *,'detwei', detwei
             kgi = 0.0
+            ! print *, 'n', n
             do iloc=1,nloc 
                nodi = iloc 
-               ! cgi = n(:,iloc)*c(nodi) ! quantity to diffuse (eg temperature, concentration)
                kgi(:) = kgi(:) + n(:,iloc)*k(nodi) ! diffusion coefficient
             enddo
             do iloc=1,nloc 
                nodi = iloc
+               ml(nodi)=ml(nodi)+sum( n(:,iloc)*detwei(:) )
                do jloc=1,nloc
                   do idim=1,ndim
                      nxnx_k(iloc,jloc) = nxnx_k(iloc,jloc) + sum( nx(:,idim,iloc)*kgi(:)*nx(:,idim,jloc)*detwei(:) )
                   enddo
+                  nn(iloc,jloc) = sum( n(:,iloc) * n(:,jloc)*detwei(:) )
                enddo
-               nn(iloc,jloc) = sum( n(:,iloc) * n(:,jloc) )
             enddo
-   !           
+            ! print *, 'after get nn nxnx'
+            ! print *, 'nn', nn 
+            ! print *, 'nxnx', nxnx_k
+
             ! calculate M^-1 and store in a_filter
-            a_filter = nn 
-            call MATINV(a_filter, nloc, nloc, mat, mat2, x, b )
-            ! M^-1 K / delta t
-            a_filter = matmul(a_filter, nxnx_k)/dt
+            if (.false.) then ! consistent mass matrix
+               a_filter = nn
+               call MATINV(a_filter, nloc, nloc, mat, mat2, x, b )
+            else ! lumping mass matrix
+               print *, 'lump mass matrix' , ml
+               do iloc = 1,nloc 
+                  a_filter(iloc,:)=0.
+                  a_filter(iloc,iloc)=1./ml(iloc)
+               enddo 
+            endif
+            print *, 'a_filter after inv', a_filter
+            ! M^-1 K * delta t
+            a_filter = -matmul(a_filter, nxnx_k)*dt
+            print *, 'nn-1*nxnx*dt', a_filter
             ! + I
             do iloc=1,nloc 
                a_filter(iloc,iloc) = a_filter(iloc,iloc) + 1.0
             enddo
+            print *, 'afilter before setting bc', a_filter
             ! setting boundary conditions
             do i=1, size(bc_nodes)
                iloc=bc_nodes(i)
-               a_filter(:,iloc) = 0.0
+               a_filter(iloc,:) = 0.0
                a_filter(iloc, iloc) = 1.0
             enddo
-!
+            print *, 'a_filter', a_filter
          end subroutine
 !
 !subroutine det_nlx( x_loc, n, nlx, nx, detwei, weight, ndim, nloc, ngi, jac )
@@ -6626,6 +6745,7 @@
       end do ! Was loop 79
 
       DETJ= AGI*DGI-BGI*CGI
+      print *, 'detj', detj
       DETWEI(GI)=ABS(DETJ)*WEIGHT(GI)
       ! For coefficient in the inverse mat of the jacobian.
       A11= DGI /DETJ
@@ -8381,8 +8501,9 @@ end subroutine det_nlx
     REAL , dimension(ngi) , intent(inout) ::L1, L2, L3, L4, WEIGHT
     ! Local variables...
     REAL :: ALPHA,BETA
-    REAL :: ALPHA1,BETA1
-    REAL :: ALPHA2,BETA2
+    REAL :: ALPHA1,BETA1,gamma1
+    REAL :: ALPHA2,BETA2,gamma2
+    real :: alpha3,beta3,gamma3,gamma4
     real :: rsum
     INTEGER I
     !
@@ -8698,6 +8819,35 @@ end subroutine det_nlx
           ! ENDOF IF(NGI.EQ.14) THEN...
        ENDIF
 ! 
+       if(ngi==13) then ! (n=7) J.A.Akin Finite Element Analysis with Error Estimators pg. 275 Tab 10.5
+         alpha = -0.149570044467682
+         beta = 0.333333333333333
+         alpha1 = 0.175615257433208
+         beta1 = 0.479308067841920
+         gamma1 = 0.260345966079040
+         alpha2 = 0.053347235608838
+         beta2 = 0.869739794195568
+         gamma2 = 0.065130102902216
+         alpha3 = 0.077113760890257
+         beta3 = 0.048690315425316
+         gamma3 = 0.312865496004874
+         gamma4 = 0.638444188569810
+         ! get wild
+         weight(1) = alpha;   l1(1) = beta ; l2(1) = beta;     l3(1) = beta
+         weight(2) = alpha1;  l1(2) = beta1; l2(2) = gamma1;   l3(2) = gamma1
+         weight(3) = alpha1;  l1(3) = gamma1;l2(3) = beta1;    l3(3) = gamma1 
+         weight(4) = alpha1;  l1(4) = gamma1;l2(4) = gamma1;   l3(4) = beta1 
+         weight(5) = alpha2;  l1(5) = beta2; l2(5) = gamma2;   l3(5) = gamma2 
+         weight(6) = alpha2;  l1(6) = gamma2;l2(6) = beta2;    l3(6) = gamma2 
+         weight(7) = alpha2;  l1(7) = gamma2;l2(7) = gamma2;   l3(7) = beta2 
+         weight(8) = alpha3;  l1(8) = beta3; l2(8) = gamma3;   l3(8) = gamma4 
+         weight(9) = alpha3;  l1(9) = beta3; l2(9) = gamma4;   l3(9) = gamma3
+         weight(10) = alpha3; l1(10)= gamma3;l2(10)= gamma4;   l3(10)= beta3 
+         weight(11) = alpha3; l1(11)= gamma3;l2(11)= beta3;    l3(11)= gamma4 
+         weight(12) = alpha3; l1(12)= gamma4;l2(12)= beta3;    l3(12)= gamma3 
+         weight(13) = alpha3; l1(13)= gamma4;l2(13)= gamma3;   l3(13)= beta3
+         ! print *, 'sum of weights', sum(weight)
+       endif
        if(ngi==44) then ! (n=9)
           L1(1) = 1.985507175123191E-002
           L1(2) = 1.985507175123191E-002
@@ -9057,8 +9207,8 @@ end subroutine det_nlx
        nlx( 6, gi ) = - (9./2.)*l2( gi )*( 3. * l2( gi ) - 1. )
        nlx( 7, gi ) = (9./2.)*(   -l2(gi)*( 6.*l3(gi) -1. )    )
 
-       nlx( 8, gi ) = -(9./2.)*( l1( gi )*(6.*l3(gi)-1.) + l3(gi)*(3.*l3(gi)-1.)  )
-       nlx( 9, gi ) = (9./2.)*(  l3(gi)*(3.*l1(gi)-1.) -l1(gi)*(3.*l1(gi)-1.)  )
+       nlx( 8, gi ) = (9./2.)*( l1( gi )*(-6.*l3(gi)+1.) + l3(gi)*(3.*l3(gi)-1.)  )
+       nlx( 9, gi ) = (9./2.)*(  l3(gi)*(6.*l1(gi)-1.) -l1(gi)*(3.*l1(gi)-1.)  )
        ! central node...
        nlx( 10, gi ) = 27.*l2( gi )*( 1. - 2.*l1(gi)  - l2( gi ) )
 
