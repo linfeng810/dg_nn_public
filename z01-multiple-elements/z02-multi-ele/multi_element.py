@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+
+# import 
+import toughio 
+import numpy as np
+import torch
+
+filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/square.msh'
+mesh = toughio.read_mesh(filename)
+
+# mesh info
+nele = mesh.n_cells
+cubic = True
+if (cubic) :
+    nloc = 10 
+    ngi = 13
+nonods = nloc*nele 
+ndim = 2
+ndglno=np.arange(0,nonods)
+# print(mesh.cells[0][1]) # cell node list
+# mesh.points
+
+# create faces
+faces=[]
+
+for ele in range(nele):
+    element = mesh.cells[0][1][ele]
+    for iloc in range(3):
+        faces.append([element[iloc],element[(iloc+1)%3]])
+
+# neighbouring elements
+nbf=np.empty(len(faces))
+nbf[:]=np.nan
+color=np.zeros(len(faces))
+for iface in range(len(faces)):
+    if color[iface]==1 :
+        continue 
+    for jface in range(iface+1,len(faces)):
+        if (color[jface]==1):
+            continue 
+        elif (set(faces[jface])==set(faces[iface])):
+            # print(faces[jface],'|',faces[iface])
+            if faces[jface][0]==faces[iface][0]:
+                nbf[iface]=jface 
+                nbf[jface]=iface
+            else:
+                nbf[iface]=-jface 
+                nbf[jface]=-iface
+            color[iface]=1
+            color[jface]=1
+            continue
+
+# find neighbouring elements associated with each face
+# via neighbouring faces
+# and store in nbele
+nbele=np.empty(len(faces))
+nbele[:]=np.nan
+for iface in range(len(nbf)):
+    nbele[iface] = np.sign(nbf[iface])*(np.abs(nbf[iface])//3)
+
+
+
+# generate cubic nodes
+x_all = []
+for ele in range(16):
+    # vertex nodes global index
+    idx = mesh.cells[0][1][ele]
+    # vertex nodes coordinate 
+    x_loc=[]
+    for id in idx:
+        x_loc.append(mesh.points[id])
+        # print(x_loc)
+    # ! a reference cubic element looks like this:
+    # !  y
+    # !  | 
+    # !  2
+    # !  | \
+    # !  6  5
+    # !  |   \
+    # !  7 10 4
+    # !  |     \
+    # !  3-8-9--1--x
+    # nodes 1-3
+    x_all.append([x_loc[0][0], x_loc[0][1]])
+    x_all.append([x_loc[1][0], x_loc[1][1]])
+    x_all.append([x_loc[2][0], x_loc[2][1]])
+    # nodes 4,5
+    x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
+    x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
+    # nodes 6,7
+    x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
+    x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
+    # nodes 8,9
+    x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
+    x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
+    # node 10
+    x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+
+
+# local nodes number on a face
+def face_iloc(iface):
+    # return local nodes number on a face
+    match iface:
+        case 0:
+            return [0,3,4,1]
+        case 1:
+            return [1,5,6,2]
+        case 2:
+            return [0,8,7,2]
+        case _:
+            return []
+def face_iloc2(iface):
+    # return local nodes number on the other side of a face
+    # in reverse order 
+    iloc_list=face_iloc(iface)
+    iloc_list.reverse()
+    return iloc_list
+
+# shape functions on a reference element
+# input: nloc, ngi, ndim
+# n, nlx, weight
+def SHATRInew(nloc,ngi,ndim):
+    l1=np.zeros(ngi)
+    l2=np.zeros(ngi)
+    l3=np.zeros(ngi)
+    weight=np.zeros(ngi)
+
+    if (ndim!=2) :
+        raise Exception('Input dimension should be 2')
+        
+    if (ngi==13):
+        alpha = -0.149570044467682
+        print(type(alpha))
+        beta = 0.333333333333333
+        alpha1 = 0.175615257433208
+        beta1 = 0.479308067841920
+        gamma1 = 0.260345966079040
+        alpha2 = 0.053347235608838
+        beta2 = 0.869739794195568
+        gamma2 = 0.065130102902216
+        alpha3 = 0.077113760890257
+        beta3 = 0.048690315425316
+        gamma3 = 0.312865496004874
+        gamma4 = 0.638444188569810
+        # ! get wild
+        weight[1] = alpha;   l1[1] = beta ; l2[1] = beta;     l3[1] = beta
+        weight[2] = alpha1;  l1[2] = beta1; l2[2] = gamma1;   l3[2] = gamma1
+        weight[3] = alpha1;  l1[3] = gamma1;l2[3] = beta1;    l3[3] = gamma1 
+        weight[4] = alpha1;  l1[4] = gamma1;l2[4] = gamma1;   l3[4] = beta1 
+        weight[5] = alpha2;  l1[5] = beta2; l2[5] = gamma2;   l3[5] = gamma2 
+        weight[6] = alpha2;  l1[6] = gamma2;l2[6] = beta2;    l3[6] = gamma2 
+        weight[7] = alpha2;  l1[7] = gamma2;l2[7] = gamma2;   l3[7] = beta2 
+        weight[8] = alpha3;  l1[8] = beta3; l2[8] = gamma3;   l3[8] = gamma4 
+        weight[9] = alpha3;  l1[9] = beta3; l2[9] = gamma4;   l3[9] = gamma3
+        weight[10] = alpha3; l1[10]= gamma3;l2[10]= gamma4;   l3[10]= beta3 
+        weight[11] = alpha3; l1[11]= gamma3;l2[11]= beta3;    l3[11]= gamma4 
+        weight[12] = alpha3; l1[12]= gamma4;l2[12]= beta3;    l3[12]= gamma3 
+        weight[0] = alpha3;  l1[0]= gamma4; l2[0]= gamma3;    l3[0]= beta3
+        print('sum of weights', np.sum(weight))
+
+    weight = weight*0.5
+
+    n = np.zeros((nloc,ngi))
+    nlx = np.zeros((nloc,ngi))
+    nly = np.zeros((nloc,ngi))
+    if (nloc==10) :
+        for gi in range(ngi):
+            # corner nodes...
+            n[ 0, gi ] = 0.5*( 3. * l1[ gi ] - 1. ) * (3. * l1[ gi ]   -2.) *  l1[ gi ]
+            n[ 1, gi ] = 0.5*( 3. * l2[ gi ] - 1. ) * (3. * l2[ gi ]   -2.) *  l2[ gi ]
+            n[ 2, gi ] = 0.5*( 3. * l3[ gi ] - 1. ) * (3. * l3[ gi ]   -2.) *  l3[ gi ]
+            # mid side nodes...
+            n[ 3, gi ] = (9./2.)*l1[ gi ]*l2[ gi ]*( 3. * l1[ gi ] - 1. )
+            n[ 4, gi ] = (9./2.)*l2[ gi ]*l1[ gi ]*( 3. * l2[ gi ] - 1. )
+
+            n[ 5, gi ] = (9./2.)*l2[ gi ]*l3[ gi ]*( 3. * l2[ gi ] - 1. )
+            n[ 6, gi ] = (9./2.)*l3[ gi ]*l2[ gi ]*( 3. * l3[ gi ] - 1. )
+
+            n[ 7, gi ] = (9./2.)*l3[ gi ]*l1[ gi ]*( 3. * l3[ gi ] - 1. )
+            n[ 8, gi ] = (9./2.)*l1[ gi ]*l3[ gi ]*( 3. * l1[ gi ] - 1. )
+            # central node...
+            n[ 9, gi ] = 27.*l1[ gi ]*l2[ gi ]*l3[ gi ]
+
+            # x-derivative (nb. l1 + l2 + l3  = 1 )
+            # corner nodes...
+            nlx[ 0, gi ] = 0.5*( 27. * l1[ gi ]**2  - 18. *  l1[ gi ] + 2. )
+            nlx[ 1, gi ] = 0.0
+            nlx[ 2, gi ] = 0.5*( 27. * l3[ gi ]**2  - 18. *  l3[ gi ] + 2. )   *  (-1.0)
+            # mid side nodes...
+            nlx[ 3, gi ] = (9./2.)*(6.*l1[ gi ]*l2[ gi ]  - l2[ gi ] )
+            nlx[ 4, gi ] = (9./2.)*l2[ gi ]*( 3. * l2[ gi ] - 1. )
+
+            nlx[ 5, gi ] = - (9./2.)*l2[ gi ]*( 3. * l2[ gi ] - 1. )
+            nlx[ 6, gi ] = (9./2.)*(   -l2[gi]*( 6.*l3[gi] -1. )    )
+
+            nlx[ 7, gi ] = (9./2.)*( l1[ gi ]*(-6.*l3[gi]+1.) + l3[gi]*(3.*l3[gi]-1.)  )
+            nlx[ 8, gi ] = (9./2.)*(  l3[gi]*(6.*l1[gi]-1.) -l1[gi]*(3.*l1[gi]-1.)  )
+            # central node...
+            nlx[ 9, gi ] = 27.*l2[ gi ]*( 1. - 2.*l1[gi]  - l2[ gi ] )
+
+            # y-derivative (nb. l1 + l2 + l3  = 1 )
+            # corner nodes...
+            nly[ 0, gi ] = 0.0
+            nly[ 1, gi ] = 0.5*( 27. * l2[ gi ]**2  - 18. *  l2[ gi ] + 2.  )
+            nly[ 2, gi ] = 0.5*( 27. * l3[ gi ]**2  - 18. *  l3[ gi ] + 2.  )   *  (-1.0)
+            # mid side nodes...
+            nly[ 3, gi ] = (9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
+            nly[ 4, gi ] = (9./2.)*l1[ gi ]*( 6. * l2[ gi ] - 1. )
+
+            nly[ 5, gi ] = (9./2.)*( l3[ gi ]*( 6. * l2[ gi ] - 1. ) -l2[gi]*( 3.*l2[gi]-1. )  )
+            nly[ 6, gi ] = (9./2.)*( -l2[ gi ]*( 6. * l3[ gi ] - 1. ) +l3[gi]*(3.*l3[gi]-1.)  )
+
+            nly[ 7, gi ] = -(9./2.)*l1[ gi ]*( 6. * l3[ gi ] - 1. )
+            nly[ 8, gi ] = -(9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
+            # central node...
+            nly[ 9, gi ] = 27.*l1[ gi ]*( 1. - 2.*l2[gi]  - l1[ gi ] )
+        
+    nlx_all=np.stack([nlx,nly],axis=0)
+    return n, nlx_all, weight
+    
+
+# local shape function
+# input: n, nlx, ngi, ndim, x_loc, nloc, weight
+# output: nx, detwei, inv_jac
+# maybe we should write this on a layer of NN?
+# def det_nlx(n,nlx,ngi,ndim,x_loc,nloc,weight):
+#     return nx, detwei, inv_jac
+
+# test shape function on reference node
+[n, nlx, weight] = SHATRInew(nloc, 13, 2)
+nn=np.zeros((nloc,nloc))
+nxnx=np.zeros((nloc,nloc))
+for iloc in range(nloc):
+    for jloc in range(nloc):
+        nn[iloc,jloc]=np.sum(n[iloc,:]*n[jloc,:]*weight)
+        nxnx[iloc,jloc]=np.sum(nlx[0,iloc,:]*nlx[0,jloc,:]*weight)+np.sum(nlx[1,iloc,:]*nlx[1,jloc,:]*weight)
+np.set_printoptions(suppress=True)
+np.savetxt("nn.txt", nn, delimiter=',')
+np.savetxt("nxnx.txt", nxnx, delimiter=',')
+# print(n)
+print(nlx) 
+print(weight)
+print('sum of weight', np.sum(weight))
+print('nn')
+print(nn)
+print('nxnx')
+print(nxnx)
+#======================================================================
+# test passed. 
