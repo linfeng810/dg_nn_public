@@ -28,7 +28,19 @@ weights=[ -7.4785022233840995E-002   8.7807628716603997E-002   8.780762871660399
 
 % eval nlx
 nlx=nan(13,2,10);
+n = nan(13,10);
 for gi=1:13
+    % n
+    n(gi,1) = subs(N_1, [x y], [l1(gi) l2(gi)]);
+    n(gi,2) = subs(N_2, [x y], [l1(gi) l2(gi)]);
+    n(gi,3) = subs(N_3, [x y], [l1(gi) l2(gi)]);
+    n(gi,4) = subs(N_4, [x y], [l1(gi) l2(gi)]);
+    n(gi,5) = subs(N_5, [x y], [l1(gi) l2(gi)]);
+    n(gi,6) = subs(N_6, [x y], [l1(gi) l2(gi)]);
+    n(gi,7) = subs(N_7, [x y], [l1(gi) l2(gi)]);
+    n(gi,8) = subs(N_8, [x y], [l1(gi) l2(gi)]);
+    n(gi,9) = subs(N_9, [x y], [l1(gi) l2(gi)]);
+    n(gi,10) = subs(N_10, [x y], [l1(gi) l2(gi)]);
     % d/dx
     nlx(gi,1,1) = subs(N_1x, [x y], [l1(gi) l2(gi)]);
     nlx(gi,1,2) = subs(N_2x, [x y], [l1(gi) l2(gi)]);
