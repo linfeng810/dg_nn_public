@@ -4,6 +4,7 @@
 import toughio 
 import numpy as np
 import torch
+from torch.nn import Conv1d,Sequential,Module
 
 filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/square.msh'
 mesh = toughio.read_mesh(filename)
@@ -143,20 +144,20 @@ def SHATRInew(nloc,ngi,ndim):
         gamma3 = 0.312865496004874
         gamma4 = 0.638444188569810
         # ! get wild
-        weight[1] = alpha;   l1[1] = beta ; l2[1] = beta;     l3[1] = beta
-        weight[2] = alpha1;  l1[2] = beta1; l2[2] = gamma1;   l3[2] = gamma1
-        weight[3] = alpha1;  l1[3] = gamma1;l2[3] = beta1;    l3[3] = gamma1 
-        weight[4] = alpha1;  l1[4] = gamma1;l2[4] = gamma1;   l3[4] = beta1 
-        weight[5] = alpha2;  l1[5] = beta2; l2[5] = gamma2;   l3[5] = gamma2 
-        weight[6] = alpha2;  l1[6] = gamma2;l2[6] = beta2;    l3[6] = gamma2 
-        weight[7] = alpha2;  l1[7] = gamma2;l2[7] = gamma2;   l3[7] = beta2 
-        weight[8] = alpha3;  l1[8] = beta3; l2[8] = gamma3;   l3[8] = gamma4 
-        weight[9] = alpha3;  l1[9] = beta3; l2[9] = gamma4;   l3[9] = gamma3
-        weight[10] = alpha3; l1[10]= gamma3;l2[10]= gamma4;   l3[10]= beta3 
-        weight[11] = alpha3; l1[11]= gamma3;l2[11]= beta3;    l3[11]= gamma4 
-        weight[12] = alpha3; l1[12]= gamma4;l2[12]= beta3;    l3[12]= gamma3 
-        weight[0] = alpha3;  l1[0]= gamma4; l2[0]= gamma3;    l3[0]= beta3
-        print('sum of weights', np.sum(weight))
+        weight[0] = alpha;   l1[0] = beta ;  l2[0] = beta;     l3[0] = beta
+        weight[1] = alpha1;  l1[1] = beta1;  l2[1] = gamma1;   l3[1] = gamma1
+        weight[2] = alpha1;  l1[2] = gamma1; l2[2] = beta1;    l3[2] = gamma1 
+        weight[3] = alpha1;  l1[3] = gamma1; l2[3] = gamma1;   l3[3] = beta1 
+        weight[4] = alpha2;  l1[4] = beta2;  l2[4] = gamma2;   l3[4] = gamma2 
+        weight[5] = alpha2;  l1[5] = gamma2; l2[5] = beta2;    l3[5] = gamma2 
+        weight[6] = alpha2;  l1[6] = gamma2; l2[6] = gamma2;   l3[6] = beta2 
+        weight[7] = alpha3;  l1[7] = beta3;  l2[7] = gamma3;   l3[7] = gamma4 
+        weight[8] = alpha3;  l1[8] = beta3;  l2[8] = gamma4;   l3[8] = gamma3
+        weight[9] = alpha3;  l1[9]= gamma3;  l2[9]= gamma4;    l3[9]= beta3 
+        weight[10] = alpha3; l1[10]= gamma3; l2[10]= beta3;    l3[10]= gamma4 
+        weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3 
+        weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
+        # print('sum of weights', np.sum(weight))
 
     weight = weight*0.5
 
@@ -219,31 +220,205 @@ def SHATRInew(nloc,ngi,ndim):
     return n, nlx_all, weight
     
 
+
+
+# test shape function on reference node
+# [n, nlx, weight] = SHATRInew(nloc, 13, 2)
+# nn=np.zeros((nloc,nloc))
+# nxnx=np.zeros((nloc,nloc))
+# for iloc in range(nloc):
+#     for jloc in range(nloc):
+#         nn[iloc,jloc]=np.sum(n[iloc,:]*n[jloc,:]*weight)
+#         nxnx[iloc,jloc]=np.sum(nlx[0,iloc,:]*nlx[0,jloc,:]*weight)+np.sum(nlx[1,iloc,:]*nlx[1,jloc,:]*weight)
+# np.set_printoptions(suppress=True)
+# np.savetxt("nn.txt", nn, delimiter=',')
+# np.savetxt("nxnx.txt", nxnx, delimiter=',')
+# # print(n)
+# print(nlx) 
+# print(weight)
+# print('sum of weight', np.sum(weight))
+# print('nn')
+# print(nn)
+# print('nxnx')
+# print(nxnx)
+#======================================================================
+# test passed. 
+
+
+# for pretty print out torch tensor
+torch.set_printoptions(sci_mode=False)
 # local shape function
 # input: n, nlx, ngi, ndim, x_loc, nloc, weight
 # output: nx, detwei, inv_jac
 # maybe we should write this on a layer of NN?
 # def det_nlx(n,nlx,ngi,ndim,x_loc,nloc,weight):
 #     return nx, detwei, inv_jac
+class det_nlx(Module):
+    def __init__(self, nlx):
+        super(det_nlx, self).__init__()
 
-# test shape function on reference node
-[n, nlx, weight] = SHATRInew(nloc, 13, 2)
-nn=np.zeros((nloc,nloc))
-nxnx=np.zeros((nloc,nloc))
-for iloc in range(nloc):
-    for jloc in range(nloc):
-        nn[iloc,jloc]=np.sum(n[iloc,:]*n[jloc,:]*weight)
-        nxnx[iloc,jloc]=np.sum(nlx[0,iloc,:]*nlx[0,jloc,:]*weight)+np.sum(nlx[1,iloc,:]*nlx[1,jloc,:]*weight)
-np.set_printoptions(suppress=True)
-np.savetxt("nn.txt", nn, delimiter=',')
-np.savetxt("nxnx.txt", nxnx, delimiter=',')
-# print(n)
-print(nlx) 
-print(weight)
-print('sum of weight', np.sum(weight))
-print('nn')
-print(nn)
-print('nxnx')
-print(nxnx)
-#======================================================================
-# test passed. 
+        # calculate jacobian
+        self.calc_j11 = Conv1d(in_channels=1, \
+            out_channels=ngi, \
+            kernel_size=10, \
+            bias=False)
+        self.calc_j12 = Conv1d(in_channels=1, \
+            out_channels=ngi, \
+            kernel_size=10, \
+            bias=False)
+        self.calc_j21 = Conv1d(in_channels=1, \
+            out_channels=ngi, \
+            kernel_size=10, \
+            bias=False)
+        self.calc_j22 = Conv1d(in_channels=1, \
+            out_channels=ngi, \
+            kernel_size=10, \
+            bias=False)
+
+        # stack jacobian to ngi* (ndim*ndim)
+        # determinant of jacobian
+        # no need to matrix multiplication
+        # do it directly
+        # self.calc_det = Conv1d(in_channels=ngi, \
+        #     out_channels=ngi, \
+        #     kernel_size=ndim*ndim,\
+        #     bias=False)
+
+        # inverse of jacobian
+        # no need to matrix multiplication
+        # do it directly
+        # self.calc_invjac = Conv1d(in_channels=ngi, \
+        #     out_channels=ndim*ndim*ngi, \
+        #     kernel_size=ndim*ndim, \
+        #     bias=False)
+
+        # stack inverse jacobian to ngi* (ndim*ndim)
+        # nx at local element
+        # output: (batch_size, ngi, ndim*nloc)
+        self.calc_nx = Conv1d(in_channels=ngi, \
+            out_channels=ndim*ngi,
+            kernel_size=ndim*ndim,\
+            bias=False)
+        
+        self.nlx = nlx
+        
+    def forward(self, x_loc):
+        # input : x_loc
+        # (batch_size , ndim, nloc), coordinate info of local nodes
+        # reference coordinate: (xi, eta)
+        # physical coordinate: (x, y)
+        batch_in = x_loc.shape[0]
+        x = x_loc[:,0,:].view(batch_in,1,nloc)
+        y = x_loc[:,1,:].view(batch_in,1,nloc)
+        # print('x',x,'\ny',y)
+
+        # first we calculate jacobian matrix (J^T) = [j11,j12;
+        #                                             j21,j22]
+        # [ d x/d xi,   dy/d xi ;
+        #   d x/d eta,  dy/d eta]
+        # output: each component of jacobi
+        # (batch_size , ngi)
+        j11 = self.calc_j11(x).view(batch_in, ngi)
+        j12 = self.calc_j12(y).view(batch_in, ngi)
+        j21 = self.calc_j21(x).view(batch_in, ngi)
+        j22 = self.calc_j22(y).view(batch_in, ngi)
+        # print('j11', j11)
+        # print('j12', j12)
+        # print('j21', j21)
+        # print('j22', j22)
+
+        # calculate determinant of jacobian
+        det = torch.mul(j11,j22)-torch.mul(j21,j12)
+        det = det.view(batch_in, ngi)
+        print('det', det)
+        invdet = torch.div(1.0,det)
+        print('invdet', invdet)
+
+        # inverse of jacobian
+        invj11 = torch.mul(j11,invdet).view(batch_in,-1)
+        invj12 = torch.mul(j12,invdet).view(batch_in,-1)*(-1.0)
+        invj21 = torch.mul(j21,invdet).view(batch_in,-1)*(-1.0)
+        invj22 = torch.mul(j22,invdet).view(batch_in,-1)
+        # print('invj11', invj11)
+        # print('invj12', invj12)
+        # print('invj21', invj21)
+        # print('invj22', invj22)
+
+        # calculate nx
+        # input: invjac (batch_size, ngi, ndim*ndim)
+        # output: nx (batch_size, ngi, ndim, nloc)
+        # nx = self.calc_nx(invjac)
+        nlx1 = torch.tensor(np.transpose(nlx[0,:,:]))
+        nlx1 = nlx1.expand(batch_in,ngi,nloc)
+        nlx2 = torch.tensor(np.transpose(nlx[1,:,:]))
+        nlx2 = nlx2.expand(batch_in,ngi,nloc)
+        # print('nlx1', nlx1)
+        # print('nlx2', nlx2)
+        invj11 = invj11.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        invj12 = invj12.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        invj21 = invj21.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        invj22 = invj22.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        print('invj11expand', invj22)
+        # print(invj11.shape, nlx1.shape)
+        nx1 = torch.mul(invj11, nlx1) \
+            + torch.mul(invj12, nlx2)
+        nx2 = torch.mul(invj21, nlx1) \
+            + torch.mul(invj22, nlx2)
+        print('nx1', nx1)
+        nx = torch.stack((nx1,nx2),dim=1)
+
+        return nx, det 
+
+# test det_nlx shape
+# [n, nlx, weight] = SHATRInew(nloc, ngi, ndim)
+# Det_nlx = det_nlx(nlx)
+# inputx = torch.randn(5,ndim,nloc, requires_grad=False)
+# with torch.no_grad():
+#     output, detwei = Det_nlx(inputx)
+# ================================
+# test passed
+
+
+## set weights in det_nlx
+[n, nlx, weight] = SHATRInew(nloc, ngi, ndim)
+Det_nlx = det_nlx(nlx)
+
+# filter for calc jacobian
+calc_j11_j12_filter = np.transpose(nlx[0,:,:]) # dN/dx
+calc_j11_j12_filter = torch.tensor(calc_j11_j12_filter).unsqueeze(1) # (ngi, 1, nloc)
+calc_j21_j22_filter = np.transpose(nlx[1,:,:]) # dN/dy
+calc_j21_j22_filter = torch.tensor(calc_j21_j22_filter).unsqueeze(1) # (ngi, 1, nloc)
+# print(Det_nlx.calc_j11.weight.shape)
+# print(nlx.shape)
+# print(calc_j21_j22_filter.shape)
+Det_nlx.calc_j11.weight.data = calc_j11_j12_filter
+Det_nlx.calc_j12.weight.data = calc_j11_j12_filter
+Det_nlx.calc_j21.weight.data = calc_j21_j22_filter
+Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
+# print(Det_nlx.calc_j11.weight.shape)
+# print(Det_nlx.calc_j11.weight.data)
+
+x_ref_in = np.asarray([ 1.0, 0.0, \
+            0.0, 1.0, \
+            0.0, 0.0, \
+            2./3., 1./3., \
+            1./3., 2./3., \
+            0., 2./3., \
+            0., 1./3., \
+            1./3., 0., \
+            2./3., 0., \
+            1./3., 1./3.])
+x_ref_in = x_ref_in.reshape((nloc,ndim))
+x_ref_in = np.transpose(x_ref_in)
+# print(x_ref_in)
+x_ref_in = torch.tensor(x_ref_in,requires_grad=False).unsqueeze(0)
+# print(x_ref_in.shape)
+with torch.no_grad():
+    output, detwei = Det_nlx.forward(x_ref_in)
+
+print('nx', output)
+print('det', detwei)
+
+# print('j11_filter', calc_j11_j12_filter)
+# print('x_fen_in', torch.squeeze(x_ref_in[:,0,:]))
+# print('j11-outsidenn', torch.matmul(calc_j11_j12_filter,torch.squeeze(x_ref_in[:,0,:])))
