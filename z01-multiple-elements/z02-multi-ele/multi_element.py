@@ -5,6 +5,7 @@ import toughio
 import numpy as np
 import torch
 from torch.nn import Conv1d,Sequential,Module
+import time
 
 filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/square.msh'
 mesh = toughio.read_mesh(filename)
@@ -307,11 +308,13 @@ class det_nlx(Module):
         # (batch_size , ndim, nloc), coordinate info of local nodes
         # reference coordinate: (xi, eta)
         # physical coordinate: (x, y)
+        print('x_loc size', x_loc.shape)
+        print('x size', x_loc[:,0,:].shape)
         batch_in = x_loc.shape[0]
         x = x_loc[:,0,:].view(batch_in,1,nloc)
         y = x_loc[:,1,:].view(batch_in,1,nloc)
         # print('x',x,'\ny',y)
-
+        print(torch.cuda.memory_summary())
         # first we calculate jacobian matrix (J^T) = [j11,j12;
         #                                             j21,j22]
         # [ d x/d xi,   dy/d xi ;
@@ -326,7 +329,7 @@ class det_nlx(Module):
         # print('j12', j12)
         # print('j21', j21)
         # print('j22', j22)
-
+        print(torch.cuda.memory_summary())
         # calculate determinant of jacobian
         det = torch.mul(j11,j22)-torch.mul(j21,j12)
         det = det.view(batch_in, ngi)
@@ -336,8 +339,8 @@ class det_nlx(Module):
 
         # inverse of jacobian
         invj11 = torch.mul(j11,invdet).view(batch_in,-1)
-        invj12 = torch.mul(j12,invdet).view(batch_in,-1)*(-1.0)
-        invj21 = torch.mul(j21,invdet).view(batch_in,-1)*(-1.0)
+        invj12 = torch.mul(j21,invdet).view(batch_in,-1)*(-1.0)
+        invj21 = torch.mul(j12,invdet).view(batch_in,-1)*(-1.0)
         invj22 = torch.mul(j22,invdet).view(batch_in,-1)
         # print('invj11', invj11)
         # print('invj12', invj12)
@@ -348,9 +351,9 @@ class det_nlx(Module):
         # input: invjac (batch_size, ngi, ndim*ndim)
         # output: nx (batch_size, ngi, ndim, nloc)
         # nx = self.calc_nx(invjac)
-        nlx1 = torch.tensor(np.transpose(nlx[0,:,:]))
+        nlx1 = torch.tensor(np.transpose(nlx[0,:,:]), device=dev)
         nlx1 = nlx1.expand(batch_in,ngi,nloc)
-        nlx2 = torch.tensor(np.transpose(nlx[1,:,:]))
+        nlx2 = torch.tensor(np.transpose(nlx[1,:,:]), device=dev)
         nlx2 = nlx2.expand(batch_in,ngi,nloc)
         # print('nlx1', nlx1)
         # print('nlx2', nlx2)
@@ -367,7 +370,7 @@ class det_nlx(Module):
         print('nx1', nx1)
         nx = torch.stack((nx1,nx2),dim=1)
 
-        return nx, det 
+        return nx, abs(det )
 
 # test det_nlx shape
 # [n, nlx, weight] = SHATRInew(nloc, ngi, ndim)
@@ -378,16 +381,19 @@ class det_nlx(Module):
 # ================================
 # test passed
 
+dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+dev="cpu"
 
 ## set weights in det_nlx
 [n, nlx, weight] = SHATRInew(nloc, ngi, ndim)
 Det_nlx = det_nlx(nlx)
+Det_nlx.to(dev)
 
 # filter for calc jacobian
 calc_j11_j12_filter = np.transpose(nlx[0,:,:]) # dN/dx
-calc_j11_j12_filter = torch.tensor(calc_j11_j12_filter).unsqueeze(1) # (ngi, 1, nloc)
+calc_j11_j12_filter = torch.tensor(calc_j11_j12_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
 calc_j21_j22_filter = np.transpose(nlx[1,:,:]) # dN/dy
-calc_j21_j22_filter = torch.tensor(calc_j21_j22_filter).unsqueeze(1) # (ngi, 1, nloc)
+calc_j21_j22_filter = torch.tensor(calc_j21_j22_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
 # print(Det_nlx.calc_j11.weight.shape)
 # print(nlx.shape)
 # print(calc_j21_j22_filter.shape)
@@ -398,7 +404,10 @@ Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
 # print(Det_nlx.calc_j11.weight.shape)
 # print(Det_nlx.calc_j11.weight.data)
 
-x_ref_in = np.asarray([ 1.0, 0.0, \
+#####################################
+# test two elements input
+#
+x_ref_in1 = np.asarray([ 1.0, 0.0, \
             0.0, 1.0, \
             0.0, 0.0, \
             2./3., 1./3., \
@@ -408,17 +417,38 @@ x_ref_in = np.asarray([ 1.0, 0.0, \
             1./3., 0., \
             2./3., 0., \
             1./3., 1./3.])
-x_ref_in = x_ref_in.reshape((nloc,ndim))
-x_ref_in = np.transpose(x_ref_in)
-# print(x_ref_in)
-x_ref_in = torch.tensor(x_ref_in,requires_grad=False).unsqueeze(0)
+x_ref_in1 = x_ref_in1.reshape((nloc,ndim))
+
+ele=15
+x_all=np.asarray(x_all)
+toplt = np.arange((ele)*nloc,(ele)*nloc+nloc)
+
+x_ref_in2 = x_all[toplt,:]
+
+x_ref_in1 = np.transpose(x_ref_in1)
+x_ref_in2 = np.transpose(x_ref_in2)
+x_ref_in = np.stack((x_ref_in1,x_ref_in2), axis=0)
+x_ref_in = torch.tensor(x_ref_in, requires_grad=False, device=dev)
+print('xin size', x_ref_in.shape)
+x_ref_in = x_ref_in.repeat(1000000,1,1)
+print(torch.cuda.memory_summary())
+# np.savetxt('x_ref_in.txt',x_ref_in,delimiter=',')
+# x_ref_in = torch.tensor(x_ref_in,requires_grad=False)#.unsqueeze(0)
 # print(x_ref_in.shape)
+start = time.time()
 with torch.no_grad():
     output, detwei = Det_nlx.forward(x_ref_in)
+end = time.time()
+print('time: ', end-start, 'on ', dev)
 
-print('nx', output)
-print('det', detwei)
+# # print('nx', output)
+# # print('det', detwei)
+# # np.savetxt('nx.txt', np.squeeze(output[0,0,:,:]), delimiter=',')
+# # np.savetxt('detwei.txt', detwei, delimiter=',')
 
-# print('j11_filter', calc_j11_j12_filter)
-# print('x_fen_in', torch.squeeze(x_ref_in[:,0,:]))
-# print('j11-outsidenn', torch.matmul(calc_j11_j12_filter,torch.squeeze(x_ref_in[:,0,:])))
+# # print('j11_filter', calc_j11_j12_filter)
+# # print('x_fen_in', torch.squeeze(x_ref_in[:,0,:]))
+# # print('j11-outsidenn', torch.matmul(calc_j11_j12_filter,torch.squeeze(x_ref_in[:,0,:])))
+
+# test passed
+################################################
