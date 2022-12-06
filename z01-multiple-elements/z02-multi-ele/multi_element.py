@@ -303,13 +303,15 @@ class det_nlx(Module):
         
         self.nlx = nlx
         
-    def forward(self, x_loc):
+    def forward(self, x_loc, weight):
         # input : x_loc
         # (batch_size , ndim, nloc), coordinate info of local nodes
         # reference coordinate: (xi, eta)
         # physical coordinate: (x, y)
-        print('x_loc size', x_loc.shape)
-        print('x size', x_loc[:,0,:].shape)
+        # input : weight
+        # np array (ngi)
+        # print('x_loc size', x_loc.shape)
+        # print('x size', x_loc[:,0,:].shape)
         batch_in = x_loc.shape[0]
         x = x_loc[:,0,:].view(batch_in,1,nloc)
         y = x_loc[:,1,:].view(batch_in,1,nloc)
@@ -333,8 +335,10 @@ class det_nlx(Module):
         # calculate determinant of jacobian
         det = torch.mul(j11,j22)-torch.mul(j21,j12)
         det = det.view(batch_in, ngi)
-        # print('det', det)
+        det = abs( det )
         invdet = torch.div(1.0,det)
+        det = torch.mul(det, torch.tensor(weight, device=dev).unsqueeze(0).expand(det.shape[0],ngi)) # detwei
+        # print('det', det)
         # print('invdet', invdet)
         del j11, j12, j21, j22
         ####### 
@@ -399,7 +403,7 @@ class det_nlx(Module):
         # # print('nx1', nx1)
         nx = torch.stack((nx1,nx2),dim=1)
         # print(torch.cuda.memory_summary())
-        return nx, abs( det )
+        return nx, det
 
 # test det_nlx shape
 # [n, nlx, weight] = SHATRInew(nloc, ngi, ndim)
@@ -455,30 +459,30 @@ toplt = np.arange((ele)*nloc,(ele)*nloc+nloc)
 x_ref_in2 = x_all[toplt,:]
 
 x_ref_in1 = np.transpose(x_ref_in1)
-x_ref_in2 = np.transpose(x_ref_in2)
-x_ref_in = np.stack((x_ref_in1,x_ref_in2), axis=0)
-x_ref_in = torch.tensor(x_ref_in, requires_grad=False, device=dev)
+# x_ref_in2 = np.transpose(x_ref_in2)
+# x_ref_in = np.stack((x_ref_in1,x_ref_in2), axis=0)
+x_ref_in = torch.tensor(x_ref_in1, requires_grad=False, device=dev).view(1,2,nloc)
 # x_ref_in = torch.transpose(x_ref_in, 0,1).unsqueeze(0)
 print('xin size', x_ref_in.shape)
 print(x_ref_in)
-# x_ref_in = x_ref_in.repeat(1500000,1,1)
+# x_ref_in = x_ref_in.repeat(1000000,1,1)
 # print(torch.cuda.memory_summary())
 # # np.savetxt('x_ref_in.txt',x_ref_in,delimiter=',')
 # # x_ref_in = torch.tensor(x_ref_in,requires_grad=False)#.unsqueeze(0)
 # # print(x_ref_in.shape)
 # start = time.time()
 with torch.no_grad():
-    nx, det = Det_nlx.forward(x_ref_in)
-detwei = torch.mul(det, torch.tensor(weight).unsqueeze(0).expand(det.shape[0],ngi))
-print('det size', det.shape)
-print('weight size', torch.tensor(weight).unsqueeze(0).expand(det.shape[0],ngi).shape)
+    nx, detwei = Det_nlx.forward(x_ref_in, weight)
+# print('det size', det.shape)
+# print('weight size', torch.tensor(weight).unsqueeze(0).expand(det.shape[0],ngi).shape)
 # end = time.time()
 # print('time: ', end-start, 'on ', dev)
 # print(torch.cuda.memory_summary())
-print('nx', nx)
-print('det', detwei)
-np.savetxt('nx.txt', np.squeeze(nx[0,0,:,:]), delimiter=',')
-np.savetxt('detwei.txt', detwei, delimiter=',')
+print('nx fresh', nx)
+# print('det', det)
+print('detwei', detwei)
+# np.savetxt('nx.txt', np.squeeze(nx[0,0,:,:]), delimiter=',')
+# np.savetxt('detwei.txt', detwei, delimiter=',')
 
 # # print('j11_filter', calc_j11_j12_filter)
 # # print('x_fen_in', torch.squeeze(x_ref_in[:,0,:]))
@@ -509,28 +513,30 @@ class mk(Module):
         # detwei - determinant times GI weight, (batch_size, ngi)
         ### output
         # nn - mass matrix (consistent), (batch_size, nloc, nloc)
-        # b  - node values at next (future) timestep, (batch_size, 1, nloc)
+        # b  - rhs of Mc=b, (batch_size, 1, nloc)
 
         batch_in = c.shape[0]
+        # stiffness matrix 
+        nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
+            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+        nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
+            nx1nx1) # (batch_in, nloc, nloc)
+        # print('nx1nx1',nx1nx1)
+        nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
+            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+        nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
+            nx2nx2) # (batch_in, nloc, nloc)
+        del nx
+        nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
+        del nx1nx1 , nx2nx2 
+        np.savetxt('nxnx.txt',nxnx[0,:,:].view(nloc,nloc),delimiter=',')
+        print('nxnx', nxnx)
         # mass matrix
         nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
             detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
         nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
             nn) # (batch_in, nloc, nloc)
         
-        # stiffness matrix 
-        nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-        nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
-            nx1nx1) # (batch_in, nloc, nloc)
-        print('nx1nx1',nx1nx1)
-        nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-        nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
-            nx2nx2) # (batch_in, nloc, nloc)
-        nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
-        del nx1nx1 , nx2nx2 
-        print('stiffness matrix\n', nxnx)
         nxnx = nn - nxnx*dt # this is (M-dt K), (batch_in, nloc, nloc)
         b = torch.matmul(nxnx,torch.transpose(c,1,2)) # batch matrix-vector multiplication, 
             # input1: (batch_in, nloc, nloc)
@@ -542,19 +548,119 @@ class mk(Module):
         return nn, b
 
 Mk = mk()
-c = np.arange(1,21).reshape(2,nloc)
-c = torch.tensor(c, dtype=torch.float64).view(-1,1,nloc)
-print(c.shape)
-print(c)
-n = torch.transpose(torch.tensor(n),0,1)
-print(type(n), n.shape)
-print(type(nx), nx.shape)
-# print('nx transpose',torch.transpose(nx[:,0,:,:].view(1, ngi, nloc), 1,2))
-print(type(detwei), detwei.shape)
-[M,b] = Mk.forward(c,1,1e-3,n,nx,detwei)
-print('mass matrix\n', torch.squeeze(M))
+Mk.to(device=dev)
+c = np.arange(1,11).reshape(1,nloc)
+c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
+# c = c.repeat(1000000,1,1)
+# print(c.shape)
+# print(c)
+n = torch.transpose(torch.tensor(n, device=dev),0,1)
+# print(type(n), n.shape)
+# print(type(nx), nx.shape)
+print('nx',nx[:,0,:,:].view(1, ngi, nloc))
+# print(type(detwei), detwei.shape)
+# start = time.time()
+with torch.no_grad():
+    [M,b] = Mk.forward(c,k=1,dt=1e-3,n=n,nx=nx,detwei=detwei)
+# end = time.time()
+# print('time consumed with dev = ', dev , end-start)
+# print('mass matrix\n', torch.squeeze(M))
 # cc = torch.tensor(np.arange(1,14), dtype=torch.float64).view(1,ngi)
 # print(cc.unsqueeze(-1).expand(1, ngi, nloc))
 ########################
 # Pass test!
 ########################
+
+
+
+###
+# jacobi iteration to solve for c^(n*)
+###
+# class jac_it(Module):
+#     def __init__(self):
+#         super(jac_it, self).__init__()
+
+#     def forward(self, c, M, b):
+#         # do one jacobi iteration
+#         # input:
+#         # c - node values at last iteration, (batch_size, 1, nloc)
+#         # M - consistent mass matrix of Mx=b, (batch_size, nloc, nloc)
+#         # b - rhs vector of Mx=b, (batch_size, 1, nloc)
+#         batch_in = c.shape[0]
+#         res = b - torch.matmul(M,torch.transpose(c,1,2)).view(batch_in, 1, nloc) # (batchin, 1, nloc)
+#         diagM = torch.clone(torch.diagonal(M,offset=0,dim1=1,dim2=2)) # (batchin,nloc)
+#         diagM = torch.div(1.0, diagM) # 1/Diag(M), (batchin,nloc)
+#         l2res = torch.linalg.norm(res.view(batch_in,nloc), ord=2, dim=-1)
+#         # print('l2res size', l2res.shape)
+#         # print('res ', res)
+#         print('diagm inv', diagM)
+#         c = c + torch.mul(diagM, res) # (batch_in, 1, nloc)
+
+#         return c , l2res
+
+# # Jac_it = jac_it()
+# # Jac_it.to(device=dev)
+# # print('c',c)
+# # print('M',M)
+# # print('b',b)
+# # M_np = M.view(nloc,nloc).numpy() # convert to numpy 
+# # np.savetxt('Mnp.txt' , M_np, delimiter=',')
+# # b_np = b.view(nloc).numpy() 
+# # np.savetxt('b.txt', b_np, delimiter=',')
+# # with torch.no_grad():
+# #     for its in range(10):
+# #         print('c before', c)
+# #         [c,l2res]=Jac_it.forward(c,M,b)
+# #         print('============its: ',its,'=============')
+# #         print('c after', c)
+# #         print('l2res', l2res)
+
+# Jac_it = jac_it()
+# Jac_it.to(device=dev)
+# nloc=4 # change temporarily to test jacobi iteration
+# Ajac = [[2.52, 0.95, 1.25, -.85],\
+#     [0.39, 1.69, -.45, .49],\
+#     [.55, -1.25, 1.96, -.98], \
+#     [.23, -1.15, -.45, 2.31]]
+# Ajac = torch.tensor(Ajac, dtype=torch.float64,device=dev).view(1,4,4)
+# print('Ajac', Ajac)
+# bjac = torch.tensor([1.38,-.34,.67,1.52], dtype=torch.float64,device=dev).view(1,1,4)
+# c = torch.tensor([0,0,0,0],dtype=torch.float64,device=dev).view(1,1,4)
+# with torch.no_grad():
+#     for its in range(100):
+#         print('c before', c)
+#         [c,l2res]=Jac_it.forward(c,Ajac,bjac)
+#         print('============its: ',its,'=============')
+#         print('c after', c)
+#         print('l2res', l2res)
+#############################
+# jacobi iteration works for small 4x4 matrix (example taken from Numerical Analysis (in CN) pg. 113 3.1)
+# then it's the mass matrix that doesn't work.
+# maybe we should use a relaxed jacobi iteration?...
+# may be we don't use jacobi iteration at all!
+# use torch.linalg.inv() instead. Input A(*,nloc,nloc)
+#############################
+
+# inv mass matrix and get c^(n*)
+# input: M (batch_in, nloc, nloc)
+# output: Minv (batch_in, nloc, nloc)
+Minv = torch.linalg.inv(M)
+del M # we probably don't need M anymore
+print(Minv.shape, b.shape)
+cn_star = Minv @ torch.transpose(b,1,2)
+print(cn_star)
+####
+# Minv * b passed test
+####
+
+
+#####################################
+# now we assemble S (surface integral)
+#####################################
+
+# first let's define surface shape functions
+# note that we're using mass lumping and
+# only one value per node is required
+# that is either 1/3 or 1/6 multiplied by 
+# the curve length
+
