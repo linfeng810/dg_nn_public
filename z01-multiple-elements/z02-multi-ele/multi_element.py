@@ -8,7 +8,7 @@ from torch.nn import Conv1d,Sequential,Module
 import time
 from scipy.sparse import coo_matrix 
 
-filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/square.msh'
+filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/small_square.msh'
 mesh = toughio.read_mesh(filename)
 
 # mesh info
@@ -21,8 +21,8 @@ nonods = nloc*nele
 ndim = 2
 ndglno=np.arange(0,nonods)
 dt = 1e-3 # timestep
-# print(mesh.cells[0][1]) # cell node list
-# mesh.points
+print(mesh.cells[0][1]) # cell node list
+print(mesh.points)
 
 # create faces
 faces=[]
@@ -74,7 +74,7 @@ for iface in range(len(nbf)):
 
 # generate cubic nodes
 x_all = []
-for ele in range(16):
+for ele in range(nele):
     # vertex nodes global index
     idx = mesh.cells[0][1][ele]
     # vertex nodes coordinate 
@@ -589,7 +589,9 @@ class mk(Module):
         del nx
         nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
         del nx1nx1 , nx2nx2 
-        np.savetxt('nxnx.txt',nxnx[0,:,:].view(nloc,nloc),delimiter=',')
+        for ele in range(batch_in):
+            np.savetxt('nxnx'+str(ele)+'.txt',nxnx[ele,:,:].view(nloc,nloc),delimiter=',')
+        
         # print('nxnx', nxnx)
         # mass matrix
         nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
@@ -609,7 +611,7 @@ class mk(Module):
 
 Mk = mk()
 Mk.to(device=dev)
-c = np.arange(1,161).reshape(nele,nloc)
+c = np.arange(1,nonods+1).reshape(nele,nloc)
 c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 # c = c.repeat(1000000,1,1)
 # print(c.shape)
@@ -749,11 +751,11 @@ def S_Minv_sparse(Minv):
             # print(ele, iface, dx,x_all[ele*nloc+9,:], x_all[int(ele2)*nloc+9,:])
             farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
             # print(ele, iface, farea)
-            # print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
+            print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
             for iloc,iloc2 in zip(face_iloc(iface), face_iloc2(iface2)):
                 glb_iloc = ele*nloc+iloc 
                 glb_iloc2 = int(abs(ele2*nloc+iloc2))
-                # print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
+                print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
                 # print('\t',x_all[glb_iloc]-x_all[glb_iloc2])
                             
                 indices.append([glb_iloc, glb_iloc])
@@ -820,11 +822,15 @@ for inod in bc1:
 for inod in bc2:
     c[inod]=2.
 
+tstep=5
+print(c)
 c = c.reshape(nele,nloc)
+print(c)
 c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
-    
+c_all=np.empty([tstep,nonods])
+c_all[0,:]=c.view(-1).numpy()[:]
 #
-for itime in range(10):
+for itime in range(1,tstep):
     c = c.view(-1,1,nloc)
     # calculate shape functions from element nodes coordinate
     # print(x_ref_in.shape)
@@ -838,15 +844,21 @@ for itime in range(10):
     # inverse mass matrix
     Minv = torch.linalg.inv(M)
     del M # we probably don't need M anymore
-    
+    print(b)
+    np.savetxt('cbefore.txt', c.view(-1).numpy(), delimiter=',')
     # next step 1 (inner element)
     cn_inele = Minv @ torch.transpose(b,1,2)
     cn_inele = cn_inele.view(-1)
-
+    np.savetxt('cafter.txt', cn_inele.view(-1).numpy(), delimiter=',')
+    
+    
     # surface integral 
     [S, Minv] = S_Minv_sparse(Minv)
     cn_surf = torch.sparse.mm(Minv, torch.sparse.mm(S, c.view(nonods,1)))*dt
     cn_surf = cn_surf.view(-1)
+    if itime==1:
+        print(Minv.to_dense().shape)
+        np.savetxt('Minv.txt',Minv.to_dense().numpy(),delimiter=',')
 
     c = cn_inele-cn_surf 
 
@@ -855,14 +867,16 @@ for itime in range(10):
         c[inod]=1.
     for inod in bc2:
         c[inod]=2.
-        
+
     # toughio.write_time_series(filename='output.vtk', \
     #     points=mesh.points, \
     #     cells=mesh.cells, \
     #     point_data=,\
     #     time_steps=itime )
-    
+    c_all[itime,:]=c_all[0,:]=c.view(-1).numpy()[:]
 
 ####
 # Minv * b passed test
 ####
+c_all = np.asarray(c_all)
+np.savetxt('c_all.txt', c_all, delimiter=',')
