@@ -7,8 +7,9 @@ import torch
 from torch.nn import Conv1d,Sequential,Module
 import time
 from scipy.sparse import coo_matrix 
+from tqdm import tqdm
 
-filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/small_square.msh'
+filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/square.msh'
 mesh = toughio.read_mesh(filename)
 
 # mesh info
@@ -20,7 +21,9 @@ if (cubic) :
 nonods = nloc*nele 
 ndim = 2
 ndglno=np.arange(0,nonods)
-dt = 1e-3 # timestep
+dt = 1e-4 # timestep
+tstart=0
+tend=10
 print(mesh.cells[0][1]) # cell node list
 print(mesh.points)
 
@@ -361,6 +364,7 @@ class det_nlx(Module):
         # print('x_loc size', x_loc.shape)
         # print('x size', x_loc[:,0,:].shape)
         batch_in = x_loc.shape[0]
+        # print(x_loc.is_cuda)
         x = x_loc[:,0,:].view(batch_in,1,nloc)
         y = x_loc[:,1,:].view(batch_in,1,nloc)
         # print('x',x,'\ny',y)
@@ -463,7 +467,8 @@ class det_nlx(Module):
 # test passed
 
 dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-dev="cpu"
+# dev="cpu"
+print('computation on ',dev)
 
 ## set weights in det_nlx
 [n, nlx, weight] = SHATRInew(nloc, ngi, ndim)
@@ -528,7 +533,7 @@ for ele in range(nele):
         glb_iloc = ele*nloc+iloc
         x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
         x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
-x_ref_in = torch.tensor(x_ref_in, requires_grad=False)
+x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
 # print(x_ref_in.shape)
 
 with torch.no_grad():
@@ -589,8 +594,8 @@ class mk(Module):
         del nx
         nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
         del nx1nx1 , nx2nx2 
-        for ele in range(batch_in):
-            np.savetxt('nxnx'+str(ele)+'.txt',nxnx[ele,:,:].view(nloc,nloc),delimiter=',')
+        # for ele in range(batch_in):
+        #     np.savetxt('nxnx'+str(ele)+'.txt',nxnx[ele,:,:].view(nloc,nloc),delimiter=',')
         
         # print('nxnx', nxnx)
         # mass matrix
@@ -751,11 +756,11 @@ def S_Minv_sparse(Minv):
             # print(ele, iface, dx,x_all[ele*nloc+9,:], x_all[int(ele2)*nloc+9,:])
             farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
             # print(ele, iface, farea)
-            print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
+            # print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
             for iloc,iloc2 in zip(face_iloc(iface), face_iloc2(iface2)):
                 glb_iloc = ele*nloc+iloc 
                 glb_iloc2 = int(abs(ele2*nloc+iloc2))
-                print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
+                # print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
                 # print('\t',x_all[glb_iloc]-x_all[glb_iloc2])
                             
                 indices.append([glb_iloc, glb_iloc])
@@ -778,7 +783,11 @@ def S_Minv_sparse(Minv):
 
     S_scipy = coo_matrix((values, (indices[0,:].numpy(), indices[1,:].numpy()) ), shape=(nonods, nonods))
     S_scipy = S_scipy.tocsr()  # this transformation will altomatically add entries at same position, perfect for assembling
-    S = torch.sparse_csr_tensor(crow_indices=torch.tensor(S_scipy.indptr), col_indices=torch.tensor(S_scipy.indices), values=S_scipy.data,size=(nonods, nonods))
+    S = torch.sparse_csr_tensor(crow_indices=torch.tensor(S_scipy.indptr), \
+        col_indices=torch.tensor(S_scipy.indices), \
+        values=S_scipy.data, \
+        size=(nonods, nonods), \
+        device=dev)
     # np.savetxt('indices.txt',S.to_dense().numpy(),delimiter=',')
 
     # inverse of mass matrix Minv_sparse
@@ -798,7 +807,8 @@ def S_Minv_sparse(Minv):
     Minv = torch.sparse_csr_tensor( crow_indices=torch.tensor(Minv_scipy.indptr), \
         col_indices=torch.tensor(Minv_scipy.indices), \
         values=Minv_scipy.data, \
-        size=(nonods, nonods) )
+        size=(nonods, nonods) , \
+        device=dev)
 
     return S, Minv
 
@@ -812,25 +822,26 @@ for ele in range(nele):
         glb_iloc = ele*nloc+iloc
         x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
         x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
-x_ref_in = torch.tensor(x_ref_in, requires_grad=False)
+x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
 
 # initical condition
 c = np.zeros(nonods)
+# c = np.asarray([1.000000000000000000e+00,2.000000000000000000e+00,1.493838904965597569e+00,1.000000000000000000e+00,1.000000000000000000e+00,1.449966370388888537e+00,1.469033186016506010e+00,1.347141914183232148e+00,1.152750854595107066e+00,1.160140167446554349e+00,2.000000000000000000e+00,2.000000000000000000e+00,1.604796987540639153e+00,2.000000000000000000e+00,2.000000000000000000e+00,1.924636785854314303e+00,1.777579115307477586e+00,1.598073528854923264e+00,1.739355725613122461e+00,1.880373604087656636e+00,2.000000000000000000e+00,1.754399305660250041e+00,1.860698503999662634e+00,1.912555293209513341e+00,1.832992867485747412e+00,1.793603819785748232e+00,1.828777781554110415e+00,1.904292029262314001e+00,1.950644311037632583e+00,1.870696672554985618e+00,2.000000000000000000e+00,2.000000000000000000e+00,1.875466519341594918e+00,2.000000000000000000e+00,2.000000000000000000e+00,1.970084772125898498e+00,1.921416927406050412e+00,1.909446495780714681e+00,1.959869059419381498e+00,1.966051717905866525e+00,1.708788247347079237e+00,1.590406631659132985e+00,1.598421738447025842e+00,1.645239968676932341e+00,1.606731501002102158e+00,1.592745392397802329e+00,1.597020424780011716e+00,1.635550814925486929e+00,1.669762327596505669e+00,1.621135676584691820e+00,1.588358489223376413e+00,1.453113046928694585e+00,1.584281940384167919e+00,1.571851118994411767e+00,1.530738882663677636e+00,1.503649385313970965e+00,1.544286115996887920e+00,1.582328190551923974e+00,1.585873858125989688e+00,1.557301076290084296e+00,1.000000000000000000e+00,1.000000000000000000e+00,1.224463585125032283e+00,1.000000000000000000e+00,1.000000000000000000e+00,1.076461232701819482e+00,1.168821855317328406e+00,1.139537447109792545e+00,1.052369945083597269e+00,1.061829941916374143e+00,1.391892842440358713e+00,1.000000000000000000e+00,1.251255031108101878e+00,1.278956361726842017e+00,1.149832667989081125e+00,1.085427114030233176e+00,1.167440717592010957e+00,1.293160324816911677e+00,1.340071754548867178e+00,1.220546144132276023e+00,1.000000000000000000e+00,1.465468887236520246e+00,1.266761006261882372e+00,1.151271503687611775e+00,1.305470291792105275e+00,1.360533856633150629e+00,1.302941410124508259e+00,1.228825867503321900e+00,1.145876673913813315e+00,1.257219388930236326e+00,1.737056362497977124e+00,1.658859748710394433e+00,1.839779815233241633e+00,1.726003219039905501e+00,1.700235873718550117e+00,1.722120836381548115e+00,1.781083135021837682e+00,1.801759549431894536e+00,1.769540568893342769e+00,1.752270443868931826e+00,1.642824389936767826e+00,1.722402891657959900e+00,1.601318832181879204e+00,1.678888388057656833e+00,1.706738930968299872e+00,1.683622891114131548e+00,1.643092127937530122e+00,1.610131826480696304e+00,1.623806846994243491e+00,1.659712817768047133e+00,2.000000000000000000e+00,1.658795287023820730e+00,1.597301394522557372e+00,1.846920713034494455e+00,1.734544945483164735e+00,1.659963175674846303e+00,1.645024360694456789e+00,1.766236358058662415e+00,1.894559238560293846e+00,1.750396877319061684e+00,1.668209330932912682e+00,2.000000000000000000e+00,1.853874193600455245e+00,1.751994352722610504e+00,1.857143353739321601e+00,1.927765923022346950e+00,1.882183199279316987e+00,1.798558452053737211e+00,1.734623621035235930e+00,1.823910141926509132e+00,1.610450060843217734e+00,1.416911105440552099e+00,1.295550763684644391e+00,1.506742415673864466e+00,1.442391602695812791e+00,1.376821805580491720e+00,1.341504056475049333e+00,1.414273724536526444e+00,1.518900368834024350e+00,1.426227949409357487e+00,1.435834199812773937e+00,1.618397721589056815e+00,1.583313378420909023e+00,1.467038039402340344e+00,1.524616777838820658e+00,1.590381285395748634e+00,1.582518822908904665e+00,1.538800727920351941e+00,1.488600745986405682e+00,1.528243591423988024e+00,1.501419304636960828e+00,1.628227026803016120e+00,1.282718202701798704e+00,1.571271161698147845e+00,1.611625878276715662e+00,1.535405207842922559e+00,1.404060315890601762e+00,1.325333598289352599e+00,1.391144332285839891e+00,1.475470254153124605e+00])
 # apply boundary conditions (two Dirichlet bcs)
 for inod in bc1:
     c[inod]=1.
 for inod in bc2:
     c[inod]=2.
 
-tstep=5
-print(c)
+tstep=int(np.ceil((tend-tstart)/dt))
+# print(c)
 c = c.reshape(nele,nloc)
-print(c)
+# print(c)
 c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 c_all=np.empty([tstep,nonods])
-c_all[0,:]=c.view(-1).numpy()[:]
+c_all[0,:]=c.view(-1).cpu().numpy()[:]
 #
-for itime in range(1,tstep):
+for itime in tqdm(range(1,tstep)):
     c = c.view(-1,1,nloc)
     # calculate shape functions from element nodes coordinate
     # print(x_ref_in.shape)
@@ -844,23 +855,27 @@ for itime in range(1,tstep):
     # inverse mass matrix
     Minv = torch.linalg.inv(M)
     del M # we probably don't need M anymore
-    print(b)
-    np.savetxt('cbefore.txt', c.view(-1).numpy(), delimiter=',')
+    # print(b)
+    # np.savetxt('b.txt', b.view(-1).numpy(), delimiter=',')
+    # np.savetxt('cbefore.txt', c.view(-1).numpy(), delimiter=',')
     # next step 1 (inner element)
     cn_inele = Minv @ torch.transpose(b,1,2)
     cn_inele = cn_inele.view(-1)
-    np.savetxt('cafter.txt', cn_inele.view(-1).numpy(), delimiter=',')
+    # np.savetxt('cafter.txt', cn_inele.view(-1).numpy(), delimiter=',')
     
     
     # surface integral 
     [S, Minv] = S_Minv_sparse(Minv)
+    # print('device S Minvm c', S.is_cuda, Minv.is_cuda, c.is_cuda)
     cn_surf = torch.sparse.mm(Minv, torch.sparse.mm(S, c.view(nonods,1)))*dt
     cn_surf = cn_surf.view(-1)
-    if itime==1:
-        print(Minv.to_dense().shape)
-        np.savetxt('Minv.txt',Minv.to_dense().numpy(),delimiter=',')
-
+    # if itime==1:
+        # print(Minv.to_dense().shape)
+        # np.savetxt('Minv.txt',Minv.to_dense().numpy(),delimiter=',')
+    # np.savetxt('cn_inele.txt', cn_inele.view(-1).numpy(), delimiter=',')
+    # np.savetxt('cn_surf.txt', cn_surf.view(-1).numpy(), delimiter=',')
     c = cn_inele-cn_surf 
+    # np.savetxt('c.txt', c.view(-1).numpy(), delimiter=',')
 
     # apply boundary conditions (two Dirichlet bcs)
     for inod in bc1:
@@ -873,10 +888,12 @@ for itime in range(1,tstep):
     #     cells=mesh.cells, \
     #     point_data=,\
     #     time_steps=itime )
-    c_all[itime,:]=c_all[0,:]=c.view(-1).numpy()[:]
+    # if (itime%100==0):
+    # c_all[itime,:]=c.view(-1).cpu().numpy()[:]
 
 ####
 # Minv * b passed test
 ####
-c_all = np.asarray(c_all)
-np.savetxt('c_all.txt', c_all, delimiter=',')
+# c_all = np.asarray(c_all)[::100,:]
+# np.savetxt('c_all.txt', c_all, delimiter=',')
+# np.savetxt('x_all.txt', x_all, delimiter=',')
