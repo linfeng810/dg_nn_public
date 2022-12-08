@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch.nn import Conv1d,Sequential,Module
 import time
+from scipy.sparse import coo_matrix 
 
 filename='/data2/linfeng/aicfd/z01-chrisemail/z01-multiple-elements/z01-geo/square.msh'
 mesh = toughio.read_mesh(filename)
@@ -19,6 +20,7 @@ if (cubic) :
 nonods = nloc*nele 
 ndim = 2
 ndglno=np.arange(0,nonods)
+dt = 1e-3 # timestep
 # print(mesh.cells[0][1]) # cell node list
 # mesh.points
 
@@ -30,7 +32,12 @@ for ele in range(nele):
     for iloc in range(3):
         faces.append([element[iloc],element[(iloc+1)%3]])
 
-# neighbouring elements
+# neighbouring faces (global indices)
+# input: a global face index
+# output: the global index of the input face's neighbouring face
+#         sign denotes face node numbering orientation
+#         np.nan denotes no neighbouring found (implicating this is a boundary face)
+#         !! output type is real, convert to int before use as index !!
 nbf=np.empty(len(faces))
 nbf[:]=np.nan
 color=np.zeros(len(faces))
@@ -55,6 +62,9 @@ for iface in range(len(faces)):
 # find neighbouring elements associated with each face
 # via neighbouring faces
 # and store in nbele
+# output type: float, sign denotes face node numbering orientation
+#              nan denotes non found (input is boundary element)
+#              !! convert to positive int before use as index !!
 nbele=np.empty(len(faces))
 nbele[:]=np.nan
 for iface in range(len(nbf)):
@@ -98,17 +108,56 @@ for ele in range(16):
     # node 10
     x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
 
+x_all = np.asarray(x_all, dtype=np.float64)
+print('x_all shape: ', x_all.shape)
+
+# mark boundary nodes
+# bc1: y=0
+bc1=[]
+for inod in range(nonods):
+    if x_all[inod,1]<1e-8 :
+        bc1.append(inod)
+# bc2: x=0
+bc2=[]
+for inod in range(nonods):
+    if x_all[inod,0]<1e-8 :
+        bc2.append(inod)
+# bc3: y=1
+bc3=[]
+for inod in range(nonods):
+    if x_all[inod,1]>1.-1e-8 :
+        bc3.append(inod)
+# bc4: x=1
+bc4=[]
+for inod in range(nonods):
+    if x_all[inod,0]>1.-1e-8 :
+        bc4.append(inod)
+print(bc1)
+print(bc2)
+print(bc3)
+print(bc4)
 
 # local nodes number on a face
 def face_iloc(iface):
     # return local nodes number on a face
+    # !      y
+    # !      | 
+    # !      2
+    # !  f2  | \   ┌
+    # !   |  6  5   \   
+    # !   |  |   \   \  f1
+    # !  \|/ 7 10 4   \
+    # !      |     \
+    # !      3-8-9--1--x
+    #         ---->
+    #           f3
     match iface:
         case 0:
             return [0,3,4,1]
         case 1:
             return [1,5,6,2]
         case 2:
-            return [0,8,7,2]
+            return [2,7,8,0]
         case _:
             return []
 def face_iloc2(iface):
@@ -132,7 +181,6 @@ def SHATRInew(nloc,ngi,ndim):
         
     if (ngi==13):
         alpha = -0.149570044467682
-        print(type(alpha))
         beta = 0.333333333333333
         alpha1 = 0.175615257433208
         beta1 = 0.479308067841920
@@ -440,37 +488,49 @@ Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
 #####################################
 # test two elements input
 #
-x_ref_in1 = np.asarray([ 1.0, 0.0, \
-            0.0, 1.0, \
-            0.0, 0.0, \
-            2./3., 1./3., \
-            1./3., 2./3., \
-            0., 2./3., \
-            0., 1./3., \
-            1./3., 0., \
-            2./3., 0., \
-            1./3., 1./3.])
-x_ref_in1 = x_ref_in1.reshape((nloc,ndim))
+# x_ref_in1 = np.asarray([ 1.0, 0.0, \
+#             0.0, 1.0, \
+#             0.0, 0.0, \
+#             2./3., 1./3., \
+#             1./3., 2./3., \
+#             0., 2./3., \
+#             0., 1./3., \
+#             1./3., 0., \
+#             2./3., 0., \
+#             1./3., 1./3.])
+# x_ref_in1 = x_ref_in1.reshape((nloc,ndim))
 
-ele=15
-x_all=np.asarray(x_all)
-toplt = np.arange((ele)*nloc,(ele)*nloc+nloc)
+# ele=15
+# x_all=np.asarray(x_all)
+# toplt = np.arange((ele)*nloc,(ele)*nloc+nloc)
 
-x_ref_in2 = x_all[toplt,:]
+# x_ref_in2 = x_all[toplt,:]
 
-x_ref_in1 = np.transpose(x_ref_in1)
+# x_ref_in1 = np.transpose(x_ref_in1)
 # x_ref_in2 = np.transpose(x_ref_in2)
 # x_ref_in = np.stack((x_ref_in1,x_ref_in2), axis=0)
-x_ref_in = torch.tensor(x_ref_in1, requires_grad=False, device=dev).view(1,2,nloc)
+# x_ref_in = torch.tensor(x_ref_in1, requires_grad=False, device=dev).view(1,2,nloc)
 # x_ref_in = torch.transpose(x_ref_in, 0,1).unsqueeze(0)
-print('xin size', x_ref_in.shape)
-print(x_ref_in)
+# print('xin size', x_ref_in.shape)
+# print(x_ref_in)
 # x_ref_in = x_ref_in.repeat(1000000,1,1)
 # print(torch.cuda.memory_summary())
 # # np.savetxt('x_ref_in.txt',x_ref_in,delimiter=',')
 # # x_ref_in = torch.tensor(x_ref_in,requires_grad=False)#.unsqueeze(0)
 # # print(x_ref_in.shape)
 # start = time.time()
+
+
+# calculate shape functions from element nodes coordinate
+x_ref_in = np.empty((nele, ndim, nloc))
+for ele in range(nele):
+    for iloc in range(nloc):
+        glb_iloc = ele*nloc+iloc
+        x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
+        x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
+x_ref_in = torch.tensor(x_ref_in, requires_grad=False)
+# print(x_ref_in.shape)
+
 with torch.no_grad():
     nx, detwei = Det_nlx.forward(x_ref_in, weight)
 # print('det size', det.shape)
@@ -478,9 +538,9 @@ with torch.no_grad():
 # end = time.time()
 # print('time: ', end-start, 'on ', dev)
 # print(torch.cuda.memory_summary())
-print('nx fresh', nx)
+# print('nx fresh', nx)
 # print('det', det)
-print('detwei', detwei)
+# print('detwei', detwei)
 # np.savetxt('nx.txt', np.squeeze(nx[0,0,:,:]), delimiter=',')
 # np.savetxt('detwei.txt', detwei, delimiter=',')
 
@@ -530,7 +590,7 @@ class mk(Module):
         nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
         del nx1nx1 , nx2nx2 
         np.savetxt('nxnx.txt',nxnx[0,:,:].view(nloc,nloc),delimiter=',')
-        print('nxnx', nxnx)
+        # print('nxnx', nxnx)
         # mass matrix
         nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
             detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
@@ -549,7 +609,7 @@ class mk(Module):
 
 Mk = mk()
 Mk.to(device=dev)
-c = np.arange(1,11).reshape(1,nloc)
+c = np.arange(1,161).reshape(nele,nloc)
 c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 # c = c.repeat(1000000,1,1)
 # print(c.shape)
@@ -557,7 +617,7 @@ c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 n = torch.transpose(torch.tensor(n, device=dev),0,1)
 # print(type(n), n.shape)
 # print(type(nx), nx.shape)
-print('nx',nx[:,0,:,:].view(1, ngi, nloc))
+# print('nx',nx[:,0,:,:].view(1, ngi, nloc))
 # print(type(detwei), detwei.shape)
 # start = time.time()
 with torch.no_grad():
@@ -641,17 +701,12 @@ with torch.no_grad():
 # use torch.linalg.inv() instead. Input A(*,nloc,nloc)
 #############################
 
-# inv mass matrix and get c^(n*)
+# inv mass matrix
 # input: M (batch_in, nloc, nloc)
 # output: Minv (batch_in, nloc, nloc)
 Minv = torch.linalg.inv(M)
 del M # we probably don't need M anymore
-print(Minv.shape, b.shape)
-cn_star = Minv @ torch.transpose(b,1,2)
-print(cn_star)
-####
-# Minv * b passed test
-####
+
 
 
 #####################################
@@ -664,3 +719,150 @@ print(cn_star)
 # that is either 1/3 or 1/6 multiplied by 
 # the curve length
 
+#####
+# build sparsity
+#####
+# let's build in coo format first - easier to construct
+# then transform to csr format - more efficient to do linear algebra operations
+def S_Minv_sparse(Minv):
+    # input:
+    # Minv - torch tensor (nele,nloc,nloc)
+    # output:
+    # S - surface integral matrix, torch.sparse_csr_tensor
+    # Minv - inverse of mass matrix, torch.sparse_csr_tensor
+
+    # S matrix 
+    indices=[] # indices of entries, a list of lists
+    values=[]  # values to be add to S
+    for ele in range(nele):
+        # loop over surfaces
+        for iface in range(3):
+            glb_iface = ele*3+iface 
+            ele2 = nbele[glb_iface]
+            if (np.isnan(ele2)):
+                # this is a boundary face without neighbouring element
+                continue 
+            ele2 = int(abs(ele2))
+            glb_iface2 = int(abs(nbf[glb_iface]))
+            iface2 = glb_iface2 % 3
+            dx=np.linalg.norm(x_all[ele*nloc+9,:]-x_all[int(ele2)*nloc+9,:])/4. # dx/(order+1)
+            # print(ele, iface, dx,x_all[ele*nloc+9,:], x_all[int(ele2)*nloc+9,:])
+            farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
+            # print(ele, iface, farea)
+            # print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
+            for iloc,iloc2 in zip(face_iloc(iface), face_iloc2(iface2)):
+                glb_iloc = ele*nloc+iloc 
+                glb_iloc2 = int(abs(ele2*nloc+iloc2))
+                # print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
+                # print('\t',x_all[glb_iloc]-x_all[glb_iloc2])
+                            
+                indices.append([glb_iloc, glb_iloc])
+                indices.append([glb_iloc, glb_iloc2])
+            # S matrix value                  face node   0--1--2--3
+            values.append(1./6.*farea/dx)   # 0     diag  
+            values.append(-1./6.*farea/dx)  # 0     off-diag
+            values.append(1./3.*farea/dx)   # 1     diag
+            values.append(-1./3.*farea/dx)  # 1     off-diag
+            values.append(1./3.*farea/dx)   # 2     diag
+            values.append(-1./3.*farea/dx)  # 2     off-diag
+            values.append(1./6.*farea/dx)   # 3     diag
+            values.append(-1./6.*farea/dx)  # 3     off-diag
+
+    values = torch.tensor(values)
+    # print(values)
+    indices = torch.transpose(torch.tensor(indices),0,1)
+
+
+
+    S_scipy = coo_matrix((values, (indices[0,:].numpy(), indices[1,:].numpy()) ), shape=(nonods, nonods))
+    S_scipy = S_scipy.tocsr()  # this transformation will altomatically add entries at same position, perfect for assembling
+    S = torch.sparse_csr_tensor(crow_indices=torch.tensor(S_scipy.indptr), col_indices=torch.tensor(S_scipy.indices), values=S_scipy.data,size=(nonods, nonods))
+    # np.savetxt('indices.txt',S.to_dense().numpy(),delimiter=',')
+
+    # inverse of mass matrix Minv_sparse
+    indices=[]
+    values=[]
+    for ele in range(nele):
+        for iloc in range(nloc):
+            for jloc in range(nloc):
+                glb_iloc = int( ele*nloc+iloc )
+                glb_jloc = int( ele*nloc+jloc )
+                indices.append([glb_iloc, glb_jloc])
+                values.append(Minv[ele,iloc,jloc])
+    values = torch.tensor(values)
+    indices = torch.transpose(torch.tensor(indices),0,1)
+    Minv_scipy = coo_matrix((values,(indices[0,:].numpy(), indices[1,:].numpy())), shape=(nonods, nonods))
+    Minv_scipy = Minv_scipy.tocsr() 
+    Minv = torch.sparse_csr_tensor( crow_indices=torch.tensor(Minv_scipy.indptr), \
+        col_indices=torch.tensor(Minv_scipy.indices), \
+        values=Minv_scipy.data, \
+        size=(nonods, nonods) )
+
+    return S, Minv
+
+
+######### 
+# time loop
+###########
+x_ref_in = np.empty((nele, ndim, nloc))
+for ele in range(nele):
+    for iloc in range(nloc):
+        glb_iloc = ele*nloc+iloc
+        x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
+        x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
+x_ref_in = torch.tensor(x_ref_in, requires_grad=False)
+
+# initical condition
+c = np.zeros(nonods)
+# apply boundary conditions (two Dirichlet bcs)
+for inod in bc1:
+    c[inod]=1.
+for inod in bc2:
+    c[inod]=2.
+
+c = c.reshape(nele,nloc)
+c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
+    
+#
+for itime in range(10):
+    c = c.view(-1,1,nloc)
+    # calculate shape functions from element nodes coordinate
+    # print(x_ref_in.shape)
+    with torch.no_grad():
+        nx, detwei = Det_nlx.forward(x_ref_in, weight)
+
+    # mass matrix and rhs
+    with torch.no_grad():
+        [M,b] = Mk.forward(c,k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+    
+    # inverse mass matrix
+    Minv = torch.linalg.inv(M)
+    del M # we probably don't need M anymore
+    
+    # next step 1 (inner element)
+    cn_inele = Minv @ torch.transpose(b,1,2)
+    cn_inele = cn_inele.view(-1)
+
+    # surface integral 
+    [S, Minv] = S_Minv_sparse(Minv)
+    cn_surf = torch.sparse.mm(Minv, torch.sparse.mm(S, c.view(nonods,1)))*dt
+    cn_surf = cn_surf.view(-1)
+
+    c = cn_inele-cn_surf 
+
+    # apply boundary conditions (two Dirichlet bcs)
+    for inod in bc1:
+        c[inod]=1.
+    for inod in bc2:
+        c[inod]=2.
+        
+    # toughio.write_time_series(filename='output.vtk', \
+    #     points=mesh.points, \
+    #     cells=mesh.cells, \
+    #     point_data=,\
+    #     time_steps=itime )
+    
+
+####
+# Minv * b passed test
+####
