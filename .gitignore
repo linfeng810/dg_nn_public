@@ -1,5 +1,5 @@
 output*
 a.out
 *.png
-__pycache__/.
+__pycache__/
 *.txt
