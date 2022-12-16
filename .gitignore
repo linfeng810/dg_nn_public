@@ -3,3 +3,5 @@ a.out
 *.png
 __pycache__/
 *.txt
+*.msh
+*.asv
