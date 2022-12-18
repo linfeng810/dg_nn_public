@@ -13,12 +13,12 @@ dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #####################################################
 dt = 1e-3 # timestep
 tstart=0 # starting time
-tend=2e-3 # end time, we'll need ~2s for the modal problem to reach static state
+tend=2 # end time, we'll need ~2s for the modal problem to reach static state
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='small_square.msh' # directory to mesh file (gmsh)
+filename='large_square.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info

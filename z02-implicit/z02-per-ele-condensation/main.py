@@ -119,7 +119,7 @@ for itime in tqdm(range(1,tstep)):
 
     # first few smoothing step at finest mesh
     # while (r1l2>1e-9 and its<config.jac_its):
-    for its in range(5):
+    for its in range(100):
         c_i = c_i.view(-1,1,nloc)
         # print('its=',its,'c_i shape', c_i.shape)
         # calculate shape functions from element nodes coordinate
@@ -148,25 +148,31 @@ for itime in tqdm(range(1,tstep)):
     
     e_i = torch.zeros((r1_1.shape[0],1), device=dev, dtype=torch.float64)
     # smooth (solve) on level 1 coarse grid (R^T A R e = r1_1)
-    for its in range(10):
+    for its in range(50):
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
 
         # mass matrix and rhs
         with torch.no_grad():
             [diagRAR,rr1] = Mk1.forward(e_i, r1_1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
-        
+        # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
         rr1 = rr1 - torch.sparse.mm(RSR, e_i)
+        # np.savetxt('rr1.txt', rr1.cpu().numpy(), delimiter=',')
+
         diagA1 = diagRAR+diagRSR 
+        diagA1 = 1./diagA1
         e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
 
+    # np.savetxt('r1_1.txt', r1_1.cpu().numpy(), delimiter=',')
+    # np.savetxt('e_i.txt', e_i.cpu().numpy(), delimiter=',')
     # pass e_i back to fine mesh 
     e_i0 = torch.sparse.mm(torch.transpose(Rbig, dim0=0, dim1=1), e_i)
-    print(e_i0.shape)
+    # np.savetxt('e_i0.txt', e_i0.cpu().numpy(), delimiter=',')
     c_i = c_i + e_i0
+
     # smooth again after we get back to fine mesh
     # while (r1l2>1e-9 and its<config.jac_its):
-    for its in range(5):
+    for its in range(100):
         c_i = c_i.view(-1,1,nloc)
         # print('its=',its,'c_i shape', c_i.shape)
         # calculate shape functions from element nodes coordinate

@@ -146,10 +146,10 @@ def RSR_matrix(S, R):
             values.append(R[inod].cpu().numpy())
 
     indices = np.asarray(indices)
-    print(indices[:,0].shape)
+    
 
     values = np.asarray(values)
-    print(values.shape)
+    
     Rbig_scipy = coo_matrix((values, ( indices[:,0], indices[:,1] ) ), shape=(nonods, nele))
     Rbig_scipy = Rbig_scipy.tocsr()
     Rbig = torch.sparse_csr_tensor(crow_indices=torch.tensor(Rbig_scipy.indptr), \
