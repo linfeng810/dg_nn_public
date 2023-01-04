@@ -33,6 +33,7 @@ tend = config.tend
 tstart = config.tstart
 
 print('computation on ',dev)
+print('totel ele no. ', nele)
 
 [x_all, nbf, nbele, bc1, bc2, bc3, bc4 ] =mesh_init.init()
 
@@ -99,6 +100,7 @@ c_all[0,:]=c.view(-1).cpu().numpy()[:]
 # surface integral 
 [diagS, S] = S_Minv_sparse(x_all, nbele, nbf)
 
+r1l2all=[]
 # time loop
 for itime in tqdm(range(1,tstep)):
     c_n = c.view(-1,1,nloc) # store last timestep value to cn
@@ -107,7 +109,7 @@ for itime in tqdm(range(1,tstep)):
     r1l2=1
     its=0
     # for its in range(0,config.jac_its):
-    while (r1l2>1e-9 and its<config.jac_its):
+    while (r1l2>1e-13 and its<config.jac_its):
         c_i = c_i.view(-1,1,nloc)
         # print('its=',its,'c_i shape', c_i.shape)
         # calculate shape functions from element nodes coordinate
@@ -129,8 +131,9 @@ for itime in tqdm(range(1,tstep)):
 
         r1l2 = torch.linalg.norm(r1,dim=0)[0]
         its+=1
-        
-    print('its=',its,'residual l2 norm=',r1l2.cpu().numpy())
+        r1l2all.append(r1l2)
+
+        print('its=',its,'residual l2 norm=',r1l2.cpu().numpy())
         
     # if jacobi converges,
     c = c_i.view(nonods)
@@ -144,7 +147,7 @@ for itime in tqdm(range(1,tstep)):
     # combine inner/inter element contribution
     c_all[itime,:]=c.view(-1).cpu().numpy()[:]
 
-
+np.savetxt('r0l2all.txt', np.asarray(r1l2all), delimiter=',')
 
 #############################################################
 # write output
