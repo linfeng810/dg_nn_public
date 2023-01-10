@@ -47,8 +47,9 @@ def S_Minv_sparse(x_all, nbele, nbf, c_bc):
     # S matrix 
     indices=[] # indices of entries, a list of lists
     values=[]  # values to be add to S
-    # coeff = [1./8., 3./8., 3./8., 1./8.] # lumped face mass
-    coeff = [1./6., 1./3., 1./3., 1./6.]
+    # coeff = np.asarray([1./8., 3./8., 3./8., 1./8.]) # lumped face mass
+    coeff = np.asarray([1./6., 1./3., 1./3., 1./6.])
+    # coeff = np.asarray([1./4., 1./4., 1./4., 1./4.])*1e8
     for ele in range(nele):
         # loop over surfaces
         for iface in range(3):
@@ -62,9 +63,11 @@ def S_Minv_sparse(x_all, nbele, nbf, c_bc):
                 for iloc in face_iloc(iface):
                     glb_iloc = ele*nloc+iloc
                     indices.append([glb_iloc, glb_iloc])
-                    values.append(coeff[ifaceloc]*farea/dx)
-                    b_bc[glb_iloc] = coeff[ifaceloc]*farea/dx * c_bc[glb_iloc]
-                    # print(b_bc[glb_iloc])
+                    values.append(1e2*coeff[ifaceloc]*farea/dx)
+                    b_bc[glb_iloc] = b_bc[glb_iloc] + 1e2*coeff[ifaceloc]*farea/dx * c_bc[glb_iloc]
+                    # print(glb_iloc, coeff[ifaceloc]*farea/dx, \
+                    #     c_bc[glb_iloc].cpu().numpy(), b_bc[glb_iloc].cpu().numpy(),\
+                    #     )
                     ifaceloc+=1
                 # S matrix value                  face node   0--1--2--3
                 # values.append(1./6.*farea/dx)   # 0     diag
@@ -125,7 +128,9 @@ def S_Minv_sparse(x_all, nbele, nbf, c_bc):
         values=S_scipy.data, \
         size=(nonods, nonods), \
         device=dev)
-    # np.savetxt('indices.txt',S.to_dense().cpu().numpy(),delimiter=',')
+    np.savetxt('indices.txt',S.to_dense().cpu().numpy(),delimiter=',')
+    np.savetxt('fina', S_scipy.indptr,delimiter=',')
+    np.savetxt('cola', S_scipy.indices,delimiter=',')
 
     # # inverse of mass matrix Minv_sparse
     # indices=[]
