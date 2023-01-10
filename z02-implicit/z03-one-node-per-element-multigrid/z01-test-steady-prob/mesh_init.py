@@ -71,7 +71,7 @@ def init():
         x_loc=[]
         for id in idx:
             x_loc.append(mesh.points[id])
-            # print(x_loc)
+        # print(x_loc)
         # ! a reference cubic element looks like this:
         # !  y
         # !  | 
@@ -129,6 +129,12 @@ def init():
     for inod in range(nonods):
         if x_all[inod,1]>1.-1e-8 :
             bc4.append(inod)
+
+    # # mark boundary nodes for one-element triangle
+    # bc1 = [0,1,3,4]
+    # bc2 = [1,5,6,2]
+    # bc3 = [0,2,8,7]
+    # bc4 = []
     # print(bc1)
     # print(bc2)
     # print(bc3)

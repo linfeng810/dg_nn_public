@@ -95,18 +95,29 @@ c = np.zeros(nonods)
 # apply boundary conditions (4 Dirichlet bcs)
 for inod in bc1:
     c[inod]=0.
-    # c[inod]=1.
+    # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # c[inod]= x_inod
 for inod in bc2:
     c[inod]=0.
-    # c[inod]=2.
+    # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # c[inod]= x_inod
 for inod in bc3:
     c[inod]=0.
-    # c[inod]=3.
+    # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # c[inod]= x_inod
 for inod in bc4:
     x_inod = x_ref_in[inod//10, 0, inod%10]
     c[inod]= torch.sin(torch.pi*x_inod)
-    # c[inod]=0.
-    print("x, c", x_inod.cpu().numpy(), c[inod])
+    # c[inod]= x_inod
+    # print("x, c", x_inod.cpu().numpy(), c[inod])
+
+# apply boundary conditions to one-element test
+# c = y
+# c[:] = np.asarray([0, 1., 1.,\
+#     1./3., 2./3., 1., 1., 2./3., 1./3., 0])
+# c = x
+# c[:] = np.asarray([0, 0, 1., \
+#     0, 0, 1./3., 2./3., 2./3., 1./3., 0])
 
 tstep=int(np.ceil((tend-tstart)/dt))+1
 c = c.reshape(nele,nloc) # reshape doesn't change memory allocation.
@@ -188,7 +199,7 @@ for itime in tqdm(range(1,tstep)):
             diagA1 = 1./diagA1
             e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
 
-            print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
+            # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
 
         # pass e_i back to fine mesh 
         e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)
