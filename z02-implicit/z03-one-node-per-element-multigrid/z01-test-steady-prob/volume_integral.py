@@ -70,7 +70,7 @@ class mk(Module):
         # for ele in range(batch_in):
         #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
         
-        b = torch.zeros(batch_in, nloc, 1, device=dev)
+        b = torch.zeros(batch_in, nloc, 1, device=dev, dtype=torch.float64)
         b = b + b_bc.view(batch_in, nloc,1)
         if (config.isTransient) :
             nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)

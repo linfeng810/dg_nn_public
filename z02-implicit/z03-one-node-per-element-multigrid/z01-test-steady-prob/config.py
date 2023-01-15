@@ -3,10 +3,12 @@ import toughio
 import numpy as np
 import torch
 
+torch.set_printoptions(precision=16)
+np.set_printoptions(precision=16)
 #
 # device
 dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# dev="cpu" # if force funning on cpu
+dev="cpu" # if force funning on cpu
 
 #####################################################
 # time step settings
@@ -19,7 +21,7 @@ isTransient=False # decide if we are do transient simulation
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square.msh' # directory to mesh file (gmsh)
+filename='one-element.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -28,11 +30,13 @@ cubic = True # elemnet type (cubic)
 if (cubic) :
     nloc = 10  # number of nodes in an element
     ngi = 13 # number of quadrature points
+    sngi = 4 # number of surface quadrature
 nonods = nloc*nele # number of nodes
 ndim = 2 # dimesnion of the problem
+nface = 3 # number of element faces
 ndglno=np.arange(0,nonods) # local to global 
 
 
 ######################
-jac_its = 5e3 # max jacobi iteration steps
-jac_wei = 2./3.
+jac_its = 1e3 # max jacobi iteration steps
+jac_wei = 2./3.*1e-3

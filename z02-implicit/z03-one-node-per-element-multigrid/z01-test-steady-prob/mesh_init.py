@@ -13,6 +13,24 @@ def init():
     nloc = config.nloc
     
 
+    # check and make sure triangle vertices are ordered anti-clockwisely
+    for ele in range(nele):
+        # vertex nodes global index
+        idx = mesh.cells[0][1][ele]
+        # vertex nodes coordinate 
+        x_loc=[]
+        for id in idx:
+            x_loc.append(mesh.points[id])
+        x_loc = np.asarray(x_loc)
+        x_loc[:,-1]=1.
+        det = np.linalg.det(x_loc)
+        if (det<0) :
+            # print(mesh.cells[0][1][ele])
+            mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1]]
+            # print(mesh.cells[0][1][ele])
+            # print('clockise')
+        
+
     # create faces
     faces=[]
     for ele in range(nele):
@@ -130,11 +148,11 @@ def init():
         if x_all[inod,1]>1.-1e-8 :
             bc4.append(inod)
 
-    # # mark boundary nodes for one-element triangle
-    # bc1 = [0,1,3,4]
-    # bc2 = [1,5,6,2]
-    # bc3 = [0,2,8,7]
-    # bc4 = []
+    # mark boundary nodes for one-element triangle
+    bc1 = [0,1,3,4]
+    bc2 = [1,5,6,2]
+    bc3 = [0,2,8,7]
+    bc4 = []
     # print(bc1)
     # print(bc2)
     # print(bc3)
@@ -205,3 +223,8 @@ def face_iloc2(iface):
     iloc_list=face_iloc(iface)
     iloc_list.reverse()
     return iloc_list
+
+def sgi2(sgi):
+    # return gaussian pnts index on the other side 
+    order_on_other_side = [1,0,3,2]
+    return order_on_other_side[sgi]

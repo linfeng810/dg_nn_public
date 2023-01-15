@@ -3,6 +3,10 @@ import config
 import numpy as np
 from scipy.sparse import coo_matrix 
 from mesh_init import face_iloc,face_iloc2
+from mesh_init import sgi2 as pnt_to_sgi2
+
+torch.set_printoptions(precision=16)
+np.set_printoptions(precision=16)
 
 dev = config.dev
 nele = config.nele 
@@ -30,13 +34,19 @@ tstart = config.tstart
 #####
 # let's build in coo format first - easier to construct
 # then transform to csr format - more efficient to do linear algebra operations
-def S_Minv_sparse(x_all, nbele, nbf, c_bc):
+def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
     # input:
+    # sn - shape function at face quadrature pnts, numpy (nface, nloc, sngi)
+    # snx - shape func derivatives at face quadrature pnts, 
+    #       torch (nele, nface, ndim, nloc, sngi)
+    # sdetwei - det time quadrature weights for surface integral,
+    #           torch (nele, nface, sngi)
+    # snormal - unit out normal of face, torch (nele, nface, ndim)
     # x_all - numpy array (nonods, ndim)
     # nbele - list of neighbour element index
     # nbf - list of neighbour face index
     # c_bc - Dirichlet boundary values at boundary nodes, 0 otherwise. This is to impose Diri bcs weakly
-    #        (nonods)
+    #        torch (nonods)
     
     # output:
     # diagS, diagonal of S, torch tensor (nonods) 
@@ -44,75 +54,161 @@ def S_Minv_sparse(x_all, nbele, nbf, c_bc):
     # b_bc - rhs vector accounting for boundary conditions, torch tensor (nonods)
     
     b_bc = torch.zeros(nonods, dtype=torch.float64, device=dev)
+    # transfer shape functions and weights to cpu numpy array. 
+    # would be easier to flip and do multiplication
+    # we are not in parallel anyway.
+    snx = snx.cpu().numpy()
+    sdetwei = sdetwei.cpu().numpy()
+    snormal = snormal.cpu().numpy()
+
     # S matrix 
     indices=[] # indices of entries, a list of lists
     values=[]  # values to be add to S
-    # coeff = np.asarray([1./8., 3./8., 3./8., 1./8.]) # lumped face mass
-    coeff = np.asarray([1./6., 1./3., 1./3., 1./6.])
-    # coeff = np.asarray([1./4., 1./4., 1./4., 1./4.])*1e8
+
+    ### this is the *simple* interior penalty method. not accurate. delete later.
+    # # coeff = np.asarray([1./8., 3./8., 3./8., 1./8.]) # lumped face mass
+    # coeff = np.asarray([1./6., 1./3., 1./3., 1./6.])
+    # # coeff = np.asarray([1./4., 1./4., 1./4., 1./4.])*1e8
+    # for ele in range(nele):
+    #     # loop over surfaces
+    #     for iface in range(3):
+    #         glb_iface = ele*3+iface 
+    #         ele2 = nbele[glb_iface]
+    #         if (np.isnan(ele2)):
+    #             # this is a boundary face without neighbouring element
+    #             farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
+    #             dx = farea/4. # use farea to approximate dx
+    #             ifaceloc=0
+    #             for iloc in face_iloc(iface):
+    #                 glb_iloc = ele*nloc+iloc
+    #                 indices.append([glb_iloc, glb_iloc])
+    #                 values.append(1e2*coeff[ifaceloc]*farea/dx)
+    #                 b_bc[glb_iloc] = b_bc[glb_iloc] + 1e2*coeff[ifaceloc]*farea/dx * c_bc[glb_iloc]
+    #                 # print(glb_iloc, coeff[ifaceloc]*farea/dx, \
+    #                 #     c_bc[glb_iloc].cpu().numpy(), b_bc[glb_iloc].cpu().numpy(),\
+    #                 #     )
+    #                 ifaceloc+=1
+    #             # S matrix value                  face node   0--1--2--3
+    #             # values.append(1./6.*farea/dx)   # 0     diag
+    #             # print(c_bc[ele*nloc+0])
+    #             # b_bc[ele*nloc+0] = 1./6.*farea/dx * c_bc[ele*nloc+0]
+    #             # print(b_bc[ele*nloc+0])
+    #             # values.append(1./3.*farea/dx)   # 1     diag
+    #             # b_bc[ele*nloc+1] = 1./3.*farea/dx * c_bc[ele*nloc+1]
+    #             # print(b_bc[ele*nloc+1])
+    #             # values.append(1./3.*farea/dx)   # 2     diag
+    #             # b_bc[ele*nloc+2] = 1./3.*farea/dx * c_bc[ele*nloc+2]
+    #             # print(b_bc[ele*nloc+2])
+    #             # values.append(1./6.*farea/dx)   # 3     diag
+    #             # b_bc[ele*nloc+3] = 1./6.*farea/dx * c_bc[ele*nloc+3]
+    #             # print(b_bc[ele*nloc+3])
+    #             continue 
+    #         ele2 = int(abs(ele2))
+    #         glb_iface2 = int(abs(nbf[glb_iface]))
+    #         iface2 = glb_iface2 % 3
+    #         dx=np.linalg.norm(x_all[ele*nloc+9,:]-x_all[int(ele2)*nloc+9,:])/4. # dx/(order+1)
+    #         # print(ele, iface, dx,x_all[ele*nloc+9,:], x_all[int(ele2)*nloc+9,:])
+    #         farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
+    #         # print(ele, iface, farea)
+    #         # print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
+    #         ifaceloc = 0
+    #         for iloc,iloc2 in zip(face_iloc(iface), face_iloc2(iface2)):
+    #             glb_iloc = ele*nloc+iloc 
+    #             glb_iloc2 = int(abs(ele2*nloc+iloc2))
+    #             # print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
+    #             # print('\t',x_all[glb_iloc]-x_all[glb_iloc2])
+                            
+    #             indices.append([glb_iloc, glb_iloc])
+    #             indices.append([glb_iloc, glb_iloc2])
+
+    #             # S matrix value                  face node   0--1--2--3
+    #             values.append(coeff[ifaceloc]*farea/dx)   # 0     diag  
+    #             values.append(-coeff[ifaceloc]*farea/dx)  # 0     off-diag
+    #             # values.append(1./3.*farea/dx)   # 1     diag
+    #             # values.append(-1./3.*farea/dx)  # 1     off-diag
+    #             # values.append(1./3.*farea/dx)   # 2     diag
+    #             # values.append(-1./3.*farea/dx)  # 2     off-diag
+    #             # values.append(1./6.*farea/dx)   # 3     diag
+    #             # values.append(-1./6.*farea/dx)  # 3     off-diag
+
+    #             ifaceloc+=1
+
+
+    ### Classic IP method as addressed in Arnold et al. 2002
+    eta_e = 1. # penalty coefficient
     for ele in range(nele):
-        # loop over surfaces
-        for iface in range(3):
+        for iface in range(config.nface):
+            mu_e = eta_e/np.sum(sdetwei[ele,iface,:]) # penalty coeff
             glb_iface = ele*3+iface 
             ele2 = nbele[glb_iface]
             if (np.isnan(ele2)):
-                # this is a boundary face without neighbouring element
-                farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
-                dx = farea/4. # use farea to approximate dx
-                ifaceloc=0
-                for iloc in face_iloc(iface):
-                    glb_iloc = ele*nloc+iloc
-                    indices.append([glb_iloc, glb_iloc])
-                    values.append(1e2*coeff[ifaceloc]*farea/dx)
-                    b_bc[glb_iloc] = b_bc[glb_iloc] + 1e2*coeff[ifaceloc]*farea/dx * c_bc[glb_iloc]
-                    # print(glb_iloc, coeff[ifaceloc]*farea/dx, \
-                    #     c_bc[glb_iloc].cpu().numpy(), b_bc[glb_iloc].cpu().numpy(),\
-                    #     )
-                    ifaceloc+=1
-                # S matrix value                  face node   0--1--2--3
-                # values.append(1./6.*farea/dx)   # 0     diag
-                # print(c_bc[ele*nloc+0])
-                # b_bc[ele*nloc+0] = 1./6.*farea/dx * c_bc[ele*nloc+0]
-                # print(b_bc[ele*nloc+0])
-                # values.append(1./3.*farea/dx)   # 1     diag
-                # b_bc[ele*nloc+1] = 1./3.*farea/dx * c_bc[ele*nloc+1]
-                # print(b_bc[ele*nloc+1])
-                # values.append(1./3.*farea/dx)   # 2     diag
-                # b_bc[ele*nloc+2] = 1./3.*farea/dx * c_bc[ele*nloc+2]
-                # print(b_bc[ele*nloc+2])
-                # values.append(1./6.*farea/dx)   # 3     diag
-                # b_bc[ele*nloc+3] = 1./6.*farea/dx * c_bc[ele*nloc+3]
-                # print(b_bc[ele*nloc+3])
+                # this is a boundary face
+                for inod in range(nloc):
+                    glb_inod = ele*nloc+inod 
+                    # this side 
+                    # Note to myself: 
+                    # j -> jnod   i -> inod
+                    # 1 -> ele | iface   2 -> ele2 | iface2
+                    for jnod in range(nloc):
+                        glb_jnod = ele*nloc+jnod 
+                        nnx = 0
+                        nxn = 0
+                        nn = 0
+                        # maybe we can replace these two idim/sgi loops with np.einsum and optimize the path
+                        for sgi in range(config.sngi):
+                            for idim in range(ndim):
+                                nnx += sn[iface,jnod,sgi]*snx[ele,iface,idim,inod,sgi]*snormal[ele,iface,idim]*sdetwei[ele,iface,sgi] # Nj1 * Ni1x * n1
+                                nxn += snx[ele,iface,idim,jnod,sgi]*sn[iface,inod,sgi]*snormal[ele,iface,idim]*sdetwei[ele,iface,sgi] # Nj1x * Ni1 * n1
+                            nn += sn[iface,jnod,sgi]*sn[iface,inod,sgi]*sdetwei[ele,iface,sgi] # Nj1n1 * Ni1n1 ! n1 \cdot n1 = 1
+                        # sum 
+                        indices.append([glb_inod, glb_jnod])
+                        values.append(-nnx-nxn+mu_e*nn)
+                        # if jnod in face_iloc(iface):
+                        #     print('ele %d, iface %d, ele2 nan, iface2 nan, glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(ele,iface,glb_inod,glb_jnod,nnx,nxn,nn))
+                            
+                            # b_bc[glb_inod] = b_bc[glb_inod] + c_bc[glb_jnod] * (-nxn+mu_e*nn) # according to Beatrice eq. (2.23)+1, there is no nnx term in Diri bc.
+                        b_bc[glb_inod] = b_bc[glb_inod] + c_bc[glb_jnod] * (-nnx-nxn+mu_e*nn)
                 continue 
             ele2 = int(abs(ele2))
             glb_iface2 = int(abs(nbf[glb_iface]))
-            iface2 = glb_iface2 % 3
-            dx=np.linalg.norm(x_all[ele*nloc+9,:]-x_all[int(ele2)*nloc+9,:])/4. # dx/(order+1)
-            # print(ele, iface, dx,x_all[ele*nloc+9,:], x_all[int(ele2)*nloc+9,:])
-            farea=np.linalg.norm(x_all[ele*nloc+iface,:]-x_all[ele*nloc+(iface+1)%3,:])
-            # print(ele, iface, farea)
-            # print(ele, ele2, '|', iface, iface2, '|', face_iloc(iface), face_iloc2(iface2))
-            ifaceloc = 0
-            for iloc,iloc2 in zip(face_iloc(iface), face_iloc2(iface2)):
-                glb_iloc = ele*nloc+iloc 
-                glb_iloc2 = int(abs(ele2*nloc+iloc2))
-                # print(ele, ele2, '|', iface, iface2, '|', iloc, iloc2, '|', glb_iloc, glb_iloc2)
-                # print('\t',x_all[glb_iloc]-x_all[glb_iloc2])
-                            
-                indices.append([glb_iloc, glb_iloc])
-                indices.append([glb_iloc, glb_iloc2])
-
-                # S matrix value                  face node   0--1--2--3
-                values.append(coeff[ifaceloc]*farea/dx)   # 0     diag  
-                values.append(-coeff[ifaceloc]*farea/dx)  # 0     off-diag
-                # values.append(1./3.*farea/dx)   # 1     diag
-                # values.append(-1./3.*farea/dx)  # 1     off-diag
-                # values.append(1./3.*farea/dx)   # 2     diag
-                # values.append(-1./3.*farea/dx)  # 2     off-diag
-                # values.append(1./6.*farea/dx)   # 3     diag
-                # values.append(-1./6.*farea/dx)  # 3     off-diag
-
-                ifaceloc+=1
+            iface2 = glb_iface2%3
+            for inod in range(nloc):
+                glb_inod = ele*nloc+inod 
+                # this side 
+                # Note to myself: 
+                # j -> jnod   i -> inod
+                # 1 -> ele | iface   2 -> ele2 | iface2
+                for jnod in range(nloc):
+                    glb_jnod = ele*nloc+jnod 
+                    nnx = 0
+                    nxn = 0
+                    nn = 0
+                    # maybe we can replace these two idim/sgi loops with np.einsum and optimize the path
+                    for sgi in range(config.sngi):
+                        for idim in range(ndim):
+                            nnx += sn[iface,jnod,sgi]*snx[ele,iface,idim,inod,sgi]*snormal[ele,iface,idim]*sdetwei[ele,iface,sgi] # Nj1 * Ni1x * n1
+                            nxn += snx[ele,iface,idim,jnod,sgi]*sn[iface,inod,sgi]*snormal[ele,iface,idim]*sdetwei[ele,iface,sgi] # Nj1x * Ni1 * n1
+                        nn += sn[iface,jnod,sgi]*sn[iface,inod,sgi]*sdetwei[ele,iface,sgi] # Nj1n1 * Ni1n1 ! n1 \cdot n1 = 1
+                    # sum 
+                    indices.append([glb_inod, glb_jnod])
+                    values.append(-0.5*nnx-0.5*nxn+mu_e*nn)
+                    # print('ele %d, iface %d, ele2 %d, iface2 %d, glbi, %d, glbj, %d, nnx %.4f, nxn %.4f, nn %.4f'%(ele,iface,ele2,iface2,glb_inod,glb_jnod,nnx,nxn,nn))
+                # other side
+                for jnod2 in range(nloc):
+                    glb_jnod2 = ele2*nloc+jnod2 
+                    nnx = 0
+                    nxn = 0
+                    nn = 0
+                    for sgi in range(config.sngi):
+                        sgi2 = pnt_to_sgi2(sgi) # match surface quadrature pnts on other side
+                        for idim in range(ndim):
+                            nnx += sn[iface2,jnod2,sgi2]*snx[ele,iface,idim,inod,sgi]*snormal[ele2,iface2,idim]*sdetwei[ele,iface,sgi] # Nj2 * Ni1x * n2
+                            nxn += snx[ele2,iface2,idim,jnod2,sgi2]*sn[iface,inod,sgi]*snormal[ele,iface,idim]*sdetwei[ele,iface,sgi] # Nj2x * Ni1 * n1
+                        nn += (-1.)*sn[iface2,jnod2,sgi2]*sn[iface,inod,sgi]*sdetwei[ele,iface,sgi] # Nj2n2 * Ni1n1 ! n2 \cdot n1 = -1
+                    # sum
+                    indices.append([glb_inod, glb_jnod2])
+                    values.append(-0.5*nnx-0.5*nxn+mu_e*nn)
+                    # print('ele %d, iface %d, ele2 %d, iface2 %d, glbi, %d, glbj, %d, nnx %.4f, nxn %.4f, nn %.4f'%(ele,iface,ele2,iface2,glb_inod,glb_jnod2,nnx,nxn,nn))
 
     values = torch.tensor(values)
     # print(values)
@@ -128,9 +224,10 @@ def S_Minv_sparse(x_all, nbele, nbf, c_bc):
         values=S_scipy.data, \
         size=(nonods, nonods), \
         device=dev)
-    np.savetxt('indices.txt',S.to_dense().cpu().numpy(),delimiter=',')
-    np.savetxt('fina', S_scipy.indptr,delimiter=',')
-    np.savetxt('cola', S_scipy.indices,delimiter=',')
+    
+    np.savetxt('fina.txt', S_scipy.indptr,delimiter=',')
+    np.savetxt('cola.txt', S_scipy.indices,delimiter=',')
+    
 
     # # inverse of mass matrix Minv_sparse
     # indices=[]

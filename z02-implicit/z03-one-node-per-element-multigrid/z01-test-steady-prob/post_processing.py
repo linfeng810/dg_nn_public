@@ -20,23 +20,27 @@ print(x_all.shape)
 c_data = pd.read_csv('./c_all.txt', header=None)
 c = c_data.to_numpy()
 
+c_data_twogrid = pd.read_csv('./c_all_16.txt', header=None)
+c_data_twogrid = c_data_twogrid.to_numpy()
+# c = c - c_data_twogrid
 ntime = c.shape[0]
 nloc = 10
 nele = int(x_all.shape[0]/nloc )
 nonods = x_all.shape[0]
 
 # fetch final result
-c = c[1,:]
+# c_final = c[1,:]-c_data_twogrid[1,:]
 # calculate analytical soln
 c_ana = np.zeros(nonods)
 for inod in range(nonods):
     xi = x_all[inod,0]
     yi = x_all[inod,1]
     c_ana[inod] = np.sin(np.pi*xi) * np.sinh(np.pi*yi) / np.sinh(np.pi)
-# c = c - c_ana
+# c_error = c_final - c_ana
+# print(c_error.max(), c_error.min(), np.linalg.norm(c_error))
 
-c_max = c.max() 
-c_min = c.min()
+c_max = c[1,:].max() 
+c_min = c[1,:].min()
 print(c_max,c_min)
 print(c.shape)
 
@@ -56,8 +60,8 @@ for itime in tqdm(range(0,ntime,1)):
         current_ele_idx = np.arange(ele*nloc,ele*nloc+nloc) 
         x = x_all[current_ele_idx, 0]
         y = x_all[current_ele_idx, 1]
-        # z = c[itime,current_ele_idx]
-        z = c[current_ele_idx]
+        z = c[itime,current_ele_idx]
+        # z = c[current_ele_idx]
         # print(z)
 
         ax1.set_aspect('equal')
