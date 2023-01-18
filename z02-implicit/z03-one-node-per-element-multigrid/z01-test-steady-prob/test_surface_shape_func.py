@@ -54,29 +54,79 @@ x_ref_in1 = np.asarray([ 1., 0., \
             2./3., 0., \
             1./3., 1./3.])
 x_ref_in1 = x_ref_in1.reshape((nloc,ndim))
-# x_ref_in2 = np.asarray([ 2.0, 0.0, \
-#             0.0, 1.0, \
-#             0.0, 0.0, \
-#             4./3., 1./3., \
-#             2./3., 2./3., \
-#             0., 2./3., \
-#             0., 1./3., \
-#             2./3., 0., \
-#             4./3., 0., \
-#             2./3., 1./3.])
-rota_mat = np.asarray([[np.cos(np.pi/2), np.sin(np.pi/2)],\
-    [-np.sin(np.pi/2), np.cos(np.pi/2)]]).transpose()
+x_ref_in2 = x_ref_in1
+if (False): # translation the reference element by (1,1)
+    x_ref_in2 = x_ref_in2 + 1
+if (True): # test an element that has different node ordering
+    # i.e. node0 = [0,1] node1=[0,0] node2=[0,1]
+    x_ref_in2 = np.array([0.,   1.,\
+        0.,    0., \
+        1.,    0., \
+        0.,    2./3., \
+        0.,    1./3., \
+        1./3., 0., \
+        2./3., 0., \
+        2./3., 1./3., \
+        1./3., 2./3. , \
+        1./3., 1./3.])
+    x_ref_in2 = x_ref_in2.reshape((nloc,ndim))
+    np.savetxt('x_ref_in2.txt', x_ref_in2, delimiter=',')
+if (False) : # test a strentched lement, x is twice the reference element size
+    x_ref_in2 = np.asarray([ 2.0, 0.0, \
+                0.0, 1.0, \
+                0.0, 0.0, \
+                4./3., 1./3., \
+                2./3., 2./3., \
+                0., 2./3., \
+                0., 1./3., \
+                2./3., 0., \
+                4./3., 0., \
+                2./3., 1./3.])
+    x_ref_in2 = x_ref_in2.reshape((nloc,ndim))
+rot_angle = np.pi/2.
+rota_mat = np.asarray([[np.cos(rot_angle), np.sin(rot_angle)],\
+    [-np.sin(rot_angle), np.cos(rot_angle)]]).transpose()
 # print(rota_mat)
-x_ref_in2 = np.dot(rota_mat, np.transpose(x_ref_in1)).transpose()
-x_ref_in2 = x_ref_in2.reshape((nloc,ndim))
-
+if (False): # test rotated reference element
+    x_ref_in2 = np.dot(rota_mat, np.transpose(x_ref_in2)).transpose()
+    # x_ref_in2 = x_ref_in2.reshape((nloc,ndim))
+np.savetxt('x_ref_in2.txt', x_ref_in2, delimiter=',')
 x_ref_in1 = np.transpose(x_ref_in1)
 x_ref_in2 = np.transpose(x_ref_in2)
 x_ref_in = np.stack((x_ref_in1,x_ref_in2), axis=0)
 x_ref_in = torch.tensor(x_ref_in, requires_grad=False, device=dev).view(2,2,nloc)
 
 print('xin size', x_ref_in.shape)
-# print('xin type', x_ref_in)
+print('xin ', x_ref_in)
+
+# volume integral
+## set weights in det_nlx
+Det_nlx = shape_function.det_nlx(nlx)
+Det_nlx.to(dev)
+
+# filter for calc jacobian
+calc_j11_j12_filter = np.transpose(nlx[0,:,:]) # dN/dx
+calc_j11_j12_filter = torch.tensor(calc_j11_j12_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
+calc_j21_j22_filter = np.transpose(nlx[1,:,:]) # dN/dy
+calc_j21_j22_filter = torch.tensor(calc_j21_j22_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
+
+Det_nlx.calc_j11.weight.data = calc_j11_j12_filter
+Det_nlx.calc_j12.weight.data = calc_j11_j12_filter
+Det_nlx.calc_j21.weight.data = calc_j21_j22_filter
+Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
+with torch.no_grad():
+    nx, detwei = Det_nlx.forward(x_ref_in, weight)
+
+# test volume integral
+intNx=torch.zeros(2,nloc,ndim, device=dev, dtype=torch.float64)
+for ele in range(2):
+    for iloc in range(config.nloc):
+        for idim in range(config.ndim):
+            for gi in range(config.ngi):
+                intNx[ele,iloc,idim] += nx[ele,idim,gi,iloc]*detwei[ele,gi]
+np.savetxt('intNx.txt', intNx[1,:,:].cpu().numpy(), delimiter=',')
+
+
 
 # output :
 # snx: (nele, nface, ndim, nloc, sngi)
@@ -85,13 +135,13 @@ print('xin size', x_ref_in.shape)
 
 # print('snx, ', snx)
 # print('sdetwei, ', sdetwei)
-print(snormal)
+print('snormal', snormal)
 
 # integrate over faces
 # let's do integration on 3 faces
 # first integration of sn
 nface = 3
-int_sn_ds = np.zeros([3,10])
+int_sn_ds = np.zeros([3,10], dtype=np.float64)
 for iface in range(nface): 
     for iloc in range(config.nloc) : 
         int_sn_ds[iface,iloc] = np.dot(sn[iface,iloc,:], sdetwei[0,iface,:].cpu().numpy())
@@ -109,6 +159,8 @@ for ele in range(2):
             for idim in range(ndim):
                 intNx_f[ele,iface,inod,idim] = \
                     torch.dot(snx[ele,iface,idim,inod,:], sdetwei[ele,iface,:])
+print('snx', snx)
+print('sdetwei', sdetwei)
 print('intNx_f', intNx_f)
 np.savetxt('intNx_f1.txt', intNx_f[0,0,:,:].cpu().numpy(), delimiter=',')
 np.savetxt('intNx_f2.txt', intNx_f[0,1,:,:].cpu().numpy(), delimiter=',')

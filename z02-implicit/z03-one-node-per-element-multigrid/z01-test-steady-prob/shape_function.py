@@ -103,21 +103,21 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
         b1 = 0.5 + 0.5*b 
         b2 = 0.5 - 0.5*b
         # 
-        sweight[0] = w1
+        sweight[0] = w2
         sweight[1] = w1
-        sweight[2] = w2
+        sweight[2] = w1
         sweight[3] = w2
         # face 1
-        sl1[0,:] = np.asarray([a1,a2,b1,b2])
+        sl1[0,:] = np.asarray([b2,a2,a1,b1])
         sl2[0,:] = 1-sl1[0,:]
         sl3[0,:] = 0.
         # face 2
         sl1[1,:] = 0.
-        sl2[1,:] = np.asarray([a1,a2,b1,b2])
+        sl2[1,:] = np.asarray([b2,a2,a1,b1])
         sl3[1,:] = 1-sl2[1,:]
         # face 3 
         sl2[2,:] = 0.
-        sl3[2,:] = np.asarray([a1,a2,b1,b2])
+        sl3[2,:] = np.asarray([b2,a2,a1,b1])
         sl1[2,:] = 1-sl3[2,:]
     
     sweight = sweight/2.
@@ -343,14 +343,21 @@ class det_nlx(Module):
         self.nlx = nlx
         
     def forward(self, x_loc, weight):
-        # input : x_loc
-        # (batch_size , ndim, nloc), coordinate info of local nodes
-        # reference coordinate: (xi, eta)
-        # physical coordinate: (x, y)
-        # input : weight
-        # np array (ngi)
-        # print('x_loc size', x_loc.shape)
-        # print('x size', x_loc[:,0,:].shape)
+        '''
+        
+        # input 
+        
+        x_loc - (batch_size , ndim, nloc), coordinate info of local nodes
+            reference coordinate: (xi, eta)
+            physical coordinate: (x, y)
+        weight  -        np array (ngi)
+
+        # output
+        nx - shape function derivatives Nix & Niy, 
+            (batch_size, ndim, ngi, nloc)
+        detwei - determinant times GI weight, (batch_size, ngi)
+        '''
+
         batch_in = x_loc.shape[0]
         # print(x_loc.is_cuda)
         x = x_loc[:,0,:].view(batch_in,1,nloc)
@@ -375,11 +382,11 @@ class det_nlx(Module):
         # calculate determinant of jacobian
         det = torch.mul(j11,j22)-torch.mul(j21,j12)
         det = det.view(batch_in, ngi)
-        det = abs( det )
         invdet = torch.div(1.0,det)
-        det = torch.mul(det, torch.tensor(weight, device=dev).unsqueeze(0).expand(det.shape[0],ngi)) # detwei
+        det = abs( det )
         # print('det', det)
         # print('invdet', invdet)
+        det = torch.mul(det, torch.tensor(weight, device=dev).unsqueeze(0).expand(det.shape[0],ngi)) # detwei
         del j11, j12, j21, j22
         ####### 
         # calculate and store inv jacobian...
@@ -393,34 +400,34 @@ class det_nlx(Module):
         nlx1 = nlx1.expand(batch_in,ngi,nloc)
         nlx2 = torch.tensor(np.transpose(self.nlx[1,:,:]), device=dev)
         nlx2 = nlx2.expand(batch_in,ngi,nloc)
-        j11 = self.calc_j11(x).view(batch_in, ngi)
-        j21 = self.calc_j21(x).view(batch_in, ngi)
-        invj11 = torch.mul(j11,invdet).view(batch_in,-1)
-        invj12 = torch.mul(j21,invdet).view(batch_in,-1)*(-1.0)
-        del j11 
-        del j21
+        j12 = self.calc_j12(y).view(batch_in, ngi)
+        j22 = self.calc_j22(y).view(batch_in, ngi)
+        invj11 = torch.mul(j22,invdet).view(batch_in,-1)
+        invj12 = torch.mul(j12,invdet).view(batch_in,-1)*(-1.0)
+        del j22 
+        del j12
         invj11 = invj11.unsqueeze(-1).expand(batch_in,ngi,nloc)
         invj12 = invj12.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        # print('invj11', invj11)
+        # print('invj12', invj12)
         nx1 = torch.mul(invj11, nlx1) \
             + torch.mul(invj12, nlx2)
         del invj11 
         del invj12 
-        # print('invj11', invj11)
-        # print('invj12', invj12)
-        # print('invj21', invj21)
-        # print('invj22', invj22)
 
         # print('nlx1', nlx1)
         # print('nlx2', nlx2)
-        j12 = self.calc_j12(y).view(batch_in, ngi)
-        j22 = self.calc_j22(y).view(batch_in, ngi)
-        invj21 = torch.mul(j12,invdet).view(batch_in,-1)*(-1.0)
-        invj22 = torch.mul(j22,invdet).view(batch_in,-1)
-        del j12
-        del j22 
+        j21 = self.calc_j21(x).view(batch_in, ngi)
+        j11 = self.calc_j11(x).view(batch_in, ngi)
+        invj21 = torch.mul(j21,invdet).view(batch_in,-1)*(-1.0)
+        invj22 = torch.mul(j11,invdet).view(batch_in,-1)
+        del j21
+        del j11
         invj21 = invj21.unsqueeze(-1).expand(batch_in,ngi,nloc)
         invj22 = invj22.unsqueeze(-1).expand(batch_in,ngi,nloc)
         del invdet 
+        # print('invj21', invj21)
+        # print('invj22', invj22)
         # print('invj11expand', invj22)
         # print(invj11.shape, nlx1.shape)
         nx2 = torch.mul(invj21, nlx1) \
@@ -517,22 +524,22 @@ def sdet_snlx(snlx, x_loc, sweight):
     # calculate determinant of jacobian
     # (nface, sngi, batch_in)
     det = torch.mul(j11,j22)-torch.mul(j21,j12)
-    det = abs( det )
     invdet = torch.div(1.0,det)
-    del det # this is the final use of volume det
-    
+
     # print('det', det)
     # print('invdet', invdet)
+    del det # this is the final use of volume det
+    
     # del j11, j12, j21, j22
     ####### 
     # calculate and store inv jacobian...
     # inverse of jacobian
     # print(torch.cuda.memory_summary())
 
-    invj11 = torch.mul(j11,invdet)
-    invj12 = torch.mul(j21,invdet)*(-1.0)
-    del j11 
-    del j21
+    invj11 = torch.mul(j22,invdet)
+    invj12 = torch.mul(j12,invdet)*(-1.0)
+    del j22
+    del j12
     # operands
     # invj11 (nface, sngi, batch_in)
     # snlx (nface, ndim, nloc, sngi)
@@ -542,22 +549,22 @@ def sdet_snlx(snlx, x_loc, sweight):
         snlx[:,0,:,:].unsqueeze(-1).expand(nface,nloc,sngi,batch_in)) \
         + torch.mul(invj12.unsqueeze(1).expand(nface,nloc,sngi,batch_in), \
         snlx[:,1,:,:].unsqueeze(-1).expand(nface,nloc,sngi,batch_in)) 
-    del invj11 
-    del invj12 
     # print('invj11', invj11)
     # print('invj12', invj12)
-    # print('invj21', invj21)
-    # print('invj22', invj22)
+    del invj11 
+    del invj12 
 
-    invj21 = torch.mul(j12,invdet)*(-1.0)
-    invj22 = torch.mul(j22,invdet)
-    del j12
-    del j22 
+    invj21 = torch.mul(j21,invdet)*(-1.0)
+    invj22 = torch.mul(j11,invdet)
+    del j21
+    del j11 
     del invdet 
     snx2 = torch.mul(invj21.unsqueeze(1).expand(nface,nloc,sngi,batch_in), \
         snlx[:,0,:,:].unsqueeze(-1).expand(nface,nloc,sngi,batch_in)) \
         + torch.mul(invj22.unsqueeze(1).expand(nface,nloc,sngi,batch_in), \
         snlx[:,1,:,:].unsqueeze(-1).expand(nface,nloc,sngi,batch_in)) 
+    # print('invj21', invj21)
+    # print('invj22', invj22)
     del invj21 
     del invj22 
 
@@ -569,9 +576,10 @@ def sdet_snlx(snlx, x_loc, sweight):
     sdet[:,0] = torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1) # # face 0, local node 0 and 1
     sdet[:,1] = torch.linalg.vector_norm(x_loc[:,:,1]-x_loc[:,:,2], dim=1) # # face 1, local node 1 and 2
     sdet[:,2] = torch.linalg.vector_norm(x_loc[:,:,2]-x_loc[:,:,0], dim=1) # # face 2, local node 2 and 0
-    print(x_loc)
-    print(x_loc[:,:,0]-x_loc[:,:,1])
-    print(torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1))
+    # print(x_loc)
+    # print(x_loc[:,:,0]-x_loc[:,:,1])
+    # print(torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1))
+    # print(sdet)
     
     # # face 1, local node 1 and 2
     # sdetwei
@@ -598,6 +606,6 @@ def sdet_snlx(snlx, x_loc, sweight):
     ## permute dimensions
     snx = torch.permute(snx, (4,0,1,2,3)) # (batch_in, nface, ndim, nloc, sngi)
     
-    print(snx.shape, sdetwei.shape)
+    # print(snx.shape, sdetwei.shape)
 
     return snx, sdetwei, snormal

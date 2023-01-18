@@ -8,7 +8,7 @@ np.set_printoptions(precision=16)
 #
 # device
 dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-dev="cpu" # if force funning on cpu
+# dev="cpu" # if force funning on cpu
 
 #####################################################
 # time step settings
@@ -17,11 +17,12 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are do transient simulation
+solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='one-element.msh' # directory to mesh file (gmsh)
+filename='square_refine4.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -38,5 +39,5 @@ ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
-jac_its = 1e3 # max jacobi iteration steps
-jac_wei = 2./3.*1e-3
+jac_its = 1e5 # max jacobi iteration steps
+jac_wei = 2./3.

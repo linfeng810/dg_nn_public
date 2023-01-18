@@ -73,6 +73,7 @@ class mk(Module):
         b = torch.zeros(batch_in, nloc, 1, device=dev, dtype=torch.float64)
         b = b + b_bc.view(batch_in, nloc,1)
         if (config.isTransient) :
+            print('I go to transient...')
             nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)
         
             b = b + torch.matmul(nn/dt,torch.transpose(c_n,1,2)) # batch matrix-vector multiplication, 

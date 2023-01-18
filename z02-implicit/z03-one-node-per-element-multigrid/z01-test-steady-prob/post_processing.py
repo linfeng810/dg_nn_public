@@ -20,9 +20,7 @@ print(x_all.shape)
 c_data = pd.read_csv('./c_all.txt', header=None)
 c = c_data.to_numpy()
 
-c_data_twogrid = pd.read_csv('./c_all_16.txt', header=None)
-c_data_twogrid = c_data_twogrid.to_numpy()
-# c = c - c_data_twogrid
+
 ntime = c.shape[0]
 nloc = 10
 nele = int(x_all.shape[0]/nloc )
@@ -49,7 +47,7 @@ triangles = np.asarray([
     [10,5,6],   [5,2,6],    [9,10,8],
     [8,10,7],   [7,10,6],   [8,7,3]
 ])-1
-levels = np.linspace(c_min,c_max,11)
+levels = np.linspace(c_min,c_max,21)
 # print(np.max(c))
 print(levels)
 

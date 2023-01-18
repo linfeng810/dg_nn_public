@@ -8,6 +8,7 @@ import toughio
 import numpy as np
 import torch
 from torch.nn import Conv1d,Sequential,Module
+import scipy as sp
 # import time
 # from scipy.sparse import coo_matrix 
 from tqdm import tqdm
@@ -99,25 +100,33 @@ c = np.zeros(nonods)
 for inod in bc1:
     c[inod]=0.
     # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # y_inod = x_ref_in[inod//10, 1, inod%10]
+    # print('bc1 inod %d x %f y %f'%(inod,x_inod, y_inod))
     # c[inod]= x_inod
 for inod in bc2:
     c[inod]=0.
     # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # y_inod = x_ref_in[inod//10, 1, inod%10]
+    # print('bc2 inod %d x %f y %f'%(inod,x_inod, y_inod))
     # c[inod]= x_inod
 for inod in bc3:
     c[inod]=0.
     # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # y_inod = x_ref_in[inod//10, 1, inod%10]
+    # print('bc3 inod %d x %f y %f'%(inod,x_inod, y_inod))
     # c[inod]= x_inod
 for inod in bc4:
     x_inod = x_ref_in[inod//10, 0, inod%10]
     c[inod]= torch.sin(torch.pi*x_inod)
+    # y_inod = x_ref_in[inod//10, 1, inod%10]
+    # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
     # c[inod]= x_inod
     # print("x, c", x_inod.cpu().numpy(), c[inod])
 
 # apply boundary conditions to one-element test
 # c = x
-c[:] = np.asarray([0, 1., 1.,\
-    1./3., 2./3., 1., 1., 2./3., 1./3., 0])
+# c[:] = np.asarray([0, 1., 1.,\
+#     1./3., 2./3., 1., 1., 2./3., 1./3., 0])
 # c = y
 # c[:] = np.asarray([0, 0, 1., \
 #     0, 0, 1./3., 2./3., 2./3., 1./3., 0])
@@ -126,12 +135,8 @@ tstep=int(np.ceil((tend-tstart)/dt))+1
 c = c.reshape(nele,nloc) # reshape doesn't change memory allocation.
 c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 c_bc = c.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
-# bc_list = torch.zeros(nonods, dtype=torch.float64, device=dev)
-# for bc in [bc1,bc2,bc3,bc4]:
-#     for inod in bc:
-#         bc_list[inod]=1
-# print('bc_list',bc_list.view(nele,1,-1))
-print('c_bc',c_bc)
+
+# print('c_bc',c_bc)
 c = torch.rand_like(c)
 c_all=np.empty([tstep,nonods])
 c_all[0,:]=c.view(-1).cpu().numpy()[:]
@@ -155,128 +160,173 @@ np.savetxt('b_bc.txt', b_bc.view(-1).cpu().numpy())
 R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
     1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
 
-# surface integral operator restrcted by R
-# [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
-[diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
-print('i am going to time loop')
-r0l2all=[]
-# time loop
-for itime in tqdm(range(1,tstep)):
-    c_n = c.view(-1,1,nloc) # store last timestep value to cn
-    c_i = c_n # jacobi iteration initial value taken as last time step value 
+if (config.solver=='iterative') :
+    # surface integral operator restrcted by R
+    # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
+    [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
+    print('i am going to time loop')
+    r0l2all=[]
+    # time loop
+    for itime in tqdm(range(1,tstep)):
+        c_n = c.view(-1,1,nloc) # store last timestep value to cn
+        c_i = c_n # jacobi iteration initial value taken as last time step value 
 
-    r0l2=1
-    its=0
+        r0l2=1
+        its=0
 
-    # sawtooth iteration : sooth one time at each white dot
-    # fine grid    o   o - o   o - o   o  
-    #               \ /     \ /     \ /  ...
-    # coarse grid    o       o       o
-    while (r0l2>1e-13 and its<config.jac_its):
+        # sawtooth iteration : sooth one time at each white dot
+        # fine grid    o   o - o   o - o   o  
+        #               \ /     \ /     \ /  ...
+        # coarse grid    o       o       o
+        while (r0l2>1e-9 and its<config.jac_its):
+            c_i = c_i.view(-1,1,nloc)
+            
+            ## on fine grid
+            # calculate shape functions from element nodes coordinate
+            with torch.no_grad():
+                nx, detwei = Det_nlx.forward(x_ref_in, weight)
+            # get diagA and residual at fine grid r0
+            with torch.no_grad():
+                [diagA,r0] = Mk.forward(c_i, c_n, b_bc.view(nele,1,nloc), k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+
+            r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+            diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
+            diagA = 1./diagA
+            
+            c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
+
+            
+            # per element condensation
+            # passing r0 to next level coarse grid and solve Ae=r0
+            r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
+            
+            e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
+            
+            ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            for its1 in range(10):
+                with torch.no_grad():
+                    nx, detwei = Det_nlx.forward(x_ref_in, weight)
+
+                # mass matrix and rhs
+                with torch.no_grad():
+                    [diagRAR,rr1] = Mk1.forward(e_i, r1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
+                # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
+                rr1 = rr1 - torch.sparse.mm(RSR, e_i)
+                # np.savetxt('rr1.txt', rr1.cpu().numpy(), delimiter=',')
+
+                diagA1 = diagRAR+diagRSR 
+                diagA1 = 1./diagA1
+                e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
+
+                # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
+
+            # pass e_i back to fine mesh 
+            e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)
+            # np.savetxt('e_i0.txt', e_i0.cpu().numpy(), delimiter=',')
+            c_i = c_i + e_i0
+
+            ## finally give residual
+            with torch.no_grad():
+                nx, detwei = Det_nlx.forward(x_ref_in, weight)
+
+            # mass matrix and rhs
+            with torch.no_grad():
+                [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, b_bc.view(nele,1,nloc), \
+                    k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+            
+            r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+            r0l2 = torch.linalg.norm(r0,dim=0)[0]
+            print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
+            r0l2all.append(r0l2.cpu().numpy())
+            
+            its+=1
+
+        ## smooth a final time after we get back to fine mesh
         c_i = c_i.view(-1,1,nloc)
         
-        ## on fine grid
         # calculate shape functions from element nodes coordinate
-        with torch.no_grad():
-            nx, detwei = Det_nlx.forward(x_ref_in, weight)
-        # get diagA and residual at fine grid r0
-        with torch.no_grad():
-            [diagA,r0] = Mk.forward(c_i, c_n, b_bc.view(nele,1,nloc), k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-
-        r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-        diagA = 1./diagA
-        
-        c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
-
-        
-        # # per element condensation
-        # # passing r0 to next level coarse grid and solve Ae=r0
-        # r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
-        
-        # e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
-        
-        # ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-        # for its1 in range(10):
-        #     with torch.no_grad():
-        #         nx, detwei = Det_nlx.forward(x_ref_in, weight)
-
-        #     # mass matrix and rhs
-        #     with torch.no_grad():
-        #         [diagRAR,rr1] = Mk1.forward(e_i, r1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
-        #     # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
-        #     rr1 = rr1 - torch.sparse.mm(RSR, e_i)
-        #     # np.savetxt('rr1.txt', rr1.cpu().numpy(), delimiter=',')
-
-        #     diagA1 = diagRAR+diagRSR 
-        #     diagA1 = 1./diagA1
-        #     e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
-
-        #     # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
-
-        # # pass e_i back to fine mesh 
-        # e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)
-        # # np.savetxt('e_i0.txt', e_i0.cpu().numpy(), delimiter=',')
-        # c_i = c_i + e_i0
-
-        ## finally give residual
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
 
         # mass matrix and rhs
         with torch.no_grad():
-            [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, b_bc.view(nele,1,nloc), \
+            [diagA,r0] = Mk.forward(c_i, c_n, b_bc.view(nele,1,nloc), \
                 k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-        
-        r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        r0l2 = torch.linalg.norm(r0,dim=0)[0]
-        print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
-        r0l2all.append(r0l2.cpu().numpy())
-        
-        its+=1
 
-    ## smooth a final time after we get back to fine mesh
-    c_i = c_i.view(-1,1,nloc)
-    
+        r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+        
+        diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
+        diagA = 1./diagA
+        
+        c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
+
+        r0l2 = torch.linalg.norm(r0,dim=0)[0]
+        r0l2all.append(r0l2.cpu().numpy())
+        print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
+            
+        # if jacobi converges,
+        c = c_i.view(nonods)
+        # # apply boundary conditions (4 Dirichlet bcs)
+        # for inod in bc1:
+        #     c.view(-1)[inod]=0.
+        # for inod in bc2:
+        #     c.view(-1)[inod]=0.
+        # for inod in bc3:
+        #     c.view(-1)[inod]=0.
+        # for inod in bc4:
+        #     x_inod = x_ref_in[inod//10, 0, inod%10]
+        #     c.view(-1)[inod]= torch.sin(torch.pi*x_inod)
+        #     # print("inod, x, c", inod, x_inod, c[inod])
+        # print(c)
+
+        # combine inner/inter element contribution
+        c_all[itime,:]=c.view(-1).cpu().numpy()[:]
+
+    np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
+
+if (config.solver=='direct'):
+    # first transfer S and b_bc to scipy csr spM and np array
+    fina = S.crow_indices().cpu().numpy()
+    cola = S.col_indices().cpu().numpy()
+    values = S.values().cpu().numpy()
+    S_sp = sp.sparse.csr_matrix((values, cola, fina), shape=(nonods, nonods))
+    b_bc_np = b_bc.cpu().numpy() 
+
+    ### then assemble K as scipy csr spM
     # calculate shape functions from element nodes coordinate
     with torch.no_grad():
         nx, detwei = Det_nlx.forward(x_ref_in, weight)
+    # transfer to cpu
+    nx = nx.cpu().numpy() # (nele, ndim, ngi, nloc)
+    detwei = detwei.cpu().numpy() # (nele, ngi)
+    indices = []
+    values = []
+    k = np.asarray([[1.,0.], [0.,1.]]) # this is diffusion coefficient | homogeneous, diagonal
+    for ele in range(nele):
+        for iloc in range(nloc):
+            glob_iloc = ele*nloc + iloc 
+            for jloc in range(nloc):
+                glob_jloc = ele*nloc + jloc 
+                nxnx = 0
+                for idim in range(ndim):
+                    for gi in range(ngi):
+                        nxnx += nx[ele,idim,gi,iloc] * k[idim,idim] * nx[ele,idim,gi,jloc] * detwei[ele,gi]
+                indices.append([glob_iloc, glob_jloc])
+                values.append(nxnx)
+                # print(glob_iloc, glob_jloc, nxnx,';')
+    values = np.asarray(values)
+    indices = np.asarray(indices)
+    print(indices.shape)
+    K_sp = sp.sparse.coo_matrix((values, (indices[:,0], indices[:,1]) ), shape=(nonods, nonods))
+    K_sp = K_sp.tocsr()
 
-    # mass matrix and rhs
-    with torch.no_grad():
-        [diagA,r0] = Mk.forward(c_i, c_n, b_bc.view(nele,1,nloc), \
-            k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+    ## direct solver in scipy
+    c_i = sp.sparse.linalg.spsolve(S_sp+K_sp, b_bc_np)
+    print(c_i)
 
-    r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-    
-    diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-    diagA = 1./diagA
-    
-    c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
+    ## store to c_all to print out
+    c_all[1,:] = c_i 
 
-    r0l2 = torch.linalg.norm(r0,dim=0)[0]
-    r0l2all.append(r0l2.cpu().numpy())
-    print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
-        
-    # if jacobi converges,
-    c = c_i.view(nonods)
-    # # apply boundary conditions (4 Dirichlet bcs)
-    # for inod in bc1:
-    #     c.view(-1)[inod]=0.
-    # for inod in bc2:
-    #     c.view(-1)[inod]=0.
-    # for inod in bc3:
-    #     c.view(-1)[inod]=0.
-    # for inod in bc4:
-    #     x_inod = x_ref_in[inod//10, 0, inod%10]
-    #     c.view(-1)[inod]= torch.sin(torch.pi*x_inod)
-    #     # print("inod, x, c", inod, x_inod, c[inod])
-    # print(c)
-
-    # combine inner/inter element contribution
-    c_all[itime,:]=c.view(-1).cpu().numpy()[:]
-
-np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
 #############################################################
 # write output
