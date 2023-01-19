@@ -34,7 +34,9 @@ for inod in range(nonods):
     xi = x_all[inod,0]
     yi = x_all[inod,1]
     c_ana[inod] = np.sin(np.pi*xi) * np.sinh(np.pi*yi) / np.sinh(np.pi)
-# c_error = c_final - c_ana
+if (False): # ploting error rather than value
+    c_error = c[1,:] - c_ana
+    c[1,:] = c_error 
 # print(c_error.max(), c_error.min(), np.linalg.norm(c_error))
 
 c_max = c[1,:].max() 
