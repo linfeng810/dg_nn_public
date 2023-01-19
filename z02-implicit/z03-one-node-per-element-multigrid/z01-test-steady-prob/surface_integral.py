@@ -145,7 +145,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                 ele2 = nbele[glb_iface]
                 if (np.isnan(ele2)):
                     # this is a boundary face
-                    print('ele %d ele2 nan iface %d iface2 nan'%(ele,iface))
+                    # print('ele %d ele2 nan iface %d iface2 nan'%(ele,iface))
                     for inod in range(nloc):
                         glb_inod = ele*nloc+inod 
                         # this side 
@@ -168,7 +168,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                             values.append(-nnx-nxn+mu_e*nn)
                             # values.append(-nxn+mu_e*nn) # revirie beatrice
                             # values.append(mu_e*nn) # chris suggest to try deleting nn term
-                            print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod,nnx,nxn,nn))
+                            # print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod,nnx,nxn,nn))
                             b_bc[glb_inod] = b_bc[glb_inod] + c_bc[glb_jnod] * (-nnx+mu_e*nn)
                             # print('bbc glbi %d globj %d c_bc %f'%(glb_inod, glb_jnod, c_bc[glb_jnod]))
                             # b_bc[glb_inod] = b_bc[glb_inod] + c_bc[glb_jnod] * (-nxn+mu_e*nn) # according to Beatrice eq. (2.23)+1, there is no nnx term in Diri bc.
@@ -177,7 +177,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                 ele2 = int(abs(ele2))
                 glb_iface2 = int(abs(nbf[glb_iface]))
                 iface2 = glb_iface2%3
-                print('ele %d ele2 %d iface %d iface2 %d'%(ele,ele2,iface,iface2))
+                # print('ele %d ele2 %d iface %d iface2 %d'%(ele,ele2,iface,iface2))
                 for inod in range(nloc):
                     glb_inod = ele*nloc+inod 
                     # this side 
@@ -198,7 +198,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                         # sum 
                         indices.append([glb_inod, glb_jnod])
                         values.append(-0.5*nnx-0.5*nxn+mu_e*nn)
-                        print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod,nnx,nxn,nn))
+                        # print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod,nnx,nxn,nn))
                     # other side
                     for jnod2 in range(nloc):
                         glb_jnod2 = ele2*nloc+jnod2 
@@ -214,7 +214,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                         # sum
                         indices.append([glb_inod, glb_jnod2])
                         values.append(-0.5*nnx-0.5*nxn+mu_e*nn)
-                        print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod2,nnx,nxn,nn))
+                        # print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod2,nnx,nxn,nn))
 
     values = torch.tensor(values)
     # print(values)
