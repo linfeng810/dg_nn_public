@@ -37,3 +37,11 @@ nele = nonods/10;
 title([num2str(nele), ' elements approximation']);
 
 legend('numerical', 'analytical')
+
+figure;
+plot3(x_all(:,1), x_all(:,2), c_all(2,:)'-c_ana, 'x');
+xlabel('x')
+ylabel('y')
+zlabel('z : error of c')
+nele = nonods/10;
+title([num2str(nele), ' elements approximation']);
