@@ -17,8 +17,9 @@ import mesh_init
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
 from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color
-from volume_integral import mk, mk_lv1
+from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
 from color import color2
+import multi_grid
 
 # for pretty print out torch tensor
 # torch.set_printoptions(sci_mode=False)
@@ -151,7 +152,7 @@ c_all[0,:]=c.view(-1).cpu().numpy()[:]
 [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
     x_all, nbele, nbf, c_bc.view(-1))
 np.savetxt('diagS.txt', diagS.cpu().numpy(),delimiter=',')
-np.savetxt('indices.txt',S.to_dense().cpu().numpy(),delimiter=',')
+np.savetxt('S.txt',S.to_dense().cpu().numpy(),delimiter=',')
 np.savetxt('b_bc.txt', b_bc.view(-1).cpu().numpy())
 # print('b_bc', b_bc.view(nele,1,nloc))
 # per element condensation Rotation matrix (diagonal)
@@ -202,15 +203,28 @@ if (config.solver=='iterative') :
             
             e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
             
-            ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            for its1 in range(10):
+            ## calculate RKR to be used for multigrid
+            RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
+
+            ## add RKR and RSR to get RAR
+            [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
+            
+
+            for its1 in range(config.mg_its):
+                
+                ## use SFC to generate a series of coarse grid
+                # and iterate there (V-cycle saw-tooth fasion)
+                # then return a residual on level-1 grid (P0DG)
+                r1 = multi_grid.mg_on_P0DG(r1, RAR, diagRAR)
+
+                ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
                 with torch.no_grad():
                     nx, detwei = Det_nlx.forward(x_ref_in, weight)
 
                 # mass matrix and rhs
                 with torch.no_grad():
                     [diagRAR,rr1] = Mk1.forward(e_i, r1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
-                # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
+                np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
                 rr1 = rr1 - torch.sparse.mm(RSR, e_i)
                 # np.savetxt('rr1.txt', rr1.cpu().numpy(), delimiter=',')
 
@@ -218,7 +232,7 @@ if (config.solver=='iterative') :
                 diagA1 = 1./diagA1
                 e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
 
-                # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
+                print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
 
             # pass e_i back to fine mesh 
             e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)

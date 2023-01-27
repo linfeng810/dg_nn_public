@@ -9,6 +9,7 @@ np.set_printoptions(precision=16)
 # device
 dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # dev="cpu" # if force funning on cpu
+torch.manual_seed(0)
 
 #####################################################
 # time step settings
@@ -22,7 +23,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='large_square.msh' # directory to mesh file (gmsh)
+filename='square.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -40,4 +41,6 @@ ndglno=np.arange(0,nonods) # local to global
 
 ######################
 jac_its = 1e5 # max jacobi iteration steps
-jac_wei = 2./3.
+jac_wei = 2./3. # jacobi weight
+mg_its = 10          # mg cycle
+mg_smooth_its = 1 # smooth step

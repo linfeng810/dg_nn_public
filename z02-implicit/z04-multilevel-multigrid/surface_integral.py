@@ -315,18 +315,26 @@ def RSR_matrix_color(S,R,whichc,ncolor, fina, cola, ncola):
     calculate operator R on the first level coarse grid
     (one node per element) by coloring methotd.
     
-    #input
+    # input
+
     S : S on the fine grid, torch csr sparse matrix, (nonods, nonods)
+
     R : rotation matrix per element, (nonods)
+
     whichc : element color, (nele)
+
     ncolor : number of colors to go through, integer
+
     ncloa : number of NNZ in RAR, integer
 
-    #output
-    diagRAR : diagonal of RAR operator
+    # output
+
+    diagRAR : diagonal of RAR operator, torch array (nele, 1)
+
     RAR : operator R on the level-1 coarse grid, torch csr sparse matrix, 
-    (nele, nele)
-    RTbig restrictor, torch csr sparse matrix(nele, nonods)
+        (nele, nele)
+
+    RTbig restrictor, torch csr sparse matrix (nele, nonods)
     '''
     indices=[] # indices of entries, a list of lists
     values=[]  # values to be add to S

@@ -10621,7 +10621,7 @@
                               real, ALLOCATABLE :: a(:)
                     
                     ! graph trimming options
-          print *,'just inside ncurve_python_subdomain_space_filling_curve'
+                    !  print *,'just inside ncurve_python_subdomain_space_filling_curve'
                               no_trim=.false.; trimmed_graph_for_decomposition_only=.false.; trimmed_graph_for_reorder_only=.false.
                               duplicate=.false.; got_a_matrix=.false.
                               if((abs(graph_trim)==0).or.(abs(graph_trim)==10)) no_trim=.true.

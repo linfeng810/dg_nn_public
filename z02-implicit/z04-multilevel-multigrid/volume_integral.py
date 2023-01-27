@@ -145,3 +145,94 @@ class mk_lv1(Module):
         rr1 = r1_1 - torch.mul(diagRAR.view(batch_in,-1), e_i.view(batch_in,-1))
         
         return diagRAR.view(batch_in,1), rr1.view(batch_in,1)
+
+
+def calc_RKR(n, nx, detwei, R, k=1,dt=1):
+    '''
+    Calculate RKR matrix (diagonal) on level-1 coarse grid (P0DG).
+    Can also include M/dt if transient.
+
+    # Input
+
+    n : torch tensor, (ngi, nloc)
+        shape function N_i
+    nx : torch tensor, (nele, ndim, ngi, nloc)
+        derivative of shape functions dN_i/dx
+    detwei : torch tensor, (nele, ngi)
+        determinant x weights
+    R : torch tensor, (nloc, 1)
+        restrictor operator
+    k : scalar
+        diffusion coefficient
+    dt : scalar
+        time step (s)
+
+    # output
+    RKR : torch tensor, (nele,1)
+        if transient: R*(K+M/dt)*R;
+        if stable: R*K*R
+    '''
+
+    batch_in = nx.shape[0]
+    # stiffness matrix 
+    nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
+        detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+    nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
+        nx1nx1) # (batch_in, nloc, nloc)
+    # print('nx1nx1',nx1nx1)
+    nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
+        detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+    nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
+        nx2nx2) # (batch_in, nloc, nloc)
+    del nx
+    nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
+    del nx1nx1 , nx2nx2 
+
+    # print('nxnx', nxnx)
+    # mass matrix
+    nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
+        detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
+    nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
+        nn) # (batch_in, nloc, nloc)
+    # for ele in range(batch_in):
+    #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
+    
+    if (config.isTransient) :
+        nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)
+    
+    RKR = torch.bmm(nxnx, R.view(nloc,1).unsqueeze(0).expand(batch_in, nloc, 1)) # (batch_in, nloc, 1)
+    RKR = torch.bmm(R.view(1,nloc).unsqueeze(0).expand(batch_in, 1, nloc), RKR) # (batch_in, 1, 1)
+
+    return RKR.view(batch_in)
+
+def calc_RAR(RKR, RSR, diagRSR):
+    '''
+    Calulate the sum of RKR and RSR to get RAR
+
+    # Input:
+    RKR : torch tensor, (nele)
+        R*K*R, or R*(K+M/dt)*R if transient
+    RSR : torch sparse tensor, (nele, nele)
+        R*S*R
+
+    # output:
+    RAR : torch sparse tensor, (nele, nele)
+        R*A*R, operator on (P0DG) coarse grid
+    diagRAR : torch tensor, (nele)
+        diagonal of RAR
+    '''
+    nele = config.nele
+    diagRAR = diagRSR + RKR
+    fina = RSR.crow_indices() 
+    cola = RSR.col_indices()
+    values = RSR.values()
+    for ele in range(nele):
+        for spIdx in range(fina[ele], fina[ele+1]):
+            if (cola[spIdx]==ele) :
+                values[spIdx] += RKR[ele]
+    RAR = torch.sparse_csr_tensor(fina, cola, values, size=[nele,nele])
+    np.savetxt('RKR.txt', RKR.cpu().numpy(), delimiter=',')
+    np.savetxt('RAR.txt', RAR.to_dense().cpu().numpy(), delimiter=',')
+    np.savetxt('RSR.txt', RSR.to_dense().cpu().numpy(), delimiter=',')
+    
+    return RAR, diagRAR
