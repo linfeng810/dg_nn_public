@@ -231,8 +231,6 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
         size=(nonods, nonods), \
         device=dev)
     
-    np.savetxt('fina.txt', S_scipy.indptr,delimiter=',')
-    np.savetxt('cola.txt', S_scipy.indices,delimiter=',')
     
 
     # # inverse of mass matrix Minv_sparse

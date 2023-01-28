@@ -231,8 +231,5 @@ def calc_RAR(RKR, RSR, diagRSR):
             if (cola[spIdx]==ele) :
                 values[spIdx] += RKR[ele]
     RAR = torch.sparse_csr_tensor(fina, cola, values, size=[nele,nele])
-    np.savetxt('RKR.txt', RKR.cpu().numpy(), delimiter=',')
-    np.savetxt('RAR.txt', RAR.to_dense().cpu().numpy(), delimiter=',')
-    np.savetxt('RSR.txt', RSR.to_dense().cpu().numpy(), delimiter=',')
     
     return RAR, diagRAR
