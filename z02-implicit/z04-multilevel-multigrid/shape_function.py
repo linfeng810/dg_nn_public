@@ -512,8 +512,8 @@ def sdet_snlx(snlx, x_loc, sweight):
     # output: each component of jacobi
     # (nface, sngi, batch_in)
     j11 = torch.tensordot(snlx[:,0,:,:], x, dims=([1],[2])).view(nface, sngi, batch_in)
-    j12 = torch.tensordot(snlx[:,1,:,:], x, dims=([1],[2])).view(nface, sngi, batch_in)
-    j21 = torch.tensordot(snlx[:,0,:,:], y, dims=([1],[2])).view(nface, sngi, batch_in)
+    j12 = torch.tensordot(snlx[:,0,:,:], y, dims=([1],[2])).view(nface, sngi, batch_in)
+    j21 = torch.tensordot(snlx[:,1,:,:], x, dims=([1],[2])).view(nface, sngi, batch_in)
     j22 = torch.tensordot(snlx[:,1,:,:], y, dims=([1],[2])).view(nface, sngi, batch_in)
     
     # print('j11', j11)
