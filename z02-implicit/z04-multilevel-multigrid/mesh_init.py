@@ -1,7 +1,8 @@
 # mesh manipulation
 import numpy as np
 import torch
-import config 
+import config , time
+from get_nb import getfinele 
 
 def init():
     # initiate mesh ...
@@ -38,6 +39,18 @@ def init():
         for iloc in range(3):
             faces.append([element[iloc],element[(iloc+1)%3]])
 
+    cg_ndglno = np.zeros(nele*3, dtype=np.int64)
+    for ele in range(nele):
+        for iloc in range(3):
+            cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
+    
+    starttime = time.time()
+    # element connectivity matrix
+    ncolele,finele,colele,_ = getfinele(
+        nele,nloc=3,snloc=2,nonods=mesh.points.shape[0],
+        ndglno=cg_ndglno+1,mx_nface_p1=4,mxnele=5*nele)
+    finele=finele-1 
+    colele=colele-1
     # neighbouring faces (global indices)
     # nbface = nbf(iface)
     # input: a global face index
@@ -47,24 +60,64 @@ def init():
     #         !! output type is real, convert to int before use as index !!
     nbf=np.empty(len(faces))
     nbf[:]=np.nan
-    color=np.zeros(len(faces))
-    for iface in range(len(faces)):
-        if color[iface]==1 :
-            continue 
-        for jface in range(iface+1,len(faces)):
-            if (color[jface]==1):
-                continue 
-            elif (set(faces[jface])==set(faces[iface])):
-                # print(faces[jface],'|',faces[iface])
-                if faces[jface][0]==faces[iface][0]:
-                    nbf[iface]=jface 
-                    nbf[jface]=iface
-                else:
-                    nbf[iface]=-jface 
-                    nbf[jface]=-iface
-                color[iface]=1
-                color[jface]=1
+    found=np.empty(len(faces))
+    found[:]=False
+    for ele in range(config.nele):
+        for iface in range(3):
+            glb_iface = ele*3+iface 
+            if(found[glb_iface]):
                 continue
+            for idx in range(finele[ele],finele[ele+1]):
+                ele2 = colele[idx]
+                if (ele==ele2):
+                    continue
+                for iface2 in range(3):
+                    glb_iface2 = ele2*3+iface2 
+                    if (set(faces[glb_iface])==set(faces[glb_iface2])):
+                        if faces[glb_iface][0]==faces[glb_iface2][0]:
+                            nbf[glb_iface]=glb_iface2
+                            nbf[glb_iface2]=glb_iface
+                        else:
+                            nbf[glb_iface]=-glb_iface2
+                            nbf[glb_iface2]=-glb_iface
+                        found[glb_iface]=True 
+                        found[glb_iface2]=True 
+    endtime = time.time()
+    print('nbf: ', nbf)
+    print('time consumed in finding neighbouring:', endtime-starttime,' s')
+    #### old method very slow to be deleted in the future ####
+    # # neighbouring faces (global indices)
+    # # nbface = nbf(iface)
+    # # input: a global face index
+    # # output: the global index of the input face's neighbouring face
+    # #         sign denotes face node numbering orientation
+    # #         np.nan denotes no neighbouring found (indicating this is a boundary face)
+    # #         !! output type is real, convert to int before use as index !!
+    # starttime = time.time()
+    # nbf=np.empty(len(faces))
+    # nbf[:]=np.nan
+    # color=np.zeros(len(faces))
+    # for iface in range(len(faces)):
+    #     if color[iface]==1 :
+    #         continue 
+    #     for jface in range(iface+1,len(faces)):
+    #         if (color[jface]==1):
+    #             continue 
+    #         elif (set(faces[jface])==set(faces[iface])):
+    #             # print(faces[jface],'|',faces[iface])
+    #             if faces[jface][0]==faces[iface][0]:
+    #                 nbf[iface]=jface 
+    #                 nbf[jface]=iface
+    #             else:
+    #                 nbf[iface]=-jface 
+    #                 nbf[jface]=-iface
+    #             color[iface]=1
+    #             color[jface]=1
+    #             continue
+    # endtime = time.time()
+    # print('time consumed in finding neighbouring:', endtime-starttime,' s')
+    # print('nbf:',nbf)
+    #### end of old method ####
 
     # find neighbouring elements associated with each face
     # via neighbouring faces
