@@ -66,7 +66,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
     values=[]  # values to be add to S
 
     ### this is the *simple* interior penalty method. not accurate. delete later.
-    if (True):
+    if (not config.classicIP):
         # coeff = np.asarray([1./8., 3./8., 3./8., 1./8.]) # lumped face mass
         coeff = np.asarray([1./6., 1./3., 1./3., 1./6.])
         # coeff = np.asarray([1./4., 1./4., 1./4., 1./4.])*1e8
@@ -136,7 +136,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
 
 
     ### Classic IP method as addressed in Arnold et al. 2002
-    if (False):
+    if (config.classicIP):
         eta_e = 36. # penalty coefficient
         for ele in range(nele):
             for iface in range(config.nface):
@@ -216,13 +216,11 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                         values.append(-0.5*nnx-0.5*nxn+mu_e*nn)
                         # print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod2,nnx,nxn,nn))
 
-    values = torch.tensor(values)
+    values = np.asarray(values, dtype=np.float64)
     # print(values)
-    indices = torch.transpose(torch.tensor(indices),0,1)
+    indices = np.transpose(np.asarray(indices))
 
-
-
-    S_scipy = coo_matrix((values, (indices[0,:].numpy(), indices[1,:].numpy()) ), shape=(nonods, nonods))
+    S_scipy = coo_matrix((values, (indices[0,:], indices[1,:]) ), shape=(nonods, nonods))
     S_scipy = S_scipy.tocsr()  # this transformation will altomatically add entries at same position, perfect for assembling
     diagS = torch.tensor(S_scipy.diagonal(),device=dev).view(nonods)
     S = torch.sparse_csr_tensor(crow_indices=torch.tensor(S_scipy.indptr), \
@@ -336,11 +334,12 @@ def RSR_matrix_color(S,R,whichc,ncolor, fina, cola, ncola):
     '''
     indices=[] # indices of entries, a list of lists
     values=[]  # values to be add to S
+    R=R.cpu().numpy()
     for ele in range(nele):
         for inod in range(nloc):
             glb_inod = ele*nloc+inod 
             indices.append([glb_inod,ele])
-            values.append(R[inod].cpu().numpy())
+            values.append(R[inod])
 
     indices = np.asarray(indices)
     values = np.asarray(values)
@@ -351,20 +350,21 @@ def RSR_matrix_color(S,R,whichc,ncolor, fina, cola, ncola):
         values=Rbig_scipy.data, \
         size=(nonods, nele), \
         device=dev)
+    Rbig = Rbig.to_sparse_coo() 
     RTbig = torch.transpose(Rbig, dim0=0, dim1=1)
-
-    value = np.zeros(ncola) # NNZ entry values
+    value = torch.zeros(ncola, device=dev, dtype=torch.float64) # NNZ entry values
     for color in range(1,ncolor+1):
         mask = (whichc == color) # 1 if true; 0 if false
         mask = torch.tensor(mask, device=dev, dtype=torch.float64)
-        color_vec = torch.mv(Rbig, mask) # (nonods, 1)
-        color_vec = torch.mv(S, color_vec) # (nonods, 1)
-        color_vec = torch.mv(RTbig, color_vec) # (nele, 1)
+        print('color: ', color)
+        Rm = torch.mv(Rbig, mask) # (nonods, 1)
+        SRm = torch.mv(S, Rm) # (nonods, 1)
+        RSRm = torch.mv(RTbig, SRm) # (nele, 1)
         # add to value 
-        for i in range(color_vec.shape[0]):
+        for i in range(RSRm.shape[0]):
             for count in range(fina[i], fina[i+1]):
                 j = cola[count]
-                value[count] = value[count] + color_vec[i]*mask[j]
+                value[count] += RSRm[i]*mask[j]
 
     RSR = torch.sparse_csr_tensor(crow_indices=fina, \
         col_indices=cola, \

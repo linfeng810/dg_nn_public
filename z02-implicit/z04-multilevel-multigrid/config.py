@@ -23,7 +23,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square.msh' # directory to mesh file (gmsh)
+filename='square_refine6.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -44,3 +44,8 @@ jac_its = 1e5 # max jacobi iteration steps
 jac_wei = 2./3. # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step
+
+
+####################
+# discretisation settings
+classicIP = True # boolean
