@@ -20,6 +20,9 @@ from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color
 from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
 from color import color2
 import multi_grid
+import time 
+
+starttime = time.time()
 
 # for pretty print out torch tensor
 # torch.set_printoptions(sci_mode=False)
@@ -41,10 +44,12 @@ print('computation on ',dev)
 print('nele=', nele)
 
 [x_all, nbf, nbele, bc1, bc2, bc3, bc4 ] =mesh_init.init()
-[adjacency_matrix, fina, cola, ncola] = mesh_init.connectivity(nbele)
+[fina, cola, ncola] = mesh_init.connectivity(nbele)
 # coloring and get probing vector
 [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
-print('ncolor', ncolor)
+# np.savetxt('whichc.txt', whichc, delimiter=',')
+print('ncolor', ncolor, 'whichc type', whichc.dtype)
+print('1. time elapsed, ',time.time()-starttime)
 #####################################################
 # shape functions
 #####################################################
@@ -54,7 +59,7 @@ print('ncolor', ncolor)
 ## set weights in det_nlx
 Det_nlx = det_nlx(nlx)
 Det_nlx.to(dev)
-
+print('2. time elapsed, ',time.time()-starttime)
 # filter for calc jacobian
 calc_j11_j12_filter = np.transpose(nlx[0,:,:]) # dN/dx
 calc_j11_j12_filter = torch.tensor(calc_j11_j12_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
@@ -69,7 +74,7 @@ Det_nlx.calc_j21.weight.data = calc_j21_j22_filter
 Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
 # print(Det_nlx.calc_j11.weight.shape)
 # print(Det_nlx.calc_j11.weight.data)
-
+print('3. time elapsed, ',time.time()-starttime)
 #######################################################
 # assemble local mass matrix and stiffness matrix
 #######################################################
@@ -81,7 +86,7 @@ n = torch.transpose(torch.tensor(n, device=dev),0,1)
 
 Mk1 = mk_lv1() # level 1 mass/stiffness operator 
 Mk.to(device=dev)
-
+print('4. time elapsed, ',time.time()-starttime)
 
 ####################################################
 # time loop
@@ -141,7 +146,7 @@ c_bc = c.detach().clone() # this stores Dirichlet boundary *only*, otherwise zer
 c = torch.rand_like(c)
 c_all=np.empty([tstep,nonods])
 c_all[0,:]=c.view(-1).cpu().numpy()[:]
-
+print('5. time elapsed, ',time.time()-starttime)
 ## surface integral 
 
 # surface shape functions 
@@ -149,6 +154,7 @@ c_all[0,:]=c.view(-1).cpu().numpy()[:]
 # snx: (nele, nface, ndim, nloc, sngi)
 # sdetwei: (nele, nface, sgni)
 [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
+print('6. time elapsed, ',time.time()-starttime)
 [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
     x_all, nbele, nbf, c_bc.view(-1))
 
@@ -157,12 +163,19 @@ c_all[0,:]=c.view(-1).cpu().numpy()[:]
 #     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
 R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
     1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
-
+print('7. time elapsed, ',time.time()-starttime)
 if (config.solver=='iterative') :
     # surface integral operator restrcted by R
     # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
+
     [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
+    # print('diagRSR min max', diagRSR.min(), diagRSR.max())
+    # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
+    # np.savetxt('S_partial.txt', S.to_dense().cpu().numpy()[-100:,-100:], delimiter=',')
     print('i am going to time loop')
+    print('8. time elapsed, ',time.time()-starttime)
+    # print("Using quit()")
+    # quit()
     r0l2all=[]
     # time loop
     for itime in tqdm(range(1,tstep)):
@@ -180,7 +193,8 @@ if (config.solver=='iterative') :
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P0DG_prep(RAR)
-
+        print('9. time elapsed, ', time.time()-starttime)
+        # print(torch.cuda.memory_summary())
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
@@ -198,6 +212,7 @@ if (config.solver=='iterative') :
             
             r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
             # diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
+            # print(diagA.max(), diagA.min())
             # diagA = 1./diagA
             
             # c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
@@ -232,9 +247,10 @@ if (config.solver=='iterative') :
             # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
 
             diagA1 = diagRAR+diagRSR 
+
             diagA1 = 1./diagA1
             e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
-
+            # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
             # pass e_i back to fine mesh 
             e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)
             c_i = c_i.view(-1) + e_i0.view(-1)
@@ -252,7 +268,8 @@ if (config.solver=='iterative') :
             diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
             diagA = 1./diagA
             c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
-            
+            # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
+            # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
             r0l2 = torch.linalg.norm(r0,dim=0)[0]
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
