@@ -244,7 +244,7 @@ def connectivity(nbele):
     fina = fina.astype(int)
     ncola=cola.shape[0]
 
-    return adjacency_matrix, fina, cola, ncola
+    return fina, cola, ncola
 
 
 # local nodes number on a face
