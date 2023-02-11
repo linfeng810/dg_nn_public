@@ -64,3 +64,27 @@ nonods_sfc_all_grids : int
 nlevel : int
 
 """
+
+"""
+ncolele,finele,colele,midele = getfinele(totele,nloc,snloc,nonods,ndglno,mx_nface_p1,mxnele)
+
+Wrapper for ``getfinele``.
+
+Parameters
+----------
+totele : input int
+nloc : input int
+snloc : input int
+nonods : input int
+ndglno : input rank-1 array('i') with bounds (nloc * totele)
+mx_nface_p1 : input int
+mxnele : input int
+
+Returns
+-------
+ncolele : int
+finele : rank-1 array('i') with bounds (1 + totele)
+colele : rank-1 array('i') with bounds (mxnele)
+midele : rank-1 array('i') with bounds (totele)
+
+"""
