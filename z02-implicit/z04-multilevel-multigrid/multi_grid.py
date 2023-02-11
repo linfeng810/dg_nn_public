@@ -134,7 +134,8 @@ def mg_smooth(level, e_i, b, variables_sfc):
     # np.savetxt('a_sfc_'+str(level)+'.txt', a_sfc_sparse.to_dense().cpu().numpy(), delimiter=',')
     e_ip1 = torch.sparse.mm(a_sfc_sparse, e_i.view(nonods_level,1))
     e_ip1 = b.view(-1) - e_ip1.view(-1)
-    e_ip1 = e_i.view(-1) + config.jac_wei * e_ip1 / diag_weights.view(-1)
+    # print(diag_weights.view(-1).min(), diag_weights.view(-1).max())
+    e_ip1 = e_i.view(-1) + config.jac_wei * e_ip1 / diag_weights.view(-1).max()
     # print('a ', a_sfc_sparse.to_dense())
     # print('b ', b)
     # print('diag ', diag_weights)
@@ -199,8 +200,8 @@ def mg_on_P0DG_prep(RAR):
     whichd, sfc = \
         sf.ncurve_python_subdomain_space_filling_curve( \
         cola+1, fina+1, starting_node, graph_trim, ncurve, \
-        [nele, ncola]) # note that fortran array index start from 1, so cola and fina should +1.
-
+        ) # note that fortran array index start from 1, so cola and fina should +1.
+    # np.savetxt('sfc.txt', sfc[:,0], delimiter=',')
     ## get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(nele) + 1
     max_nonods_sfc_all_grids = 5*config.nele 
