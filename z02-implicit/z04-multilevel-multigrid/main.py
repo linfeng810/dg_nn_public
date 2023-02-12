@@ -43,8 +43,8 @@ tstart = config.tstart
 print('computation on ',dev)
 print('nele=', nele)
 
-[x_all, nbf, nbele, bc1, bc2, bc3, bc4 ] =mesh_init.init()
-[fina, cola, ncola] = mesh_init.connectivity(nbele)
+[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4 ] =mesh_init.init()
+# [fina, cola, ncola] = mesh_init.connectivity(nbele)
 # coloring and get probing vector
 [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
 # np.savetxt('whichc.txt', whichc, delimiter=',')
@@ -194,7 +194,6 @@ if (config.solver=='iterative') :
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P0DG_prep(RAR)
         print('9. time elapsed, ', time.time()-starttime)
-        # print(torch.cuda.memory_summary())
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
@@ -370,3 +369,4 @@ if (config.solver=='direct'):
 # c_all = np.asarray(c_all)[::1,:]
 np.savetxt('c_all.txt', c_all, delimiter=',')
 np.savetxt('x_all.txt', x_all, delimiter=',')
+print(torch.cuda.memory_summary())
