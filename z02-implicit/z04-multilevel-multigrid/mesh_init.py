@@ -51,6 +51,14 @@ def init():
         ndglno=cg_ndglno+1,mx_nface_p1=4,mxnele=5*nele)
     finele=finele-1 
     colele=colele-1
+    # pytorch is very strict about the index order of cola
+    # let's do a sorting
+    for row in range(finele.shape[0]-1):
+        col_this = colele[finele[row]:finele[row+1]]
+        col_this = np.sort(col_this)
+        colele[finele[row]:finele[row+1]] = col_this 
+    colele = colele[:ncolele] # cut off extras at the end of colele
+
     # neighbouring faces (global indices)
     # nbface = nbf(iface)
     # input: a global face index
@@ -211,13 +219,15 @@ def init():
     # print(bc3)
     # print(bc4)
 
-    return x_all, nbf, nbele, bc1,bc2,bc3,bc4 
+    return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 
 
 def connectivity(nbele):
     '''
-    # generate element connectivity matrix
-    # adjacency_matrix[nele, nele]
-    # its sparsity: fina, cola, ncola is nnz
+    !! extremely memory hungry
+    !! to be deprecated
+    generate element connectivity matrix
+    adjacency_matrix[nele, nele] 
+    its sparsity: fina, cola, ncola is nnz
     '''
 
     nele = config.nele
