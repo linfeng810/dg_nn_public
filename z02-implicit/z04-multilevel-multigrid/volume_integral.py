@@ -222,7 +222,7 @@ def calc_RAR(RKR, RSR, diagRSR):
         diagonal of RAR
     '''
     nele = config.nele
-    diagRAR = diagRSR + RKR
+    diagRAR = diagRSR.view(-1) + RKR
     fina = RSR.crow_indices() 
     cola = RSR.col_indices()
     values = RSR.values()
@@ -231,5 +231,6 @@ def calc_RAR(RKR, RSR, diagRSR):
             if (cola[spIdx]==ele) :
                 values[spIdx] += RKR[ele]
     RAR = torch.sparse_csr_tensor(fina, cola, values, size=[nele,nele])
+    # RAR = RSR
     
     return RAR, diagRAR
