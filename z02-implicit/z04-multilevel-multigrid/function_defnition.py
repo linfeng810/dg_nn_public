@@ -88,3 +88,48 @@ colele : rank-1 array('i') with bounds (mxnele)
 midele : rank-1 array('i') with bounds (totele)
 
 """
+
+"""
+values,indices,nidx,b_bc = 
+    classicip(sn,snx,sdetwei,snormal,nbele,
+    nbf,c_bc,mx_nidx,
+    [nloc,nele,nface,sngi,ndim,nonods,glbnface])
+
+Wrapper for ``classicip``.
+
+Parameters
+----------
+sn : input rank-3 array('d') with bounds (nface,nloc,sngi)
+snx : input rank-5 array('d') with bounds (nele,nface,ndim,nloc,sngi)
+sdetwei : input rank-3 array('d') with bounds (nele,nface,sngi)
+snormal : input rank-3 array('d') with bounds (nele,nface,ndim)
+nbele : input rank-1 array('d') with bounds (glbnface)
+nbf : input rank-1 array('d') with bounds (glbnface)
+c_bc : input rank-1 array('d') with bounds (nonods)
+mx_nidx : input int
+
+Other Parameters
+----------------
+nloc : input int, optional
+    Default: shape(sn, 1)
+nele : input int, optional
+    Default: shape(snx, 0)
+nface : input int, optional
+    Default: shape(sn, 0)
+sngi : input int, optional
+    Default: shape(sn, 2)
+ndim : input int, optional
+    Default: shape(snx, 2)
+nonods : input int, optional
+    Default: shape(c_bc, 0)
+glbnface : input int, optional
+    Default: shape(nbele, 0)
+
+Returns
+-------
+values : rank-1 array('d') with bounds (mx_nidx)
+indices : rank-2 array('i') with bounds (mx_nidx,2)
+nidx : int
+b_bc : rank-1 array('d') with bounds (nonods)
+
+"""

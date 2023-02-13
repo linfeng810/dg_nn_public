@@ -4,6 +4,7 @@ import numpy as np
 from scipy.sparse import coo_matrix 
 from mesh_init import face_iloc,face_iloc2
 from mesh_init import sgi2 as pnt_to_sgi2
+from classicIP import classicip
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -136,7 +137,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
 
 
     ### Classic IP method as addressed in Arnold et al. 2002
-    if (config.classicIP):
+    if (False):
         eta_e = 36. # penalty coefficient
         for ele in range(nele):
             for iface in range(config.nface):
@@ -216,9 +217,19 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
                         values.append(-0.5*nnx-0.5*nxn+mu_e*nn)
                         # print('glbi, %d, glbj, %d, nnx %.16f, nxn %.16f, nn %.16f'%(glb_inod,glb_jnod2,nnx,nxn,nn))
 
+    if (config.classicIP):
+        c_bc = c_bc.cpu().numpy()
+        values, indices, nidx, b_bc = classicip(
+            sn, snx, sdetwei, snormal, nbele, nbf, c_bc,
+            60*nonods
+        )
+        values = values[:nidx]
+        indices = indices[:nidx,:]-1
+        b_bc = torch.tensor(b_bc, device=dev, dtype=torch.float64)
     values = np.asarray(values, dtype=np.float64)
-    # print(values)
+    # np.savetxt('values.txt', values, delimiter=',')
     indices = np.transpose(np.asarray(indices))
+    # np.savetxt('indices.txt', indices, delimiter=',')
 
     S_scipy = coo_matrix((values, (indices[0,:], indices[1,:]) ), shape=(nonods, nonods))
     S_scipy = S_scipy.tocsr()  # this transformation will altomatically add entries at same position, perfect for assembling

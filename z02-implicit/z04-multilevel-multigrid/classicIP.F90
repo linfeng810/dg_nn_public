@@ -34,6 +34,8 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
 
   iii = 1
   b_bc = 0.
+  ! print*,nbf
+  ! print*,'nface, nele',nface, nele
   do ele = 1,nele 
     do iface = 1,nface 
       mu_e = eta_e / sum(sdetwei(ele,iface,:))
@@ -41,6 +43,7 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
       ele2f = nbele(glb_iface)
       if (isnan(ele2f)) then
         ! this is a boundary face
+        ! print*, 'ele ', ele, 'ele2 ','nan   ','iface ',iface,'iface2 ','nan '
         do inod = 1,nloc 
           ! this side
           glb_inod = (ele-1)*nloc + inod 
@@ -54,8 +57,9 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
                 * snormal(ele,iface,idim) ! Nj1 * Ni1x * n1
               nxn = nxn + sum(snx(ele,iface,idim,jnod,:)*sn(iface,inod,:)*sdetwei(ele,iface,:)) &
                 * snormal(ele,iface,idim) ! Nj1x * Ni1 * n1
-            enddo
+            enddo !idim
             nn = nn + sum(sn(iface,jnod,:)*sn(iface,inod,:)*sdetwei(ele,iface,:)) ! Nj1n1 * Ni1n1 ! n1 \cdot n1 = 1
+            ! print *, 'glbi, ',glb_inod, 'glbj, ', glb_jnod, 'nnx ',nnx,'nxn ',nxn,'nn ',nn
             ! sum to values and record the index
             indices(iii,1) = glb_inod
             indices(iii,2) = glb_jnod
@@ -63,13 +67,14 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
             iii = iii+1
             ! compute rhs
             b_bc(glb_inod) = b_bc(glb_inod) + c_bc(glb_jnod) * (-nnx+mu_e*nn) 
-          enddo
-        enddo
-        continue
-      endif
+          enddo !jnod
+        enddo !inod
+        cycle
+      endif !isnan(ele2f)
       ele2 = int(abs(ele2f))+1 ! cast to integer index
       glb_iface2 = int(abs(nbf(glb_iface))) + 1 ! from python idx to fortran idx
-      iface2 = mod( glb_iface2, 3 )
+      iface2 = mod( glb_iface2-1, 3 )+1
+      ! print*, 'ele ', ele, 'ele2f ', ele2f, 'ele2 ',ele2,'iface ',iface,'iface2',iface2
       do inod = 1,nloc 
         glb_inod = (ele-1)*nloc+inod 
         ! this side 
@@ -83,14 +88,15 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
               * snormal(ele,iface,idim)
             nxn = nxn + sum( snx(ele,iface,idim,jnod,:)*sn(iface,inod,:)*sdetwei(ele,iface,:) ) &
               * snormal(ele,iface,idim)
-          enddo
+          enddo !idim
           nn = nn + sum( sn(iface,jnod,:)*sn(iface,inod,:)*sdetwei(ele,iface,:) )
+          ! print *, 'glbi, ',glb_inod, 'glbj, ', glb_jnod, 'nnx ',nnx,'nxn ',nxn,'nn ',nn
           ! sum and put index to indices
           indices(iii,1) = glb_inod
           indices(iii,2) = glb_jnod 
           values(iii) = -0.5*nnx -0.5*nxn +mu_e*nn
           iii = iii+1
-        enddo
+        enddo !jnod
         ! other side
         do jnod2 = 1,nloc 
           glb_jnod2 = (ele2-1)*nloc + jnod2 
@@ -104,18 +110,19 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
                 * snormal(ele2,iface2,idim)
               nxn = nxn + snx(ele2,iface2,idim,jnod2,sgi2)*sn(iface,inod,sgi)*sdetwei(ele,iface,sgi) &
                 * snormal(ele,iface,idim)
-            enddo
+            enddo !idim
             nn = nn + (-1.)*sn(iface2,jnod2,sgi2)*sn(iface,inod,sgi)*sdetwei(ele,iface,sgi)
-          enddo
+          enddo !sgi
+          ! print *, 'glbi, ',glb_inod, 'glbj, ', glb_jnod2, 'nnx ',nnx,'nxn ',nxn,'nn ',nn
           ! sum and put index to indices
           indices(iii,1) = glb_inod 
           indices(iii,2) = glb_jnod2
           values(iii) = -0.5*nnx-0.5*nxn+mu_e*nn 
           iii = iii+1 
-        enddo
-      enddo
-    enddo
-  enddo
+        enddo !jnod2
+      enddo !inod
+    enddo !iface
+  enddo !ele
   nidx = iii-1
 end subroutine 
 
