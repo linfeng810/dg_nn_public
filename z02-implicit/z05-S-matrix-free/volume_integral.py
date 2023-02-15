@@ -32,11 +32,11 @@ class mk(Module):
     def __init__(self):
         super(mk, self).__init__()
 
-    def forward(self, c_i, c_n, b_bc, k, dt, n, nx, detwei):
+    def forward(self, c_i, c_n, k, dt, n, nx, detwei):
         ### input
         # c_i - node values at last jacobi iteration, i.e. c^n_i, (batch_size, 1, nloc)
         # c_n  - node values at last timestep, i.e. c^(n-1)_i, (batch_size, 1, nloc)
-        # b_bc - boundary condition contributions to the rhs, (batch_size, 1, nloc)
+        # ~~b_bc - boundary condition contributions to the rhs, (batch_size, 1, nloc) ~~ going to account this in S*c (as it should be)
         # k  - diffusion coefficient at node, right now we simplify it using constant k. (1)
         # dt - timestep. (1)
         # n  - shape function Ni, (ngi, nloc)
@@ -71,7 +71,7 @@ class mk(Module):
         #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
         
         b = torch.zeros(batch_in, nloc, 1, device=dev, dtype=torch.float64)
-        b = b + b_bc.view(batch_in, nloc,1)
+        # b = b + b_bc.view(batch_in, nloc,1)
         if (config.isTransient) :
             print('I go to transient...')
             nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)

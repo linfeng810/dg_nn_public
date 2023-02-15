@@ -17,6 +17,7 @@ import mesh_init
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
 from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color
+import surface_integral_mf
 from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
 from color import color2
 import multi_grid
@@ -155,8 +156,6 @@ print('5. time elapsed, ',time.time()-starttime)
 # sdetwei: (nele, nface, sgni)
 [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
 print('6. time elapsed, ',time.time()-starttime)
-[diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-    x_all, nbele, nbf, c_bc.view(-1))
 
 # per element condensation Rotation matrix (diagonal)
 # R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40., \
@@ -164,11 +163,14 @@ print('6. time elapsed, ',time.time()-starttime)
 R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
     1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
 print('7. time elapsed, ',time.time()-starttime)
+
 if (config.solver=='iterative') :
     # surface integral operator restrcted by R
     # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
-
+    [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
+        x_all, nbele, nbf, c_bc.view(-1))
     [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
+    del S, diagS, b_bc
     # print('diagRSR min max', diagRSR.min(), diagRSR.max())
     # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
     # np.savetxt('S_partial.txt', S.to_dense().cpu().numpy()[-100:,-100:], delimiter=',')
@@ -184,6 +186,7 @@ if (config.solver=='iterative') :
 
         r0l2=1
         its=0
+        r0 = torch.zeros(config.nonods, device=dev, dtype=torch.float64)
 
         ## prepare for MG on SFC-coarse grids
         with torch.no_grad():
@@ -207,15 +210,12 @@ if (config.solver=='iterative') :
                 nx, detwei = Det_nlx.forward(x_ref_in, weight)
             # get diagA and residual at fine grid r0
             with torch.no_grad():
-                [diagA,r0] = Mk.forward(c_i, c_n, b_bc.view(nele,1,nloc), k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-            
-            r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            # diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-            # print(diagA.max(), diagA.min())
-            # diagA = 1./diagA
-            
-            # c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
-
+                [diagA,r0] = Mk.forward(c_i, c_n,
+                                        k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+            r0 *= 0.
+            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+            [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+                                       nbele, nbf, c_bc, c_i)
             
             # per element condensation
             # passing r0 to next level coarse grid and solve Ae=r0
@@ -259,24 +259,26 @@ if (config.solver=='iterative') :
 
             # mass matrix and rhs
             with torch.no_grad():
-                [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, b_bc.view(nele,1,nloc), \
+                [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, \
                     k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-            
-            r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            
+
+            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+            [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+                            nbele, nbf, c_bc, c_i)
             diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
             diagA = 1./diagA
-            c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
+            c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
             # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
-            r0l2 = torch.linalg.norm(r0,dim=0)[0]
+
+            r0l2 = torch.linalg.norm(r0,dim=0)
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
-            
+
             its+=1
 
         ## smooth a final time after we get back to fine mesh
-        c_i = c_i.view(-1,1,nloc)
+        # c_i = c_i.view(-1,1,nloc)
         
         # calculate shape functions from element nodes coordinate
         with torch.no_grad():
@@ -284,17 +286,19 @@ if (config.solver=='iterative') :
 
         # mass matrix and rhs
         with torch.no_grad():
-            [diagA,r0] = Mk.forward(c_i, c_n, b_bc.view(nele,1,nloc), \
+            [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, 
                 k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
-        r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+        # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+        [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+                            nbele, nbf, c_bc, c_i)
         
         diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
         diagA = 1./diagA
         
-        c_i = c_i.view(nonods,1) + config.jac_wei * torch.mul(diagA, r0)
+        c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
 
-        r0l2 = torch.linalg.norm(r0,dim=0)[0]
+        r0l2 = torch.linalg.norm(r0,dim=0)
         r0l2all.append(r0l2.cpu().numpy())
         print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
             
@@ -319,6 +323,8 @@ if (config.solver=='iterative') :
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
 if (config.solver=='direct'):
+    [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
+        x_all, nbele, nbf, c_bc.view(-1))
     # first transfer S and b_bc to scipy csr spM and np array
     fina = S.crow_indices().cpu().numpy()
     cola = S.col_indices().cpu().numpy()
