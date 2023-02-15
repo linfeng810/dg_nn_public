@@ -605,6 +605,7 @@ def sdet_snlx(snlx, x_loc, sweight):
 
     ## permute dimensions
     snx = torch.permute(snx, (4,0,1,2,3)) # (batch_in, nface, ndim, nloc, sngi)
+    snx = snx.contiguous() # change memory storage so that we can view it in the future.
     
     # print(snx.shape, sdetwei.shape)
 
