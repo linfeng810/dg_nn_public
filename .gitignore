@@ -6,3 +6,5 @@ __pycache__/
 *.msh
 *.asv
 *.tmp
+*.so
+*.o
