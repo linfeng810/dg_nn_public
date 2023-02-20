@@ -16,7 +16,7 @@ import config
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
-from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color
+from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color, RSR_mf_color
 import surface_integral_mf
 from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
 from color import color2
@@ -140,12 +140,16 @@ R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
-    # surface integral operator restrcted by R
-    # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
-    [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-        x_all, nbele, nbf, u_bc.view(-1))
-    [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
-    del S, diagS, b_bc
+    # # surface integral operator restrcted by R
+    # # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
+    # [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
+    #     x_all, nbele, nbf, u_bc.view(-1))
+    # [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
+    # del S, diagS, b_bc
+
+    # go matrix free RSR calculation
+    [diagRSR, RSR] = RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
+                                  sn, snx, sdetwei, snormal, nbele, nbf)
     # print('diagRSR min max', diagRSR.min(), diagRSR.max())
     # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
     # np.savetxt('S_partial.txt', S.to_dense().cpu().numpy()[-100:,-100:], delimiter=',')

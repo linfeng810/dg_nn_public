@@ -5,6 +5,7 @@ from scipy.sparse import coo_matrix
 from mesh_init import face_iloc,face_iloc2
 from mesh_init import sgi2 as pnt_to_sgi2
 from classicIP import classicip
+import surface_mf_linear_elastic
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -388,3 +389,68 @@ def RSR_matrix_color(S,R,whichc,ncolor, fina, cola, ncola):
         diagRSR[ele,0] = RSR[ele,ele]
 
     return diagRSR, RSR, RTbig
+
+
+def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola, 
+                 sn, snx, sdetwei, snormal, nbele, nbf):
+    '''
+    This function use matrix-free S*c function to 
+    calculate RSR. 
+
+    # Input
+    R : torch tensor (nloc)
+        restrictor / prolongator
+    whichc : np array (nele)
+        element color
+    ncolor : integer
+        number of colors to go through
+    fina : np array (nele+1)
+        connectivity sparsity, starts of rows
+    cola : np array (ncola)
+        connectivity sparsity, columns
+    ncola : integer
+        number of NNZ in RAR
+    sn, snx, sdetwei, snormal : torch tensors
+        shape functions, det*weight, face normals
+    nbele, nbf : np arrays
+        neighbour elements list, neighbour face list
+
+    # Output
+    diagRSR : torch tensor (ndim, nele)
+        diagonal of RSR
+    RSR : torch sparse tensor (ndim*nele, ndim*nele)
+        operator on P0DG mesh
+    '''
+    value = torch.zeros(ncola, device=dev, dtype=torch.float64) # NNZ entry values
+    for color in range(1,ncolor+1):
+        mask = (whichc == color) # 1 if true; 0 if false
+        mask = torch.tensor(mask, device=dev, dtype=torch.float64)
+        print('color: ', color)
+        mask = mask.unsqueeze(0).expand(ndim,nele).unsqueeze(1) # (ndim,1,nele)
+        RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask) # (ndim,nloc,nele) Rm
+        [RSRm, _] = surface_mf_linear_elastic.S_mf(
+            r=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
+            sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal, nbele=nbele, nbf=nbf, 
+            u_bc=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
+            u_i=torch.transpose(RSRm, 1, 2)) # output RSRm is SRm (ndim, nele*nloc=nonods)
+        RSRm = torch.einsum('i,...ji->...j', R, RSRm.view(ndim,nele,nloc)) # output RSRm (ndim, nele)
+        # add to value 
+        # #### this is wrong#### 
+        # #### fina and cola changed for S ### 
+        # #### we may need redo coloring!  ###
+        for i in range(RSRm.shape[1]):
+            for count in range(fina[i], fina[i+1]):
+                j = cola[count]
+                value[ndim,count] += RSRm[i]*mask[j]
+
+    RSR = torch.sparse_csr_tensor(crow_indices=fina, \
+        col_indices=cola, \
+        values=value, \
+        size=(nele, nele), \
+        device=dev)
+
+    diagRSR = torch.zeros((nele,1), device=dev, dtype=torch.float64)
+    for ele in range(nele):
+        diagRSR[ele,0] = RSR[ele,ele]
+
+    return diagRSR, RSR

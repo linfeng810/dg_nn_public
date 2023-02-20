@@ -49,3 +49,13 @@ mg_smooth_its = 1 # smooth step
 ####################
 # discretisation settings
 classicIP = True # boolean
+
+####################
+# material property
+####################
+lam = 1e3
+mu = 1e3
+a = torch.eye(2)
+cijkl = lam**0.5*torch.einsum('ij,kl->ijkl',a,a)\
+    +mu**0.5*torch.einsum('ik,jl->ijkl',a,a)\
+    +mu**0.5*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
