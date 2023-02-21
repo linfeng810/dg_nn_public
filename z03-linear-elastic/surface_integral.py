@@ -418,39 +418,54 @@ def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
     # Output
     diagRSR : torch tensor (ndim, nele)
         diagonal of RSR
-    RSR : torch sparse tensor (ndim*nele, ndim*nele)
-        operator on P0DG mesh
+    RSRvalues : torch tensor (ncola, ndim, ndim)
+        operator on P0DG mesh sparse tensor RSR's values
     '''
-    value = torch.zeros(ncola, device=dev, dtype=torch.float64) # NNZ entry values
+    RSRvalues = torch.zeros(ncola,ndim,ndim, device=dev, dtype=torch.float64) # NNZ entry values
     for color in range(1,ncolor+1):
-        mask = (whichc == color) # 1 if true; 0 if false
-        mask = torch.tensor(mask, device=dev, dtype=torch.float64)
+        mask = torch.zeros(ndim,1,nele, device=dev, dtype=torch.float64) # length=(nele)
         print('color: ', color)
-        mask = mask.unsqueeze(0).expand(ndim,nele).unsqueeze(1) # (ndim,1,nele)
-        RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask) # (ndim,nloc,nele) Rm
-        [RSRm, _] = surface_mf_linear_elastic.S_mf(
-            r=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
-            sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal, nbele=nbele, nbf=nbf, 
-            u_bc=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
-            u_i=torch.transpose(RSRm, 1, 2)) # output RSRm is SRm (ndim, nele*nloc=nonods)
-        RSRm = torch.einsum('i,...ji->...j', R, RSRm.view(ndim,nele,nloc)) # output RSRm (ndim, nele)
-        # add to value 
-        # #### this is wrong#### 
-        # #### fina and cola changed for S ### 
-        # #### we may need redo coloring!  ###
-        for i in range(RSRm.shape[1]):
+        for jdim in range(ndim):
+            mask *=0
+            mask[jdim,:,:] += torch.tensor((whichc == color), device=dev, dtype=torch.float64) # 1 if true; 0 if false
+            RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask) # (ndim,nloc,nele) Rm
+            [RSRm, diagS] = surface_mf_linear_elastic.S_mf(
+                r=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
+                sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal, nbele=nbele, nbf=nbf, 
+                u_bc=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
+                u_i=torch.transpose(RSRm, 1, 2)) # output RSRm is SRm (ndim, nele*nloc=nonods)
+            # print('diagS', diagS)
+            RSRm *= (-1.) # need change sign because surface_mf_linear_elastic gives us 0 - S*Rm
+            RSRm = torch.einsum('i,...ji->...j', R, RSRm.view(ndim,nele,nloc)) # output RSRm (ndim, nele)
+            # add to value 
+            for idim in range(ndim):
+                for i in range(RSRm.shape[1]):
+                    for count in range(fina[i], fina[i+1]):
+                        j = cola[count]
+                        RSRvalues[count,idim,jdim] += RSRm[idim,i]*mask[jdim,0,j]
+
+    '''
+    # I don't think there is a need to form RSR.
+    # we will only use RSR to generate coarse grid operators.
+    # that fortran code only needs fina cola and values (ndim,ndim,ncola)
+    '''
+    # RSR = torch.sparse_csr_tensor(crow_indices=fina, \
+    #     col_indices=cola, \
+    #     values=value, \
+    #     size=(nele, nele), \
+    #     device=dev)
+
+    # diagRSR = torch.zeros((nele,1), device=dev, dtype=torch.float64)
+    # for ele in range(nele):
+    #     diagRSR[ele,0] = RSR[ele,ele]
+
+    diagRSR = torch.zeros(ndim,nele, device=dev, dtype=torch.float64)
+    for idim in range(ndim):
+        for i in range(nele):
             for count in range(fina[i], fina[i+1]):
                 j = cola[count]
-                value[ndim,count] += RSRm[i]*mask[j]
+                if (i==j) :
+                    diagRSR[idim,i] += RSRvalues[count,idim,idim]
+                    continue
 
-    RSR = torch.sparse_csr_tensor(crow_indices=fina, \
-        col_indices=cola, \
-        values=value, \
-        size=(nele, nele), \
-        device=dev)
-
-    diagRSR = torch.zeros((nele,1), device=dev, dtype=torch.float64)
-    for ele in range(nele):
-        diagRSR[ele,0] = RSR[ele,ele]
-
-    return diagRSR, RSR
+    return diagRSR, RSRvalues

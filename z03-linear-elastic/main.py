@@ -148,25 +148,23 @@ if (config.solver=='iterative') :
     # del S, diagS, b_bc
 
     # go matrix free RSR calculation
-    [diagRSR, RSR] = RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
+    [diagRSR, RSRvalues] = RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
                                   sn, snx, sdetwei, snormal, nbele, nbf)
-    # print('diagRSR min max', diagRSR.min(), diagRSR.max())
-    # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
-    # np.savetxt('S_partial.txt', S.to_dense().cpu().numpy()[-100:,-100:], delimiter=',')
+    print('diagRSR',diagRSR)
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
     # print("Using quit()")
     # quit()
     r0l2all=[]
     # time loop
+    r0 = torch.zeros(ndim, nonods, device=dev, dtype=torch.float64)
     for itime in tqdm(range(1,tstep)):
-        c_n = c.view(-1,1,nloc) # store last timestep value to cn
-        c_i = c_n # jacobi iteration initial value taken as last time step value 
+        u_n = u.view(-1,ndim,nloc) # store last timestep value to un
+        u_i = u_n # jacobi iteration initial value taken as last time step value 
 
         r0l2=1
         its=0
-        r0 = torch.zeros(config.nonods, device=dev, dtype=torch.float64)
-
+        r0 *= 0
         ## prepare for MG on SFC-coarse grids
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
