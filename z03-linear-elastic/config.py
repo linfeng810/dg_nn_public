@@ -8,7 +8,7 @@ np.set_printoptions(precision=16)
 #
 # device
 dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-dev="cpu" # if force funning on cpu
+# dev="cpu" # if force funning on cpu
 torch.manual_seed(0)
 
 #####################################################
@@ -23,7 +23,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine3.msh' # directory to mesh file (gmsh)
+filename='square.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -53,9 +53,11 @@ classicIP = True # boolean
 ####################
 # material property
 ####################
-lam = 1e3
-mu = 1e3
+lam = 1.e1
+mu = 1.e1
+rho = 1.
 a = torch.eye(2)
-cijkl = lam**0.5*torch.einsum('ij,kl->ijkl',a,a)\
-    +mu**0.5*torch.einsum('ik,jl->ijkl',a,a)\
-    +mu**0.5*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
+cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
+    +mu*torch.einsum('ik,jl->ijkl',a,a)\
+    +mu*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
+print('cijkl=', cijkl)
