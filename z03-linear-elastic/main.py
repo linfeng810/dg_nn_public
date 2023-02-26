@@ -17,10 +17,11 @@ import mesh_init
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
 from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color, RSR_mf_color
+import volume_mf_linear_elastic
 import surface_integral_mf
 from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
 from color import color2
-import multi_grid
+import multigrid_linearelastic as mg
 import time 
 
 starttime = time.time()
@@ -169,11 +170,13 @@ if (config.solver=='iterative') :
         ## prepare for MG on SFC-coarse grids
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
-        RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
-        [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
+        # RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
+        [diagRKR, RKRvalues] = volume_mf_linear_elastic.RKR_mf(n, nx, detwei, R)
+        [diagRAR, RARvalues] = volume_mf_linear_elastic.calc_RAR(\
+            diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-            multi_grid.mg_on_P0DG_prep(RAR)
+            mg.mg_on_P0DG_prep(fina, cola, RARvalues)
         print('9. time elapsed, ', time.time()-starttime)
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o  
