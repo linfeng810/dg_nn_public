@@ -354,7 +354,7 @@ class det_nlx(Module):
 
         # output
         nx - shape function derivatives Nix & Niy, 
-            (batch_size, ndim, ngi, nloc)
+            (batch_size, ndim, nloc, ngi)
         detwei - determinant times GI weight, (batch_size, ngi)
         '''
 
@@ -396,18 +396,16 @@ class det_nlx(Module):
         # input: invjac (batch_size, ngi, ndim*ndim)
         # output: nx (batch_size, ngi, ndim, nloc)
         # nx = self.calc_nx(invjac)
-        nlx1 = torch.tensor(np.transpose(self.nlx[0,:,:]), device=dev)
-        nlx1 = nlx1.expand(batch_in,ngi,nloc)
-        nlx2 = torch.tensor(np.transpose(self.nlx[1,:,:]), device=dev)
-        nlx2 = nlx2.expand(batch_in,ngi,nloc)
+        nlx1 = self.nlx[0,:,:].expand(batch_in,-1,-1)
+        nlx2 = self.nlx[1,:,:].expand(batch_in,-1,-1)
         j12 = self.calc_j12(y).view(batch_in, ngi)
         j22 = self.calc_j22(y).view(batch_in, ngi)
         invj11 = torch.mul(j22,invdet).view(batch_in,-1)
         invj12 = torch.mul(j12,invdet).view(batch_in,-1)*(-1.0)
         del j22 
         del j12
-        invj11 = invj11.unsqueeze(-1).expand(batch_in,ngi,nloc)
-        invj12 = invj12.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        invj11 = invj11.unsqueeze(1).expand(-1,nloc,-1)
+        invj12 = invj12.unsqueeze(1).expand(-1,nloc,-1)
         # print('invj11', invj11)
         # print('invj12', invj12)
         nx1 = torch.mul(invj11, nlx1) \
@@ -423,8 +421,8 @@ class det_nlx(Module):
         invj22 = torch.mul(j11,invdet).view(batch_in,-1)
         del j21
         del j11
-        invj21 = invj21.unsqueeze(-1).expand(batch_in,ngi,nloc)
-        invj22 = invj22.unsqueeze(-1).expand(batch_in,ngi,nloc)
+        invj21 = invj21.unsqueeze(1).expand(-1,nloc,-1)
+        invj22 = invj22.unsqueeze(1).expand(-1,nloc,-1)
         del invdet 
         # print('invj21', invj21)
         # print('invj22', invj22)

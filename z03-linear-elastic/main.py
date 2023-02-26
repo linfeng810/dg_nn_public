@@ -57,15 +57,16 @@ print('1. time elapsed, ',time.time()-starttime)
 # get shape functions on reference element
 [n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc, \
     config.ngi, config.ndim)
+nlx = torch.tensor(nlx, device=dev, dtype=torch.float64)
 ## set weights in det_nlx
 Det_nlx = det_nlx(nlx)
 Det_nlx.to(dev)
 print('2. time elapsed, ',time.time()-starttime)
 # filter for calc jacobian
-calc_j11_j12_filter = np.transpose(nlx[0,:,:]) # dN/dx
-calc_j11_j12_filter = torch.tensor(calc_j11_j12_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
-calc_j21_j22_filter = np.transpose(nlx[1,:,:]) # dN/dy
-calc_j21_j22_filter = torch.tensor(calc_j21_j22_filter, device=dev).unsqueeze(1) # (ngi, 1, nloc)
+calc_j11_j12_filter = torch.transpose(nlx[0,:,:],0,1) # dN/dx
+calc_j11_j12_filter = calc_j11_j12_filter.unsqueeze(1) # (ngi, 1, nloc)
+calc_j21_j22_filter = torch.transpose(nlx[1,:,:],0,1) # dN/dy
+calc_j21_j22_filter = calc_j21_j22_filter.unsqueeze(1) # (ngi, 1, nloc)
 # print(Det_nlx.calc_j11.weight.shape)
 # print(nlx.shape)
 # print(calc_j21_j22_filter.shape)
@@ -83,7 +84,7 @@ print('3. time elapsed, ',time.time()-starttime)
 
 Mk = mk()
 Mk.to(device=dev)
-n = torch.transpose(torch.tensor(n, device=dev),0,1)
+n = torch.tensor(n, device=dev, dtype=torch.float64)
 
 Mk1 = mk_lv1() # level 1 mass/stiffness operator 
 Mk.to(device=dev)
