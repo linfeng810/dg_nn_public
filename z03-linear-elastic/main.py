@@ -18,7 +18,7 @@ import mesh_init
 from shape_function import SHATRInew, det_nlx, sdet_snlx
 from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color, RSR_mf_color
 import volume_mf_linear_elastic
-import surface_integral_mf
+import surface_mf_linear_elastic
 from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
 from color import color2
 import multigrid_linearelastic as mg
@@ -119,6 +119,8 @@ tstep=int(np.ceil((tend-tstart)/dt))+1
 u = u.reshape(ndim,nele,nloc) # reshape doesn't change memory allocation.
 u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
+f = config.rhs_f(x_all) # rhs force
+
 u = torch.rand_like(u) # initial guess
 u_all=np.empty([tstep,ndim,nonods])
 u_all[0,:,:]=u.view(ndim,nonods).cpu().numpy()[:]
@@ -152,7 +154,7 @@ if (config.solver=='iterative') :
     # go matrix free RSR calculation
     [diagRSR, RSRvalues] = RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
                                   sn, snx, sdetwei, snormal, nbele, nbf)
-    print('diagRSR',diagRSR)
+    # print('diagRSR',diagRSR)
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
     # print("Using quit()")
@@ -183,7 +185,7 @@ if (config.solver=='iterative') :
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
         while (r0l2>1e-9 and its<config.jac_its):
-            c_i = c_i.view(-1,1,nloc)
+            u_i = u_i.view(ndim, nonods)
             
             ## on fine grid
             # calculate shape functions from element nodes coordinate
@@ -191,26 +193,25 @@ if (config.solver=='iterative') :
                 nx, detwei = Det_nlx.forward(x_ref_in, weight)
             # get diagA and residual at fine grid r0
             with torch.no_grad():
-                [diagA,r0] = Mk.forward(c_i, c_n,
-                                        k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-            r0 *= 0.
+                r0, diagK = volume_mf_linear_elastic.K_mf(
+                    r0, n, nx, detwei, u_i, f )
+            # r0 *= 0.
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
-                                       nbele, nbf, c_bc, c_i)
+            [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
+                            sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
             
             # per element condensation
             # passing r0 to next level coarse grid and solve Ae=r0
-            r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
-            
-            e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
+            r1 = torch.matmul(r0.view(ndim,nele,nloc),R) # restrict residual to coarser mesh, (nele, 1)
+            # e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
 
             # for its1 in range(config.mg_its):
                 
             ## use SFC to generate a series of coarse grid
             # and iterate there (V-cycle saw-tooth fasion)
             # then return a residual on level-1 grid (P0DG)
-            e_i = multi_grid.mg_on_P0DG(r1, 
-                e_i, 
+            e_i = mg.mg_smooth(r1, 
+                # e_i, 
                 space_filling_curve_numbering, 
                 variables_sfc, 
                 nlevel, 

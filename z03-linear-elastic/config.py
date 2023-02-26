@@ -61,3 +61,18 @@ cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
     +mu*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
 print('cijkl=', cijkl)
+
+#####################
+# rhs body force 
+def rhs_f(x_all):
+    # takes in coordinates numpy array (nonods, ndim)
+    # output body force: torch tensor (ndim, nonods)
+    f = np.zeros((ndim, nonods), dtype=np.float64)
+    f[0,:] += -2.0*mu*np.power(np.pi,3)*\
+        np.cos(np.pi*x_all[:,1]) * np.sin(np.pi*x_all[:,1])\
+        * (2*np.cos(2*np.pi*x_all[:,0])-1)
+    f[1,:] += 2.0*mu*np.power(np.pi,3)*\
+        np.cos(np.pi*x_all[:,0]) * np.sin(np.pi*x_all[:,0])\
+        * (2*np.cos(2*np.pi*x_all[:,1])-1)
+    f = torch.tensor(f, device=dev, dtype=torch.float64)
+    return f

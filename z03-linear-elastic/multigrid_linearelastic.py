@@ -15,20 +15,8 @@ import map_to_sfc_matrix as map_sfc
 
 ndim = config.ndim
 
-def get_a_ml_b(level, \
-    fin_sfc_nonods, \
-    fina_sfc_all_un, \
-    cola_sfc_all_un, \
-    a_sfc, b_sfc=1, ml_sfc=1):
-
-    a_sfc_level_sparse = []
-    diagonal = []
-    nonods = -1
-
-    return a_sfc_level_sparse, diagonal, nonods 
-
 # mg on p0dg smooth
-def mg_smooth(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
+def mg_smooth(r1, sfc, variables_sfc, nlevel, nodes_per_level):
     '''
     # Multi-grid cycle on P0DG mesh
 
@@ -43,8 +31,8 @@ def mg_smooth(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
     r1 : torch tensor, (ndim, nele)
         residual passed from PnDG mesh via restrictor, 
 
-    e_i1 : torch tensor, (ndim, nele)
-        previous computed error on P0DG (level-1 grid).
+    ~~e_i1 : torch tensor, (ndim, nele)~~
+        ~~previous computed error on P0DG (level-1 grid).~~
 
     sfc : numpy list (nele)
         space filling curve index for ele.
@@ -86,17 +74,40 @@ def mg_smooth(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
     inverse_numbering = np.zeros((N, ncurve), dtype=int)
     inverse_numbering[:, 0] = np.argsort(sfc[:, 0])
     
-    r = r1[:,inverse_numbering[:,0],0].view(1,1,config.nele)
+    r = r1[:,inverse_numbering[:,0]].view(ndim,1,config.nele)
     r_s = []
     r_s.append(r)
     for i in range(1,nlevel):
         # pad one node with same value as final node so that odd nodes won't be joined
-        print(r.shape)
         r = F.pad(r, (0,1), "constant", 0)
-        print(r.shape)
         with torch.no_grad():
             r = sfc_restrictor(r)
         r_s.append(r)
+
+    ## on 1DOF level
+    # note that from here on, e_i, e_ip1 have a singleton dimension 
+    # between batch-shape (ndim) and node.number (nodes_per_level[level])
+    # this singleton dimension is the "channel_in" for 1D filter (prolongator)
+    e_i = r_s[-1].view(ndim,-1)/variables_sfc[-1][1].view(ndim,-1)
+    CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[-2]/nodes_per_level[-1])
+    e_i = CNN1D_prol_odd(e_i.view(ndim,1,-1)) # prolongate
+    ## mg sweep
+    for level in reversed(range(1,nlevel-1)):
+        for _ in range(config.mg_smooth_its):
+            a_sfc_sparse, diagA, _ = variables_sfc[level]
+            e_ip1 = torch.zeros_like(e_i, device=config.dev, dtype=torch.float64) # error after smooth (at i+1-th smooth step)
+            for idim in range(ndim):
+                for jdim in range(ndim):
+                    e_ip1[idim,:] += torch.matmul(a_sfc_sparse[idim][jdim], e_i[jdim,:,:].view(-1))
+            e_ip1 -= r_s[level].view(ndim,1,-1)
+            e_ip1 *= -1.0 # now its b-Ax
+            e_ip1 = e_ip1 / diagA.view(ndim,1,-1) * config.jac_wei + e_i.view(ndim,1,-1)
+            CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level-1]/nodes_per_level[level])
+            e_i = CNN1D_prol_odd(e_ip1.view(ndim,1,-1))
+    ## map e_i to original order
+    e_i = e_i[:,0,sfc[:,0]-1]
+
+    return e_i
 
 # get a and diag a from best_sfc_map
 def get_a_diaga(level,

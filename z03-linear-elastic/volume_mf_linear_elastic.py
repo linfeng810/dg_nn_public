@@ -63,7 +63,7 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
     f = f.view(ndim, nele, nloc)
 
     # output declaration
-    diagK = torch.zeros(ndim, nele, nonods, device=dev, dtype=torch.float64)
+    diagK = torch.zeros(ndim, nele, nloc, device=dev, dtype=torch.float64)
 
     # make shape function etc. in shape
     # (nele, nloc(inod), nloc(jnod), ngi) 
