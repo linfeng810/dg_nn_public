@@ -82,7 +82,7 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
 
     # ni nj
     K+= torch.sum(torch.mul(torch.mul(
-        ni,nj),detweiv),-1).unsqueeze(0).unsqueeze(1).expande(ndim,ndim,-1,-1)
+        ni,nj),detweiv),-1).unsqueeze(0).unsqueeze(1).expand(ndim,ndim,-1,-1,-1)
     r += torch.einsum('ij...kl,j...l->i...k', K, f) # rhs force
     if (config.isTransient) :
         K *= rho/dt 
@@ -158,3 +158,147 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
     r = r.view(ndim,nonods).contiguous()
     diagK = diagK.view(ndim,nonods).contiguous()
     return r, diagK
+
+def RKR_mf(n, nx, detwei, R):
+    '''
+    This function compute the K operator on P0DG grid
+    i.e. R^T * K * R
+
+    # Input
+    n : torch tensor (nloc, ngi)
+        shape function at reference element quadrature pnts
+    nx : torch tensor (nele, ndim, nloc, ngi)
+        shape func derivatives at quad pnts
+    detwei : torch tensor (nele, ngi)
+        det x quad weights for volume integral
+    R : torch tensor (nloc)
+        restrictor
+        
+    # Output
+    diagRKR : torch tensor (ndim, nele)
+        diagonal or RKR matrix
+    RKRvalues : torch tensor (nele, ndim, ndim)
+        values of RKR sparse matrix.
+    '''
+
+    # make shape function etc. in shape
+    # (nele, nloc(inod), nloc(jnod), ngi) 
+    #      or
+    # (nele, ndim, nloc(inod), nloc(jnod), ngi)
+    # all expansions are view of original tensor
+    # so that they point to same memory address
+    ni = n.unsqueeze(0).unsqueeze(2).expand(nele,-1,nloc,-1)
+    nj = n.unsqueeze(0).unsqueeze(1).expand(nele,nloc,-1,-1)
+    nxi = nx.unsqueeze(3).expand(-1,-1,-1,nloc,-1)
+    nxj = nx.unsqueeze(2).expand(-1,-1,nloc,-1,-1)
+    detweiv = detwei.unsqueeze(1).unsqueeze(2).expand(-1,nloc,nloc,-1)
+
+    # declare K
+    K = torch.zeros(ndim,ndim,nele,nloc,nloc, device=dev, dtype=torch.float64)
+
+    # ni nj
+    K+= torch.sum(torch.mul(torch.mul(
+        ni,nj),detweiv),-1).unsqueeze(0).unsqueeze(1).expand(ndim,ndim,-1,-1,-1)
+    if (config.isTransient) :
+        K *= rho/dt 
+        diagK += torch.permute(
+            torch.diagonal(
+                torch.diagonal(K,dim1=-2,dim2=-1)
+                , dim1=0,dim2=1),
+            (2,0,1))
+    else :
+        K *= 0
+
+    # epsilon_kl C_ijkl epsilon_ij
+    K[0,0,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,0,:,:,:],nxj[:,0,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(lam+2*mu)
+    K[0,0,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,1,:,:,:],nxj[:,1,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(mu)
+    K[0,1,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,0,:,:,:],nxj[:,1,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(lam)
+    K[0,1,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,1,:,:,:],nxj[:,0,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(lam)
+    K[1,0,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,0,:,:,:],nxj[:,1,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(mu)
+    K[1,0,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,1,:,:,:],nxj[:,0,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(lam)
+    K[1,1,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,0,:,:,:],nxj[:,0,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(mu)
+    K[1,1,:,:,:] += \
+        torch.sum(
+            torch.mul(torch.mul(
+                nxi[:,1,:,:,:],nxj[:,1,:,:,:]
+            ), detweiv[:,:,:,:])
+        ,-1)*(lam+2*mu)
+
+    # declare output
+    RKRvalues = torch.einsum('...ij,i,j->...', K, R, R)
+    RKRvalues = torch.permute(RKRvalues,[2,0,1])
+    # extract diagonal
+    diagRKR = torch.zeros(ndim,nele,device=dev, dtype=torch.float64)
+    for idim in range(ndim):
+        diagRKR[idim,:] += RKRvalues[:,idim,idim]
+    
+    return diagRKR, RKRvalues
+
+def calc_RAR(diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola):
+    '''
+    calculate the sum of RKR and RSR to get RAR
+
+    # Input:
+    diagRSR : torch tensor (ndim, nele)
+        diagonal of RSR
+    diagRKR : torch tensor (ndim, nele)
+        diagonal of RKR
+    RSRvalues : torch tensor (ncola, ndim, ndim)
+        values of RSR matrix
+    RKRvalues : torch tensor (nele, ndim, ndim)
+        values of RKR matrix
+    fina : torch tensor (nele+1)
+        connectivity matrix, start of rows
+    cola : torch tensor (nonod)
+        connectivity matrix, column indices
+
+    # Output
+    diagRAR : torch tensor (ndim, nele)
+        diagonal of RAR
+    RARvalues : torch tensor (ncola, ndim, ndim)
+        values of RAR matrix, has same sparsity as RSR
+    '''
+    diagRAR = diagRSR + diagRKR 
+
+    RARvalues = torch.zeros_like(RSRvalues, device=dev, dtype=torch.float64)
+    for ele in range(nele):
+        for spIdx in range(fina[ele], fina[ele+1]):
+            if (cola[spIdx]==ele) :
+                RARvalues[spIdx,:,:] = RSRvalues[spIdx,:,:] + RKRvalues[ele,:,:]
+
+    return diagRAR , RARvalues
