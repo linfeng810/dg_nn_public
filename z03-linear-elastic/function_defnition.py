@@ -133,3 +133,60 @@ nidx : int
 b_bc : rank-1 array('d') with bounds (nonods)
 
 """
+
+"""
+vec_a_sfc_all_un,
+fina_sfc_all_un,
+cola_sfc_all_un,
+ncola_sfc_all_un,
+vec_b_sfc,
+ml_sfc,
+fin_sfc_nonods,
+nonods_sfc_all_grids,
+nlevel = vector_best_sfc_mapping_to_sfc_matrix_unstructured(
+    vec_a,
+    vec_b,
+    ml,
+    fina,
+    cola,
+    sfc_node_ordering,
+    max_nonods_sfc_all_grids,
+    max_ncola_sfc_all_un,
+    max_nlevel,
+    [ndim,ncola,nonods])
+
+Wrapper for ``vector_best_sfc_mapping_to_sfc_matrix_unstructured``.
+
+Parameters
+----------
+vec_a : input rank-3 array('f') with bounds (ndim,ndim,ncola)
+vec_b : input rank-2 array('f') with bounds (ndim,nonods)
+ml : input rank-1 array('f') with bounds (nonods)
+fina : input rank-1 array('i') with bounds (1 + nonods)
+cola : input rank-1 array('i') with bounds (ncola)
+sfc_node_ordering : input rank-1 array('i') with bounds (nonods)
+max_nonods_sfc_all_grids : input int
+max_ncola_sfc_all_un : input int
+max_nlevel : input int
+
+Other Parameters
+----------------
+ndim : input int, optional
+    Default: shape(vec_a, 0)
+ncola : input int, optional
+    Default: shape(vec_a, 2)
+nonods : input int, optional
+    Default: shape(vec_b, 1)
+
+Returns
+-------
+vec_a_sfc_all_un : rank-3 array('f') with bounds (ndim,ndim,max_ncola_sfc_all_un)
+fina_sfc_all_un : rank-1 array('i') with bounds (1 + max_nonods_sfc_all_grids)
+cola_sfc_all_un : rank-1 array('i') with bounds (max_ncola_sfc_all_un)
+ncola_sfc_all_un : int
+vec_b_sfc : rank-2 array('f') with bounds (ndim,max_nonods_sfc_all_grids)
+ml_sfc : rank-1 array('f') with bounds (max_nonods_sfc_all_grids)
+fin_sfc_nonods : rank-1 array('i') with bounds (1 + max_nlevel)
+nonods_sfc_all_grids : int
+nlevel : int
+"""
