@@ -195,11 +195,11 @@ if (config.solver=='iterative') :
             ## on fine grid
             # get diagA and residual at fine grid r0
             with torch.no_grad():
-                r0, diagK = volume_mf_linear_elastic.K_mf(
+                r0, _ = volume_mf_linear_elastic.K_mf(
                     r0, n, nx, detwei, u_i, f )
             # r0 *= 0.
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
+            [r0, _] = surface_mf_linear_elastic.S_mf(r0,
                             sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
             
             # per element condensation
@@ -224,8 +224,8 @@ if (config.solver=='iterative') :
                                                      diagRAR)
 
             # pass e_1 back to fine mesh and correct u_i
-            print(R.view(nloc,1).shape)
-            print(e1.view(ndim,1,nele).shape)
+            # print(R.view(nloc,1).shape)
+            # print(e1.view(ndim,1,nele).shape)
             u_i += torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)).view(ndim,nonods)
             ## finally give residual
             # get diagA and residual at fine grid r0
@@ -235,7 +235,8 @@ if (config.solver=='iterative') :
                     r0, n, nx, detwei, u_i, f )
             [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
                             sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-
+            # I think we need to smooth one time at finest grid as well.
+            u_i += config.jac_wei * r0 / (diagS+diagK)
             r0l2 = torch.linalg.norm(r0.view(-1),dim=0)
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
@@ -245,45 +246,27 @@ if (config.solver=='iterative') :
         ## smooth a final time after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)
         
-        # calculate shape functions from element nodes coordinate
+        # # calculate shape functions from element nodes coordinate
+        # with torch.no_grad():
+        #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+
+        r0 *= 0
         with torch.no_grad():
-            nx, detwei = Det_nlx.forward(x_ref_in, weight)
-
-        # mass matrix and rhs
-        with torch.no_grad():
-            [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, 
-                k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-
-        # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
-                            nbele, nbf, c_bc, c_i)
-        
-        diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-        diagA = 1./diagA
-        
-        c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
-
-        r0l2 = torch.linalg.norm(r0,dim=0)
+            r0, diagK = volume_mf_linear_elastic.K_mf(
+                r0, n, nx, detwei, u_i, f)
+        [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
+                                                     sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+        # I think we need to smooth one time at finest grid as well.
+        u_i += config.jac_wei * r0 / (diagS + diagK)
+        r0l2 = torch.linalg.norm(r0.view(-1), dim=0)
         r0l2all.append(r0l2.cpu().numpy())
         print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
             
         # if jacobi converges,
-        c = c_i.view(nonods)
-        # # apply boundary conditions (4 Dirichlet bcs)
-        # for inod in bc1:
-        #     c.view(-1)[inod]=0.
-        # for inod in bc2:
-        #     c.view(-1)[inod]=0.
-        # for inod in bc3:
-        #     c.view(-1)[inod]=0.
-        # for inod in bc4:
-        #     x_inod = x_ref_in[inod//10, 0, inod%10]
-        #     c.view(-1)[inod]= torch.sin(torch.pi*x_inod)
-        #     # print("inod, x, c", inod, x_inod, c[inod])
-        # print(c)
+        u = u_i.view(nonods)
 
         # combine inner/inter element contribution
-        c_all[itime,:]=c.view(-1).cpu().numpy()[:]
+        u_all[itime,:,:]=u.view(ndim, nonods).cpu().numpy()
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
@@ -338,6 +321,6 @@ if (config.solver=='direct'):
 #############################################################
 # output 1: 
 # c_all = np.asarray(c_all)[::1,:]
-np.savetxt('c_all.txt', c_all, delimiter=',')
+np.savetxt('u_all.txt', u_all, delimiter=',')
 np.savetxt('x_all.txt', x_all, delimiter=',')
 print(torch.cuda.memory_summary())

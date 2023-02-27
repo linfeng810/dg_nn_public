@@ -253,7 +253,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
             max_nlevel=max_nlevel,
             ndim=config.ndim, ncola=ncola,nonods=nele)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
-    print(fin_sfc_nonods.shape)
+    # print(fin_sfc_nonods.shape)
     a_sfc = a_sfc[:,:,:ncola_sfc_all_un]
     del b_sfc, ml_sfc 
     variables_sfc = []
