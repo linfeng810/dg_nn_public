@@ -101,7 +101,7 @@ for ele in range(nele):
         x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
         x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
 x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
-# print(x_ref_in)
+
 # initical condition
 u = torch.zeros(ndim, nonods, device=dev, dtype=torch.float64) # now we have a vector filed to solve
 
@@ -176,10 +176,15 @@ if (config.solver=='iterative') :
         [diagRKR, RKRvalues] = volume_mf_linear_elastic.RKR_mf(n, nx, detwei, R)
         [diagRAR, RARvalues] = volume_mf_linear_elastic.calc_RAR(\
             diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola)
+        del diagRKR, diagRSR, RKRvalues, RSRvalues # we will only use diagRAR and RARvalues
+        RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous() # (ndim,ndim,ncola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             mg.mg_on_P0DG_prep(fina, cola, RARvalues)
         print('9. time elapsed, ', time.time()-starttime)
+        # calculate shape functions from element nodes coordinate
+        with torch.no_grad():
+            nx, detwei = Det_nlx.forward(x_ref_in, weight)
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
@@ -188,9 +193,6 @@ if (config.solver=='iterative') :
             u_i = u_i.view(ndim, nonods)
             
             ## on fine grid
-            # calculate shape functions from element nodes coordinate
-            with torch.no_grad():
-                nx, detwei = Det_nlx.forward(x_ref_in, weight)
             # get diagA and residual at fine grid r0
             with torch.no_grad():
                 r0, diagK = volume_mf_linear_elastic.K_mf(
@@ -202,58 +204,39 @@ if (config.solver=='iterative') :
             
             # per element condensation
             # passing r0 to next level coarse grid and solve Ae=r0
-            r1 = torch.matmul(r0.view(ndim,nele,nloc),R) # restrict residual to coarser mesh, (nele, 1)
-            # e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
+            r1 = torch.matmul(r0.view(ndim,nele,nloc),R) # restrict residual to coarser mesh, (ndim, nele)
 
             # for its1 in range(config.mg_its):
                 
             ## use SFC to generate a series of coarse grid
             # and iterate there (V-cycle saw-tooth fasion)
-            # then return a residual on level-1 grid (P0DG)
-            e_i = mg.mg_smooth(r1, 
-                # e_i, 
+            # then return an error on level-1 grid (P0DG)
+            e1 = mg.mg_smooth(r1, 
                 space_filling_curve_numbering, 
                 variables_sfc, 
                 nlevel, 
                 nodes_per_level)
             
             ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            with torch.no_grad():
-                nx, detwei = Det_nlx.forward(x_ref_in, weight)
+            e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1, 
+                                                     RARvalues,
+                                                     fina, cola, 
+                                                     diagRAR)
 
-            # mass matrix and rhs
-            with torch.no_grad():
-                [diagRAR,rr1] = Mk1.forward(e_i, r1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
-            rr1 = rr1 - torch.sparse.mm(RSR, e_i)
-            # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
-
-            diagA1 = diagRAR+diagRSR 
-
-            diagA1 = 1./diagA1
-            e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
-            # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
-            # pass e_i back to fine mesh 
-            e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)
-            c_i = c_i.view(-1) + e_i0.view(-1)
+            # pass e_1 back to fine mesh and correct u_i
+            print(R.view(nloc,1).shape)
+            print(e1.view(ndim,1,nele).shape)
+            u_i += torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)).view(ndim,nonods)
             ## finally give residual
+            # get diagA and residual at fine grid r0
+            r0 *=0
             with torch.no_grad():
-                nx, detwei = Det_nlx.forward(x_ref_in, weight)
+                r0, diagK = volume_mf_linear_elastic.K_mf(
+                    r0, n, nx, detwei, u_i, f )
+            [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
+                            sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
 
-            # mass matrix and rhs
-            with torch.no_grad():
-                [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, \
-                    k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-
-            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
-                            nbele, nbf, c_bc, c_i)
-            diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-            diagA = 1./diagA
-            c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
-            # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
-            # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
-
-            r0l2 = torch.linalg.norm(r0,dim=0)
+            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
 

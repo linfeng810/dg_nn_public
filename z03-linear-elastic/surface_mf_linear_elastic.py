@@ -32,7 +32,7 @@ def S_mf(r, sn, snx, sdetwei, snormal,
          nbele, nbf, u_bc, u_i):
     '''
     This function compute the Sc contribution to residual:
-        r <- r - S*c
+        r <- r - S*c + b_bc
     where r is residual on finest grid,
         S is surface integral term matrix,
         c is field variable.

@@ -302,3 +302,46 @@ def calc_RAR(diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola):
                 RARvalues[spIdx,:,:] = RSRvalues[spIdx,:,:] + RKRvalues[ele,:,:]
 
     return diagRAR , RARvalues
+
+def RAR_smooth(r1, e1, RARvalues, fina, cola, diagRAR):
+    '''
+    This function does one smooth step on P0DG mesh. 
+    See below:
+
+    Error equation on P0DG mesh:
+        RAR * e1 = r1
+    Smooth:
+        e1 = e1 + w*(r1-RAR*e1)/diagRAR
+
+    # Input
+    r1 : torch tensor (ndim, nele)
+        residual on P0DG mesh
+    e1 : torch tensor (ndim, nele)
+        current error on P0DG mesh (passed from SFC smooth result)
+    RARvalues : torch tensor (ndim, ndim, ncola)
+        values of RAR matrix. RAR is a block-sparse matrix.
+        Its sparsity is fina and cola.
+    fina : torch tensor (nele+1)
+    cola : torch tensor (ncola)
+    diagRAR : torch tensor (ndim, nele)
+        diagonal of RAR matrix
+
+    # Output
+    e1 : torch tensor (ndim, nele)
+        e1 = e1 + w*(r1-RAR*e1)/diagRAR
+    '''
+    rr1 = torch.zeros_like(r1, device=dev, dtype=torch.float64)
+    for idim in range(ndim):
+        for jdim in range(ndim):
+            RAR = torch.sparse_csc_tensor(fina, 
+                                          cola, 
+                                          RARvalues[idim, jdim,:],
+                                          size=(nele,nele),
+                                          device=dev, 
+                                          dtype=torch.float64)
+            rr1[idim,:] += torch.matmul(RAR, e1[jdim,:])
+    rr1 -= r1
+    rr1 *= -1.0 
+    e1 += config.jac_wei * rr1 / diagRAR
+
+    return e1

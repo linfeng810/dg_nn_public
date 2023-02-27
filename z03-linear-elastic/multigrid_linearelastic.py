@@ -242,7 +242,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
     a_sfc, fina_sfc_all_un, cola_sfc_all_un, ncola_sfc_all_un, b_sfc, \
         ml_sfc, fin_sfc_nonods, nonods_sfc_all_grids, nlevel = \
         map_sfc.vector_best_sfc_mapping_to_sfc_matrix_unstructured(\
-            vec_a=np.transpose(RARvalues.cpu().numpy(), [1,2,0]),\
+            vec_a=RARvalues.cpu().numpy(),\
             vec_b=dummy, \
             ml=dummy[0,:],\
             fina=fina+1, \
