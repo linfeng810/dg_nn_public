@@ -17,7 +17,7 @@ torch.manual_seed(0)
 dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
-isTransient=False # decide if we are do transient simulation
+isTransient=False # decide if we are doing transient simulation
 solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
@@ -29,14 +29,14 @@ mesh = toughio.read_mesh(filename) # mesh object
 # mesh info
 nele = mesh.n_cells # number of elements
 cubic = True # elemnet type (cubic)
-if (cubic) :
+if cubic:
     nloc = 10  # number of nodes in an element
     ngi = 13 # number of quadrature points
     sngi = 4 # number of surface quadrature
 nonods = nloc*nele # number of nodes
 ndim = 2 # dimesnion of the problem
 nface = 3 # number of element faces
-ndglno=np.arange(0,nonods) # local to global 
+ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
@@ -53,14 +53,17 @@ classicIP = True # boolean
 ####################
 # material property
 ####################
-lam = 1.e1
-mu = 1.e1
+E = 1.0e5
+nu = 0.3  # or 0.49, or 0.4999
+lam = E*nu/(1.+nu)/(1.-2.*nu)
+mu = E/2.0/(1.-nu)
+# print('lam, mu', lam, mu)
 rho = 1.
 a = torch.eye(2)
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
     +mu*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
-print('cijkl=', cijkl)
+# print('cijkl=', cijkl)
 
 #####################
 # rhs body force 
