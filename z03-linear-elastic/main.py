@@ -271,56 +271,31 @@ if (config.solver=='iterative') :
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
 if (config.solver=='direct'):
-    [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-        x_all, nbele, nbf, c_bc.view(-1))
-    # first transfer S and b_bc to scipy csr spM and np array
-    fina = S.crow_indices().cpu().numpy()
-    cola = S.col_indices().cpu().numpy()
-    values = S.values().cpu().numpy()
-    S_sp = sp.sparse.csr_matrix((values, cola, fina), shape=(nonods, nonods))
-    b_bc_np = b_bc.cpu().numpy() 
-
-    ### then assemble K as scipy csr spM
-    # calculate shape functions from element nodes coordinate
+    from assemble_matrix_for_direct_solver import SK_matrix
     with torch.no_grad():
         nx, detwei = Det_nlx.forward(x_ref_in, weight)
-    # transfer to cpu
-    nx = nx.cpu().numpy() # (nele, ndim, ngi, nloc)
-    detwei = detwei.cpu().numpy() # (nele, ngi)
-    indices = []
-    values = []
-    k = np.asarray([[1.,0.], [0.,1.]]) # this is diffusion coefficient | homogeneous, diagonal
-    for ele in range(nele):
-        for iloc in range(nloc):
-            glob_iloc = ele*nloc + iloc 
-            for jloc in range(nloc):
-                glob_jloc = ele*nloc + jloc 
-                nxnx = 0
-                for idim in range(ndim):
-                    for gi in range(ngi):
-                        nxnx += nx[ele,idim,gi,iloc] * k[idim,idim] * nx[ele,idim,gi,jloc] * detwei[ele,gi]
-                indices.append([glob_iloc, glob_jloc])
-                values.append(nxnx)
-                # print(glob_iloc, glob_jloc, nxnx,';')
-    values = np.asarray(values)
-    indices = np.asarray(indices)
-    print(indices.shape)
-    K_sp = sp.sparse.coo_matrix((values, (indices[:,0], indices[:,1]) ), shape=(nonods, nonods))
-    K_sp = K_sp.tocsr()
-
-    ## direct solver in scipy
-    c_i = sp.sparse.linalg.spsolve(S_sp+K_sp, b_bc_np)
-    print(c_i)
-
-    ## store to c_all to print out
-    c_all[1,:] = c_i 
-
+    # assemble S+K matrix and rhs (force + bc)
+    SK, rhs_b = SK_matrix(n, nx, detwei,
+                          sn, snx, sdetwei, snormal,
+                          nbele, nbf, f, u_bc,
+                          fina, cola, ncola)
+    np.savetxt('SK.txt', SK.toarray(), delimiter=',')
+    # direct solver in scipy
+    SK = SK.tocsr()
+    u_i = sp.sparse.linalg.spsolve(SK, rhs_b)  # shape nele*ndim*nloc
+    u_i = np.reshape(u_i, (nele, ndim, nloc))
+    u_i = np.transpose(u_i, (1,0,2))
+    u_i = np.reshape(u_i, (ndim, nele*nloc))
+    # store to c_all to print out
+    u_all[1,:,:] = u_i
 
 #############################################################
 # write output
 #############################################################
 # output 1: 
-# c_all = np.asarray(c_all)[::1,:]
+# to output, we need to change u_all to 2D array
+# (tstep, ndim*nonods)
+u_all = np.reshape(u_all, (tstep, ndim*nonods))
 np.savetxt('u_all.txt', u_all, delimiter=',')
 np.savetxt('x_all.txt', x_all, delimiter=',')
 print(torch.cuda.memory_summary())
