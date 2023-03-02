@@ -18,12 +18,12 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='iterative' # 'direct' or 'iterative'
+solver='direct' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square.msh' # directory to mesh file (gmsh)
+filename='square_refine5.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -57,9 +57,12 @@ E = 1.0e5
 nu = 0.3  # or 0.49, or 0.4999
 lam = E*nu/(1.+nu)/(1.-2.*nu)
 mu = E/2.0/(1.-nu)
+lam = 1.0; mu = 1.0
+kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
 a = torch.eye(2)
+kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
     +mu*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
@@ -78,4 +81,7 @@ def rhs_f(x_all):
         np.cos(np.pi*x_all[:,0]) * np.sin(np.pi*x_all[:,0])\
         * (2*np.cos(2*np.pi*x_all[:,1])-1)
     f = torch.tensor(f, device=dev, dtype=torch.float64)
+    # f *=0
+    np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
+    np.savetxt('x_all.txt', x_all, delimiter=',')
     return f

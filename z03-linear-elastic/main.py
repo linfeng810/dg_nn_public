@@ -113,8 +113,10 @@ for inod in bc2:
 for inod in bc3:
     u[:,inod]=0.
 for inod in bc4:
-    u[:,inod]=0.    
-
+    u[:,inod]=0.
+    # x_inod = x_ref_in[inod//10, 0, inod%10]
+    # u[:,inod]= torch.sin(torch.pi*x_inod)
+print(u)
 tstep=int(np.ceil((tend-tstart)/dt))+1
 u = u.reshape(ndim,nele,nloc) # reshape doesn't change memory allocation.
 u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
@@ -272,6 +274,7 @@ if (config.solver=='iterative') :
 
 if (config.solver=='direct'):
     from assemble_matrix_for_direct_solver import SK_matrix
+    # from assemble_double_diffusion_direct_solver import SK_matrix
     with torch.no_grad():
         nx, detwei = Det_nlx.forward(x_ref_in, weight)
     # assemble S+K matrix and rhs (force + bc)
@@ -280,9 +283,12 @@ if (config.solver=='direct'):
                           nbele, nbf, f, u_bc,
                           fina, cola, ncola)
     np.savetxt('SK.txt', SK.toarray(), delimiter=',')
+    np.savetxt('rhs_b.txt', rhs_b, delimiter=',')
+    print('8. (direct solver) done assmeble, time elapsed: ', time.time()-starttime)
     # direct solver in scipy
     SK = SK.tocsr()
     u_i = sp.sparse.linalg.spsolve(SK, rhs_b)  # shape nele*ndim*nloc
+    print('9. (direct solver) done solve, time elapsed: ', time.time()-starttime)
     u_i = np.reshape(u_i, (nele, ndim, nloc))
     u_i = np.transpose(u_i, (1,0,2))
     u_i = np.reshape(u_i, (ndim, nele*nloc))
@@ -298,4 +304,5 @@ if (config.solver=='direct'):
 u_all = np.reshape(u_all, (tstep, ndim*nonods))
 np.savetxt('u_all.txt', u_all, delimiter=',')
 np.savetxt('x_all.txt', x_all, delimiter=',')
+print('10. done output, time elaspsed: ', time.time()-starttime)
 print(torch.cuda.memory_summary())
