@@ -109,8 +109,8 @@ def SK_matrix(n, nx, detwei,
     Kvalues = K.cpu().numpy()  # shape(ndim,ndim,nele,nloc,nloc)
     Kvalues = np.transpose(Kvalues, (2,0,3,1,4))  # shape(nele,ndim,nloc,ndim,nloc)
     Kvalues = np.reshape(Kvalues, (nele, ndim*nloc, ndim*nloc))
-    for iiii in range(nele):
-        np.savetxt('K'+str(iiii)+'.txt', Kvalues[iiii,:,:], delimiter=',')  # Ok Kvalues is correct.
+    # for iiii in range(nele):
+    #     np.savetxt('K'+str(iiii)+'.txt', Kvalues[iiii,:,:], delimiter=',')  # Ok Kvalues is correct.
     # S
     # first lets separate nbf to get two list of F_i and F_b
     F_i = np.where(np.logical_not(np.isnan(nbf)))[0]  # interior face
@@ -140,18 +140,18 @@ def SK_matrix(n, nx, detwei,
     Svalues, rhs_bc = S_fb(Svalues, f_b, E_F_b, F_b,
                            sn, snx, snormal, sdetwei, u_bc,
                            fina, cola)
-    for iiii in range(4):
-        np.savetxt('S'+str(iiii)+'.txt', Svalues[iiii,...], delimiter=',')  # OK this Svalues is correct!
+    # for iiii in range(4):
+    #     np.savetxt('S'+str(iiii)+'.txt', Svalues[iiii,...], delimiter=',')  # OK this Svalues is correct!
     # add Kvalues to Svalues
     for i in range(nele):
         for j in range(fina[i],fina[i+1]):
             if i==cola[j] :
                 Svalues[j,:,:] += Kvalues[i,:,:]
-    for iiii in range(4):
-        np.savetxt('SK'+str(iiii)+'.txt', Svalues[iiii,...], delimiter=',')
+    # for iiii in range(4):
+    #     np.savetxt('SK'+str(iiii)+'.txt', Svalues[iiii,...], delimiter=',')
     SK = bsr_matrix((Svalues, cola, fina), shape=(ndim*nonods, ndim*nonods))
-    np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
-    np.savetxt('rhs_bc.txt', rhs_bc, delimiter=',')  # Ok this rhs_bc is also correct!
+    # np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
+    # np.savetxt('rhs_bc.txt', rhs_bc, delimiter=',')  # Ok this rhs_bc is also correct!
     rhs_f += rhs_bc
     return SK, rhs_f
 

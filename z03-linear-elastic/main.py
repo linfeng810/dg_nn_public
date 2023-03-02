@@ -282,8 +282,8 @@ if (config.solver=='direct'):
                           sn, snx, sdetwei, snormal,
                           nbele, nbf, f, u_bc,
                           fina, cola, ncola)
-    np.savetxt('SK.txt', SK.toarray(), delimiter=',')
-    np.savetxt('rhs_b.txt', rhs_b, delimiter=',')
+    # np.savetxt('SK.txt', SK.toarray(), delimiter=',')
+    # np.savetxt('rhs_b.txt', rhs_b, delimiter=',')
     print('8. (direct solver) done assmeble, time elapsed: ', time.time()-starttime)
     # direct solver in scipy
     SK = SK.tocsr()

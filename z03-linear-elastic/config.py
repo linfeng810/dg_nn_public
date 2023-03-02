@@ -23,7 +23,7 @@ solver='direct' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine5.msh' # directory to mesh file (gmsh)
+filename='square_refine6.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -82,6 +82,6 @@ def rhs_f(x_all):
         * (2*np.cos(2*np.pi*x_all[:,1])-1)
     f = torch.tensor(f, device=dev, dtype=torch.float64)
     # f *=0
-    np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
-    np.savetxt('x_all.txt', x_all, delimiter=',')
+    # np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
+    # np.savetxt('x_all.txt', x_all, delimiter=',')
     return f

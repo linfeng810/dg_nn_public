@@ -97,7 +97,7 @@ def get_a_ml_b(level, \
         #     a_sfc_level_sparse = torch.sparse.mm(ml_sfc_level_sparse_inv, a_sfc_level_sparse)
         #     b_sfc_level = b_sfc_level/ml_sfc_level
         #  ml_sfc_level_sparse, ml_sfc_level_sparse_inv,
-        np.savetxt('a_sfc_'+str(level)+'.txt', a_sfc_level_sparse.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('a_sfc_'+str(level)+'.txt', a_sfc_level_sparse.to_dense().cpu().numpy(), delimiter=',')
     return a_sfc_level_sparse, 1, diagonal, nonods
 
 

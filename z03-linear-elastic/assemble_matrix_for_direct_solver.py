@@ -143,8 +143,8 @@ def SK_matrix(n, nx, detwei,
             if i==cola[j] :
                 Svalues[j,:,:] += Kvalues[i,:,:]
     SK = bsr_matrix((Svalues, cola, fina), shape=(ndim*nonods, ndim*nonods))
-    np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
-    np.savetxt('rhs_bc.txt', rhs_bc, delimiter=',')
+    # np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
+    # np.savetxt('rhs_bc.txt', rhs_bc, delimiter=',')
     rhs_f += rhs_bc
     return SK, rhs_f
 
