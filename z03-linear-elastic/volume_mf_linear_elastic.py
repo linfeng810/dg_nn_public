@@ -81,70 +81,38 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
     K = torch.zeros(ndim,ndim,nele,nloc,nloc, device=dev, dtype=torch.float64)
 
     # ni nj
-    K+= torch.sum(torch.mul(torch.mul(
-        ni,nj),detweiv),-1).unsqueeze(0).unsqueeze(1).expand(ndim,ndim,-1,-1,-1)
+    for idim in range(ndim):
+        K[idim, idim, ...] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
     r += torch.einsum('ij...kl,j...l->i...k', K, f) # rhs force
     if (config.isTransient) :
         K *= rho/dt 
         r += torch.einsum('ij...kl,j...l->i...k', 
             K, (u_old.view(ndim,nele,nloc)-u_i) )
-        diagK += torch.permute(
-            torch.diagonal(
-                torch.diagonal(K,dim1=-2,dim2=-1)
-                , dim1=0,dim2=1),
-            (2,0,1))
+        # diagK += torch.permute(
+        #     torch.diagonal(
+        #         torch.diagonal(K,dim1=-2,dim2=-1)
+        #         , dim1=0,dim2=1),
+        #     (2,0,1))
     else :
         K *= 0
 
     # epsilon_kl C_ijkl epsilon_ij
-    K[0,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam+2*mu)
-    K[0,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(mu)
-    K[0,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam)
-    K[0,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam)
-    K[1,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(mu)
-    K[1,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam)
-    K[1,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(mu)
-    K[1,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam+2*mu)
+    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * (lam + 2 * mu)
+    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
+    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * lam
+    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
+    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
+    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * lam
+    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
+    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * (lam + 2 * mu)
 
     # add to residual
     r -= torch.einsum('ij...kl,j...l->i...k', K, u_i) # rhs force
@@ -197,67 +165,35 @@ def RKR_mf(n, nx, detwei, R):
     K = torch.zeros(ndim,ndim,nele,nloc,nloc, device=dev, dtype=torch.float64)
 
     # ni nj
-    K+= torch.sum(torch.mul(torch.mul(
-        ni,nj),detweiv),-1).unsqueeze(0).unsqueeze(1).expand(ndim,ndim,-1,-1,-1)
+    for idim in range(ndim):
+        K[idim, idim, ...] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
     if (config.isTransient) :
-        K *= rho/dt 
-        diagK += torch.permute(
-            torch.diagonal(
-                torch.diagonal(K,dim1=-2,dim2=-1)
-                , dim1=0,dim2=1),
-            (2,0,1))
+        K *= rho/dt
+        # diagRKR += torch.permute(
+        #     torch.diagonal(
+        #         torch.diagonal(K,dim1=-2,dim2=-1)
+        #         , dim1=0,dim2=1),
+        #     (2,0,1))
     else :
         K *= 0
 
     # epsilon_kl C_ijkl epsilon_ij
-    K[0,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam+2*mu)
-    K[0,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(mu)
-    K[0,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam)
-    K[0,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam)
-    K[1,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(mu)
-    K[1,0,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam)
-    K[1,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,0,:,:,:],nxj[:,0,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(mu)
-    K[1,1,:,:,:] += \
-        torch.sum(
-            torch.mul(torch.mul(
-                nxi[:,1,:,:,:],nxj[:,1,:,:,:]
-            ), detweiv[:,:,:,:])
-        ,-1)*(lam+2*mu)
+    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * (lam + 2 * mu)
+    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
+    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * lam
+    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
+    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
+    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * lam
+    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
+    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * (lam + 2 * mu)
 
     # declare output
     RKRvalues = torch.einsum('...ij,i,j->...', K, R, R)
