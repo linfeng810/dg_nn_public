@@ -18,12 +18,12 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='direct' # 'direct' or 'iterative'
+solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine6.msh' # directory to mesh file (gmsh)
+filename='small_square.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -40,8 +40,8 @@ ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
-jac_its = 1e5 # max jacobi iteration steps
-jac_wei = 2./3. # jacobi weight
+jac_its = 1e2 # max jacobi iteration steps
+jac_wei = 1./3.  # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step
 
@@ -72,12 +72,12 @@ cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
 # rhs body force 
 def rhs_f(x_all):
     # takes in coordinates numpy array (nonods, ndim)
-    # output body force: torch tensor (ndim, nonods)
-    f = np.zeros((ndim, nonods), dtype=np.float64)
-    f[0,:] += -2.0*mu*np.power(np.pi,3)*\
+    # output body force: torch tensor (nele*nloc, ndim)
+    f = np.zeros((nonods, ndim), dtype=np.float64)
+    f[:, 0] += -2.0*mu*np.power(np.pi,3)*\
         np.cos(np.pi*x_all[:,1]) * np.sin(np.pi*x_all[:,1])\
         * (2*np.cos(2*np.pi*x_all[:,0])-1)
-    f[1,:] += 2.0*mu*np.power(np.pi,3)*\
+    f[:, 1] += 2.0*mu*np.power(np.pi,3)*\
         np.cos(np.pi*x_all[:,0]) * np.sin(np.pi*x_all[:,0])\
         * (2*np.cos(2*np.pi*x_all[:,1])-1)
     f = torch.tensor(f, device=dev, dtype=torch.float64)

@@ -27,7 +27,7 @@ mu = config.mu
 dt = config.dt 
 rho = config.rho 
 
-def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
+def K_mf(r, n, nx, detwei, u_i, f, u_old=torch.empty(0)):
     '''
     This function compute the Ku contribution to the residual:
         r <- r - K*u
@@ -36,7 +36,7 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
         u is field variable.
 
     # Input
-    r : torch tensor (ndim, nonods)
+    r : torch tensor (nonods, ndim)
         residual vector that hasn't taken into account of K*c
     n : torch tensor (nloc, ngi)
         shape function at reference element quadrature pnts
@@ -44,26 +44,26 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
         shape func derivatives at quad pnts
     detwei : torch tensor (nele, ngi)
         det x quad weights for volume integral
-    u_i : torch tensor (ndim, nonods)
+    u_i : torch tensor (nonods, ndim)
         field value at i-th iteration (last iteration)
-    f : torch tensor (ndim, nonods)
+    f : torch tensor (nonods, ndim)
         right hand side force.
-    u_old : torch tensor (ndim, nonods)
+    u_old : torch tensor (nonods, ndim)
         (optional), field value at last timestep, if transient
 
     # Output
-    r : torch tensor (ndim, nonods)
+    r : torch tensor (nele*nloc, ndim)
         residual vector that has taken into account of K*u
-    diagK : torch tensor (ndim, nonods)
+    diagK : torch tensor (nele*nloc, ndim)
         diagonal of volume integral matrix (may contain mass if transient)
     '''
 
-    u_i = u_i.view(ndim, nele, nloc)
-    r = r.view(ndim, nele, nloc)
-    f = f.view(ndim, nele, nloc)
+    u_i = u_i.view(nele, nloc, ndim)
+    r = r.view(nele, nloc, ndim)
+    f = f.view(nele, nloc, ndim)
 
     # output declaration
-    diagK = torch.zeros(ndim, nele, nloc, device=dev, dtype=torch.float64)
+    diagK = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)
 
     # make shape function etc. in shape
     # (nele, nloc(inod), nloc(jnod), ngi) 
@@ -78,53 +78,51 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=0):
     detweiv = detwei.unsqueeze(1).unsqueeze(2).expand(-1,nloc,nloc,-1)
 
     # declare K
-    K = torch.zeros(ndim,ndim,nele,nloc,nloc, device=dev, dtype=torch.float64)
+    K = torch.zeros(nele, nloc, nloc, ndim, ndim, device=dev, dtype=torch.float64)
 
     # ni nj
     for idim in range(ndim):
-        K[idim, idim, ...] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
-    r += torch.einsum('ij...kl,j...l->i...k', K, f) # rhs force
-    if (config.isTransient) :
+        K[..., idim, idim] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
+    r += torch.einsum('...ijkl,...jl->...ik', K, f)  # rhs force
+    if config.isTransient:
         K *= rho/dt 
-        r += torch.einsum('ij...kl,j...l->i...k', 
-            K, (u_old.view(ndim,nele,nloc)-u_i) )
+        r += torch.einsum('...ijkl,...jl->...ik',
+                          K, u_old.view(nele, nloc, ndim))
         # diagK += torch.permute(
         #     torch.diagonal(
         #         torch.diagonal(K,dim1=-2,dim2=-1)
         #         , dim1=0,dim2=1),
         #     (2,0,1))
-    else :
+    else:
         K *= 0
 
     # epsilon_kl C_ijkl epsilon_ij
-    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * (lam + 2 * mu)
-    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
-    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * lam
-    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
-    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
-    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * lam
-    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
-    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * (lam + 2 * mu)
 
     # add to residual
-    r -= torch.einsum('ij...kl,j...l->i...k', K, u_i) # rhs force
+    r -= torch.einsum('...ijkl,...jl->...ik', K, u_i)  # rhs force
     # extract diagonal
-    diagK += torch.permute(
-        torch.diagonal(
-            torch.diagonal(K,dim1=-2,dim2=-1)
-            , dim1=0,dim2=1),
-        (2,0,1))
+    # print(torch.diagonal(K, dim1=1, dim2=2).shape)
+    # print(torch.diagonal(torch.diagonal(K, dim1=1, dim2=2), dim1=1, dim2=2).shape)
+    diagK += torch.diagonal(torch.diagonal(K, dim1=1, dim2=2), dim1=1, dim2=2)
     # make memory contiguous
-    r = r.view(ndim,nonods).contiguous()
-    diagK = diagK.view(ndim,nonods).contiguous()
+    r = r.view(nele*nloc, ndim).contiguous()
+    diagK = diagK.view(nele*nloc, ndim).contiguous()
     return r, diagK
 
 def RKR_mf(n, nx, detwei, R):

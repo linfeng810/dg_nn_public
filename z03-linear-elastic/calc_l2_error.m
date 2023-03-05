@@ -1,8 +1,10 @@
+clear;
 ndim=2;
+nloc=10;
 % first read in u_all and x_all
 
-% u_all: (n_timestep , ndim*nonods)
-% x_all: (nonods, 2)
+% u_all: (n_timestep , ndim*nloc*nele)
+% x_all: (nele*nloc, 2)
 u_allt = readmatrix('u_all.txt');
 x_all = readmatrix('x_all.txt');
 % l2 norm of a-b
@@ -14,8 +16,8 @@ sq_sum = 0 ; % sum of squares
 l_inf = 0;
 
 % u_all reshape:
-u_all1 = u_allt(2,:);
-u_all = [u_all1(1:nele*10); u_all1(nele*10+1:end)];
+u_all = u_allt(2,:);
+u_all = reshape(u_all, ndim, nloc*nele);
 
 u_ana = zeros(ndim, nonods); % analytical solution
 

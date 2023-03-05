@@ -103,31 +103,31 @@ for ele in range(nele):
 x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
 
 # initical condition
-u = torch.zeros(ndim, nonods, device=dev, dtype=torch.float64) # now we have a vector filed to solve
+u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
 
 # apply boundary conditions (4 Dirichlet bcs)
 for inod in bc1:
-    u[:,inod]=0.
+    u[int(inod/nloc), inod%nloc, :]=0.
 for inod in bc2:
-    u[:,inod]=0.
+    u[int(inod/nloc), inod%nloc, :]=0.
 for inod in bc3:
-    u[:,inod]=0.
+    u[int(inod/nloc), inod%nloc, :]=0.
 for inod in bc4:
-    u[:,inod]=0.
+    u[int(inod/nloc), inod%nloc, :]=0.
     # x_inod = x_ref_in[inod//10, 0, inod%10]
     # u[:,inod]= torch.sin(torch.pi*x_inod)
-print(u)
+# print(u)
 tstep=int(np.ceil((tend-tstart)/dt))+1
-u = u.reshape(ndim,nele,nloc) # reshape doesn't change memory allocation.
+u = u.reshape(nele, nloc, ndim) # reshape doesn't change memory allocation.
 u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
 f = config.rhs_f(x_all) # rhs force
 
 u = torch.rand_like(u) # initial guess
-u_all=np.empty([tstep,ndim,nonods])
-u_all[0,:,:]=u.view(ndim,nonods).cpu().numpy()[:]
+# u = torch.ones_like(u)
+u_all=np.empty([tstep, nele, nloc, ndim])
+u_all[0, :, :, :]=u.view(nele, nloc, ndim).cpu().numpy()
 print('5. time elapsed, ',time.time()-starttime)
-## surface integral 
 
 # surface shape functions 
 # output :
@@ -141,8 +141,8 @@ print('6. time elapsed, ',time.time()-starttime)
 # per element condensation Rotation matrix (diagonal)
 # R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40., \
 #     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
-R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
-    1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10.,
+        1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
@@ -163,21 +163,22 @@ if (config.solver=='iterative') :
     # quit()
     r0l2all=[]
     # time loop
-    r0 = torch.zeros(ndim, nonods, device=dev, dtype=torch.float64)
+    r0 = torch.zeros(nele*nloc, ndim, device=dev, dtype=torch.float64)
     for itime in tqdm(range(1,tstep)):
-        u_n = u.view(-1,ndim,nloc) # store last timestep value to un
-        u_i = u_n # jacobi iteration initial value taken as last time step value 
+        u_n = u.view(nele, nloc, ndim)  # store last timestep value to un
+        u_i = u_n  # jacobi iteration initial value taken as last time step value
 
-        r0l2=1
-        its=0
+        r0l2 = 1
+        its = 0
         r0 *= 0
-        ## prepare for MG on SFC-coarse grids
+
+        # prepare for MG on SFC-coarse grids
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
         # RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
         [diagRKR, RKRvalues] = volume_mf_linear_elastic.RKR_mf(n, nx, detwei, R)
-        [diagRAR, RARvalues] = volume_mf_linear_elastic.calc_RAR(\
-            diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola)
+        [diagRAR, RARvalues] = volume_mf_linear_elastic.calc_RAR(
+                diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola)
         del diagRKR, diagRSR, RKRvalues, RSRvalues # we will only use diagRAR and RARvalues
         RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous() # (ndim,ndim,ncola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
@@ -192,53 +193,58 @@ if (config.solver=='iterative') :
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
         while (r0l2>1e-9 and its<config.jac_its):
-            u_i = u_i.view(ndim, nonods)
+            u_i = u_i.view(nonods, ndim)
             
-            ## on fine grid
-            # get diagA and residual at fine grid r0
-            with torch.no_grad():
-                r0, _ = volume_mf_linear_elastic.K_mf(
-                    r0, n, nx, detwei, u_i, f )
-            # r0 *= 0.
-            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            [r0, _] = surface_mf_linear_elastic.S_mf(r0,
-                            sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-            
-            # per element condensation
-            # passing r0 to next level coarse grid and solve Ae=r0
-            r1 = torch.matmul(r0.view(ndim,nele,nloc),R) # restrict residual to coarser mesh, (ndim, nele)
-
-            # for its1 in range(config.mg_its):
-                
-            ## use SFC to generate a series of coarse grid
-            # and iterate there (V-cycle saw-tooth fasion)
-            # then return an error on level-1 grid (P0DG)
-            e1 = mg.mg_smooth(r1, 
-                space_filling_curve_numbering, 
-                variables_sfc, 
-                nlevel, 
-                nodes_per_level)
-            
-            ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1, 
-                                                     RARvalues,
-                                                     fina, cola, 
-                                                     diagRAR)
-
-            # pass e_1 back to fine mesh and correct u_i
-            # print(R.view(nloc,1).shape)
-            # print(e1.view(ndim,1,nele).shape)
-            u_i += torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)).view(ndim,nonods)
+            # ## on fine grid
+            # # get diagA and residual at fine grid r0
+            # with torch.no_grad():
+            #     r0, _ = volume_mf_linear_elastic.K_mf(
+            #         r0, n, nx, detwei, u_i, f )
+            # # r0 *= 0.
+            # # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+            # [r0, _] = surface_mf_linear_elastic.S_mf(r0,
+            #                 sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+            #
+            # # per element condensation
+            # # passing r0 to next level coarse grid and solve Ae=r0
+            # r1 = torch.matmul(r0.view(ndim,nele,nloc),R) # restrict residual to coarser mesh, (ndim, nele)
+            #
+            # # for its1 in range(config.mg_its):
+            #
+            # ## use SFC to generate a series of coarse grid
+            # # and iterate there (V-cycle saw-tooth fasion)
+            # # then return an error on level-1 grid (P0DG)
+            # e1 = mg.mg_smooth(r1,
+            #     space_filling_curve_numbering,
+            #     variables_sfc,
+            #     nlevel,
+            #     nodes_per_level)
+            #
+            # ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
+            #                                          RARvalues,
+            #                                          fina, cola,
+            #                                          diagRAR)
+            #
+            # # pass e_1 back to fine mesh and correct u_i
+            # # print(R.view(nloc,1).shape)
+            # # print(e1.view(ndim,1,nele).shape)
+            # u_i += torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)).view(ndim,nonods)
             ## finally give residual
             # get diagA and residual at fine grid r0
             r0 *=0
             with torch.no_grad():
                 r0, diagK = volume_mf_linear_elastic.K_mf(
-                    r0, n, nx, detwei, u_i, f )
-            [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
-                            sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+                        r0, n, nx, detwei, u_i, f)
+            [r0, diagS] = surface_mf_linear_elastic.S_mf(
+                        r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
             # I think we need to smooth one time at finest grid as well.
+            # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
+            # np.savetxt('r0.txt', r0.view(-1).cpu().numpy(), delimiter=',')
+            max = torch.max(diagS+diagK)
+            maxD = torch.ones_like(diagS)*max
             u_i += config.jac_wei * r0 / (diagS+diagK)
+            # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
             r0l2 = torch.linalg.norm(r0.view(-1),dim=0)
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
@@ -265,10 +271,10 @@ if (config.solver=='iterative') :
         print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
             
         # if jacobi converges,
-        u = u_i.view(nonods)
+        u = u_i.view(nele, nloc, ndim)
 
         # combine inner/inter element contribution
-        u_all[itime,:,:]=u.view(ndim, nonods).cpu().numpy()
+        u_all[itime, :, :, :] = u.cpu().numpy()
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
@@ -282,18 +288,16 @@ if (config.solver=='direct'):
                           sn, snx, sdetwei, snormal,
                           nbele, nbf, f, u_bc,
                           fina, cola, ncola)
-    # np.savetxt('SK.txt', SK.toarray(), delimiter=',')
-    # np.savetxt('rhs_b.txt', rhs_b, delimiter=',')
+    np.savetxt('SK.txt', SK.toarray(), delimiter=',')
+    np.savetxt('rhs_b.txt', rhs_b, delimiter=',')
     print('8. (direct solver) done assmeble, time elapsed: ', time.time()-starttime)
     # direct solver in scipy
     SK = SK.tocsr()
     u_i = sp.sparse.linalg.spsolve(SK, rhs_b)  # shape nele*ndim*nloc
     print('9. (direct solver) done solve, time elapsed: ', time.time()-starttime)
-    u_i = np.reshape(u_i, (nele, ndim, nloc))
-    u_i = np.transpose(u_i, (1,0,2))
-    u_i = np.reshape(u_i, (ndim, nele*nloc))
+    u_i = np.reshape(u_i, (nele, nloc, ndim))
     # store to c_all to print out
-    u_all[1,:,:] = u_i
+    u_all[1,:,:,:] = u_i
 
 #############################################################
 # write output
@@ -301,7 +305,7 @@ if (config.solver=='direct'):
 # output 1: 
 # to output, we need to change u_all to 2D array
 # (tstep, ndim*nonods)
-u_all = np.reshape(u_all, (tstep, ndim*nonods))
+u_all = np.reshape(u_all, (tstep, nele*nloc*ndim))
 np.savetxt('u_all.txt', u_all, delimiter=',')
 np.savetxt('x_all.txt', x_all, delimiter=',')
 print('10. done output, time elaspsed: ', time.time()-starttime)

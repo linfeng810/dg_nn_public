@@ -427,22 +427,23 @@ def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
         print('color: ', color)
         for jdim in range(ndim):
             mask *=0
-            mask[jdim,:,:] += torch.tensor((whichc == color), device=dev, dtype=torch.float64) # 1 if true; 0 if false
-            RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask) # (ndim,nloc,nele) Rm
-            [RSRm, diagS] = surface_mf_linear_elastic.S_mf(
+            mask[jdim,:,:] += torch.tensor((whichc == color), device=dev, dtype=torch.float64)  # 1 if true; 0 if false
+            RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask)  # (ndim,nloc,nele) Rm
+            RSRm = torch.permute(RSRm, (2,1,0)).contiguous()
+            [RSRm, _] = surface_mf_linear_elastic.S_mf(
                 r=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
                 sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal, nbele=nbele, nbf=nbf, 
                 u_bc=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
-                u_i=torch.transpose(RSRm, 1, 2)) # output RSRm is SRm (ndim, nele*nloc=nonods)
+                u_i=RSRm)  # output RSRm is SRm (nele*nloc=nonods, ndim)
             # print('diagS', diagS)
-            RSRm *= (-1.) # need change sign because surface_mf_linear_elastic gives us 0 - S*Rm
-            RSRm = torch.einsum('i,...ji->...j', R, RSRm.view(ndim,nele,nloc)) # output RSRm (ndim, nele)
+            RSRm *= (-1.)  # need change sign because surface_mf_linear_elastic gives us 0 - S*Rm
+            RSRm = torch.einsum('i,...ij->...j', R, RSRm.view(nele, nloc, ndim))  # output RSRm (nele, ndim)
             # add to value 
             for idim in range(ndim):
                 for i in range(RSRm.shape[1]):
                     for count in range(fina[i], fina[i+1]):
                         j = cola[count]
-                        RSRvalues[count,idim,jdim] += RSRm[idim,i]*mask[jdim,0,j]
+                        RSRvalues[count,idim,jdim] += RSRm[i, idim]*mask[jdim, 0, j]
 
     '''
     # I don't think there is a need to form RSR.

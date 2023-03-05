@@ -68,15 +68,14 @@ def SK_matrix(n, nx, detwei,
     nxj = nx.unsqueeze(2).expand(-1, -1, nloc, -1, -1)
     detweiv = detwei.unsqueeze(1).unsqueeze(2).expand(-1, nloc, nloc, -1)
     # declare K
-    K = torch.zeros(ndim, ndim, nele, nloc, nloc, device=dev, dtype=torch.float64)
+    K = torch.zeros(nele, nloc, nloc, ndim, ndim, device=dev, dtype=torch.float64)
     # ni nj; rhs_f calculation; Mass term if transient
     for idim in range(ndim):
-        K[idim, idim, ...] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
-    f = f.view(ndim, nele, nloc)
-    rhs_f = torch.einsum('ij...kl,j...l->i...k', K, f)  # rhs force
-    rhs_f = rhs_f.cpu().numpy()  # shape (ndim, nele, nloc)
-    rhs_f = np.transpose(rhs_f, (1,0,2))  # shape (nele, ndim, nloc)
-    rhs_f = np.reshape(rhs_f, (nele*ndim*nloc))
+        K[..., idim, idim] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
+    f = f.view(nele, nloc, ndim)
+    rhs_f = torch.einsum('...ijkl,...jl->...ik', K, f)  # rhs force
+    rhs_f = rhs_f.cpu().numpy()  # shape (nele, nloc, ndim
+    rhs_f = np.reshape(rhs_f, (nele*nloc*ndim))
     # np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
     # Kvalues = K.cpu().numpy()  # shape(ndim,ndim,nele,nloc,nloc)
     # Kvalues = np.transpose(Kvalues, (2, 0, 3, 1, 4))  # shape(nele,ndim,nloc,ndim,nloc)
@@ -88,25 +87,25 @@ def SK_matrix(n, nx, detwei,
     else:
         K *= 0
     # epsilon_kl C_ijkl epsilon_ij
-    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * (lam + 2 * mu)
-    K[0, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
-    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * lam
-    K[0, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 0, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
-    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
-    K[1, 0, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 0] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * lam
-    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
-    K[1, 1, :, :, :] += torch.sum(torch.mul(torch.mul(
+    K[..., 1, 1] += torch.sum(torch.mul(torch.mul(
         nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * (lam + 2 * mu)
-    Kvalues = K.cpu().numpy()  # shape(ndim,ndim,nele,nloc,nloc)
-    Kvalues = np.transpose(Kvalues, (2,0,3,1,4))  # shape(nele,ndim,nloc,ndim,nloc)
-    Kvalues = np.reshape(Kvalues, (nele, ndim*nloc, ndim*nloc))
+    Kvalues = K.cpu().numpy()  # shape(nele,nloc,nloc,ndim, ndim)
+    Kvalues = np.transpose(Kvalues, (0, 1, 3, 2, 4))  # shape(nele,nloc, ndim, nloc, ndim)
+    Kvalues = np.reshape(Kvalues, (nele, nloc*ndim, nloc*ndim))
 
     # S
     # first lets separate nbf to get two list of F_i and F_b
@@ -134,6 +133,7 @@ def SK_matrix(n, nx, detwei,
                        fina, cola)
     # for boundary faces, assemble S and b_bc
     # let's hope that each element has only one boundary face.
+    # u_bc in shape (nele, nloc, ndim)
     Svalues, rhs_bc = S_fb(Svalues, f_b, E_F_b, F_b,
                            sn, snx, snormal, sdetwei, u_bc,
                            fina, cola)
@@ -143,8 +143,8 @@ def SK_matrix(n, nx, detwei,
             if i==cola[j] :
                 Svalues[j,:,:] += Kvalues[i,:,:]
     SK = bsr_matrix((Svalues, cola, fina), shape=(ndim*nonods, ndim*nonods))
-    # np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
-    # np.savetxt('rhs_bc.txt', rhs_bc, delimiter=',')
+    np.savetxt('rhs_f.txt', rhs_f, delimiter=',')
+    np.savetxt('rhs_bc.txt', rhs_bc, delimiter=',')
     rhs_f += rhs_bc
     return SK, rhs_f
 
@@ -185,14 +185,14 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
         .expand(-1, nloc, nloc)
 
     # this side
-    S = torch.zeros(ndim, ndim, batch_in, nloc, nloc,
+    S = torch.zeros(batch_in, nloc, nloc, ndim, ndim,
                     device=dev, dtype=torch.float64)  # local S matrix
     for idim in range(2):
         for jdim in range(2):
             for kdim in range(2):
                 for ldim in range(2):
                     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
-                    S[idim, kdim, :, :nloc, :nloc] += \
+                    S[..., idim, kdim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :],  # v_i
                             0.5 * snxj[E_F_i, f_i, ldim, :, :, :]),  # 0.5*du_k/dx_l of epsilon_kl
@@ -200,7 +200,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i, f_i, :, :, :]),
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
-                    S[idim, ldim, :, :nloc, :nloc] += \
+                    S[..., idim, ldim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :],  # v_i
                             0.5 * snxj[E_F_i, f_i, kdim, :, :, :]),  # 0.5*du_l/dx_k of epsilon_kl
@@ -209,7 +209,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
                     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
-                    S[kdim, idim, :, :nloc, :nloc] += \
+                    S[..., kdim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_i, f_i, :, :, :],  # u_i
                             0.5 * snxi[E_F_i, f_i, ldim, :, :, :]),  # 0.5*dv_k/dx_l of epsilon_kl
@@ -217,7 +217,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i, f_i, :, :, :]),
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
-                    S[ldim, idim, :, :nloc, :nloc] += \
+                    S[..., ldim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_i, f_i, :, :, :],  # u_i
                             0.5 * snxi[E_F_i, f_i, kdim, :, :, :]),  # 0.5*dv_l/dx_k of epsilon_kl
@@ -227,16 +227,16 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
     # mu * u_i v_i
     for idim in range(2):
-        S[idim, idim, :, :nloc, :nloc] += torch.mul(
+        S[..., idim, idim] += torch.mul(
             torch.sum(torch.mul(torch.mul(
                 sni[E_F_i, f_i, :, :, :],
                 snj[E_F_i, f_i, :, :, :]),
                 sdetweiv[E_F_i, f_i, :, :, :]),
                 -1), mu_e)
     # put S contribution to Svalues
-    Sdetach = S.cpu().numpy()  # shape (ndim, ndim, batch_in, nloc, nloc)
-    Sdetach = np.transpose(Sdetach, (2,0,3,1,4))  # shape(batch_in, ndim, nloc, ndim, nloc)
-    Sdetach = np.reshape(Sdetach, (batch_in, ndim*nloc, ndim*nloc))
+    Sdetach = S.cpu().numpy()  # shape (batch_in, nloc, nloc, ndim, ndim)
+    Sdetach = np.transpose(Sdetach, (0, 1, 3, 2, 4))  # shape(batch_in, nloc, ndim, nloc, ndim)
+    Sdetach = np.reshape(Sdetach, (batch_in, nloc*ndim, nloc*ndim))
     for i in range(E_F_i.shape[0]) :
         e = E_F_i[i]
         for j in range(fina[e], fina[e+1]) :
@@ -251,7 +251,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
             for kdim in range(2):
                 for ldim in range(2):
                     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
-                    S[idim, kdim, :, :nloc, :nloc] += \
+                    S[..., idim, kdim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :],  # v_i
                             0.5 * torch.flip(snxj[E_F_inb, f_inb, ldim, :, :, :], [-1])),  # 0.5*du_k/dx_l of epsilon_kl
@@ -259,7 +259,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i, f_i, :, :, :]),
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
-                    S[idim, ldim, :, :nloc, :nloc] += \
+                    S[..., idim, ldim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :],  # v_i
                             0.5 * torch.flip(snxj[E_F_inb, f_inb, kdim, :, :, :], [-1])),  # 0.5*du_l/dx_k of epsilon_kl
@@ -268,7 +268,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
                     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
-                    S[kdim, idim, :, :nloc, :nloc] += \
+                    S[..., kdim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             torch.flip(snj[E_F_inb, f_inb, :, :, :], [-1]),  # u_i
                             0.5 * snxi[E_F_i, f_i, ldim, :, :, :]),  # 0.5*dv_k/dx_l of epsilon_kl
@@ -276,7 +276,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i, f_i, :, :, :]),
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
-                    S[ldim, idim, :, :nloc, :nloc] += \
+                    S[..., ldim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             torch.flip(snj[E_F_inb, f_inb, :, :, :], [-1]),  # u_i
                             0.5 * snxi[E_F_i, f_i, kdim, :, :, :]),  # 0.5*dv_l/dx_k of epsilon_kl
@@ -286,7 +286,7 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                         * cijkl[idim, jdim, kdim, ldim] * (-0.5)
     # mu * u_i v_i
     for idim in range(2):
-        S[idim, idim, :, :nloc, :nloc] += torch.mul(
+        S[..., idim, idim] += torch.mul(
             torch.sum(torch.mul(torch.mul(
                 sni[E_F_i, f_i, :, :, :],
                 torch.flip(snj[E_F_inb, f_inb, :, :, :], [-1])),
@@ -294,9 +294,9 @@ def S_fi(Svalues, f_i, E_F_i, F_i,
                 -1), -mu_e)
     # this S is off-diagonal contribution
     # add to Svalues
-    Sdetach = S.cpu().numpy()  # shape (ndim, ndim, batch_in, nloc, nloc)
-    Sdetach = np.transpose(Sdetach, (2,0,3,1,4))  # shape (batch_in, ndim, nloc, ndim, nloc)
-    Sdetach = np.reshape(Sdetach, (batch_in, ndim*nloc, ndim*nloc))
+    Sdetach = S.cpu().numpy()  # shape (batch_in, nloc, nloc, ndim, ndim)
+    Sdetach = np.transpose(Sdetach, (0, 1, 3, 2, 4))  # shape(batch_in, nloc, ndim, nloc, ndim)
+    Sdetach = np.reshape(Sdetach, (batch_in, nloc*ndim, nloc*ndim))
     for i in range(E_F_i.shape[0]):
         e = E_F_i[i]
         e2 = E_F_inb[i]
@@ -342,14 +342,14 @@ def S_fb(Svalues, f_b, E_F_b, F_b,
         .expand(-1, nloc, nloc)
 
     # only one side
-    S = torch.zeros(ndim, ndim, batch_in, nloc, nloc,
+    S = torch.zeros(batch_in, nloc, nloc, ndim, ndim,
                     device=dev, dtype=torch.float64)  # local S matrix
     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
     for idim in range(ndim):
         for jdim in range(ndim):
             for kdim in range(ndim):
                 for ldim in range(ndim):
-                    S[kdim, idim, :, :nloc, :nloc] += \
+                    S[..., kdim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_b, f_b, :, :, :],  # u_i
                             0.5 * snxi[E_F_b, f_b, ldim, :, :, :]),  # 0.5*dv_k/dx_l of epsilon_kl
@@ -357,7 +357,7 @@ def S_fb(Svalues, f_b, E_F_b, F_b,
                             sdetweiv[E_F_b, f_b, :, :, :]),
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-1.0)
-                    S[ldim, idim, :, :nloc, :nloc] += \
+                    S[..., ldim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_b, f_b, :, :, :],  # u_i
                             0.5 * snxi[E_F_b, f_b, kdim, :, :, :]),  # 0.5*dv_l/dx_k of epsilon_kl
@@ -368,25 +368,24 @@ def S_fb(Svalues, f_b, E_F_b, F_b,
                     # print('i j k l cijkl: ', idim, jdim, kdim, ldim, cijkl[idim, jdim, kdim, ldim])
     # mu * u_i v_i
     for idim in range(2):
-        S[idim, idim, :, :nloc, :nloc] += torch.mul(
+        S[..., idim, idim] += torch.mul(
             torch.sum(torch.mul(torch.mul(
                 sni[E_F_b, f_b, :, :, :],
                 snj[E_F_b, f_b, :, :, :]),
                 sdetweiv[E_F_b, f_b, :, :, :]),
                 -1), mu_e)
     # multiply S and u_bc to get bc contribution to rhs vector
-    rhs_bc = torch.zeros(ndim, nele, nloc, device=dev, dtype=torch.float64)
-    rhs_bc[:, E_F_b, :] += torch.einsum('ij...kl,j...l->i...k', S, u_bc[:, E_F_b, :])
-    rhs_bc = rhs_bc.cpu().numpy()  # shape (ndim, nele, nloc)
-    rhs_bc = np.transpose(rhs_bc, (1,0,2))  # shape (nele, ndim, nloc)
-    rhs_bc = np.reshape(rhs_bc, (nele*ndim*nloc))
+    rhs_bc = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)
+    rhs_bc[E_F_b, :, :] += torch.einsum('...ijkl,...jl->...ik', S, u_bc[E_F_b, :, :])
+    rhs_bc = rhs_bc.cpu().numpy()  # shape (nele, nloc, ndim)
+    rhs_bc = np.reshape(rhs_bc, (nele*nloc*ndim))
 
     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
     for idim in range(ndim):
         for jdim in range(ndim):
             for kdim in range(ndim):
                 for ldim in range(ndim):
-                    S[idim, kdim, :, :nloc, :nloc] += \
+                    S[..., idim, kdim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_b, f_b, :, :, :],  # v_i
                             0.5 * snxj[E_F_b, f_b, ldim, :, :, :]),  # 0.5*du_k/dx_l of epsilon_kl
@@ -394,7 +393,7 @@ def S_fb(Svalues, f_b, E_F_b, F_b,
                             sdetweiv[E_F_b, f_b, :, :, :]),
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-1.0)
-                    S[idim, ldim, :, :nloc, :nloc] += \
+                    S[..., idim, ldim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_b, f_b, :, :, :],  # v_i
                             0.5 * snxj[E_F_b, f_b, kdim, :, :, :]),  # 0.5*du_l/dx_k of epsilon_kl
@@ -403,9 +402,9 @@ def S_fb(Svalues, f_b, E_F_b, F_b,
                             -1) \
                         * cijkl[idim, jdim, kdim, ldim] * (-1.0)
     # add S to Svalues
-    S = S.cpu().numpy()  # shape (ndim, ndim, batch_in, nloc, nloc)
-    S = np.transpose(S, (2, 0, 3, 1, 4))  # shape (batch_in, ndim, nloc, ndim, nloc)
-    S = np.reshape(S, (batch_in, ndim*nloc, ndim*nloc))
+    S = S.cpu().numpy()  # shape (batch_in, nloc, nloc, ndim, ndim)
+    S = np.transpose(S, (0, 1, 3, 2, 4))  # shape (batch_in, nloc, ndim, nloc, ndim)
+    S = np.reshape(S, (batch_in, nloc*ndim, nloc*ndim))
     for i in range(E_F_b.shape[0]) :
         e = E_F_b[i]
         for j in range(fina[e], fina[e+1]) :

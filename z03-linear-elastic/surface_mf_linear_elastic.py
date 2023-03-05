@@ -25,7 +25,7 @@ nface = config.ndim+1
 sngi = config.sngi
 cijkl = config.cijkl
 
-eta_e=36. # penalty coefficient
+eta_e = 36.  # penalty coefficient
 
 ## main function
 def S_mf(r, sn, snx, sdetwei, snormal, 
@@ -38,7 +38,7 @@ def S_mf(r, sn, snx, sdetwei, snormal,
         c is field variable.
 
     # Input
-    r : torch tensor (ndim, nonods)
+    r : torch tensor (nonods, ndim)
         residual vector that hasn't taken account of S*c
     sn : numpy array (nface, nloc, sngi)
         shape function at face quad pnts
@@ -52,25 +52,24 @@ def S_mf(r, sn, snx, sdetwei, snormal,
         list of neighbour element index
     nbf : python list (nele x nloc)
         list of neighbour face index
-    u_bc : torch tensor (ndim, nonods)
-        Dirichlet boundary values at boundary nodes, 0 other wise
-    u_i : torch tensor (ndim, nonods)
+    u_bc : torch tensor (nonods, ndim)
+        Dirichlet boundary values at boundary nodes, 0 otherwise
+    u_i : torch tensor (nonods, ndim)
         field value at i-th iteration (last iteration)
 
     # Output
-    r : torch tensor (ndim, nonods)
+    r : torch tensor (nonods, ndim)
         residual vector that has taken account of S*u
-    diagS : torch tensor (ndim, nonods)
+    diagS : torch tensor (nonods, ndim)
         diagonal of surface integral matrix
     '''
     
-    u_i = u_i.view(ndim, nele,nloc)
-    r = r.view(ndim, nele,nloc)
-    u_bc = u_bc.view(ndim, nele,nloc)
+    u_i = u_i.view(nele, nloc, ndim)
+    r = r.view(nele, nloc, ndim)
+    u_bc = u_bc.view(nele,nloc, ndim)
 
     # output declaration
-    diagS = torch.zeros(ndim, nonods, device = dev, dtype=torch.float64)
-    
+    diagS = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
 
     # first lets separate nbf to get two list of F_i and F_b
     F_i = np.where(np.logical_not(np.isnan(nbf)))[0] # interior face
@@ -88,7 +87,7 @@ def S_mf(r, sn, snx, sdetwei, snormal,
     f_b = np.mod(F_b,3)
     f_inb = np.mod(F_inb,3)
 
-    diagS = diagS.view(ndim, nele,nloc)
+    diagS = diagS.view(nele, nloc, ndim)
 
     # for interior faces, update r
     # r <- r-S*c
@@ -105,8 +104,8 @@ def S_mf(r, sn, snx, sdetwei, snormal,
     r,diagS = S_fb(r, f_b, E_F_b, F_b,
              sn, snx, snormal, sdetwei, u_i, u_bc, diagS)
 
-    r = r.view(ndim,nonods).contiguous()
-    diagS = diagS.view(ndim,nonods).contiguous()
+    r = r.view(nonods, ndim).contiguous()
+    diagS = diagS.view(nonods, ndim).contiguous()
     return r, diagS
 
 def S_fi(r, f_i, E_F_i, F_i, 
@@ -120,7 +119,7 @@ def S_fi(r, f_i, E_F_i, F_i,
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_i.shape[0]
-    mu_e = eta_e/torch.sum(sdetwei[E_F_i, f_i,:],-1)
+    mu_e = eta_e/torch.sum(sdetwei[E_F_i, f_i, :], -1)  # mu_e for each face (batch_in)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor, 
@@ -141,18 +140,17 @@ def S_fi(r, f_i, E_F_i, F_i,
         .expand(-1,-1,nloc,nloc,-1)
 
     # make mu_e in shape (batch_in, nloc, nloc)
-    mu_e = mu_e.unsqueeze(-1).unsqueeze(-1)\
-        .expand(-1,nloc,nloc)
+    mu_e = mu_e.unsqueeze(-1).unsqueeze(-1).expand(-1,nloc,nloc)
     
     # this side
-    S = torch.zeros(ndim, ndim, batch_in, nloc, nloc,
-        device=dev, dtype=torch.float64) # local S matrix
-    for idim in range(2):
-        for jdim in range(2):
-            for kdim in range(2):
-                for ldim in range(2):
+    S = torch.zeros(batch_in, nloc, nloc, ndim, ndim,
+                    device=dev, dtype=torch.float64)  # local S matrix
+    for idim in range(ndim):
+        for jdim in range(ndim):
+            for kdim in range(ndim):
+                for ldim in range(ndim):
                     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
-                    S[idim, kdim, :, :nloc, :nloc] += \
+                    S[..., idim, kdim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :], # v_i
                             0.5*snxj[E_F_i, f_i, ldim, :,:,:] ), # 0.5*du_k/dx_l of epsilon_kl
@@ -160,7 +158,7 @@ def S_fi(r, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i,f_i, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
-                    S[idim, ldim, :, :nloc, :nloc] += \
+                    S[..., idim, ldim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :], # v_i
                             0.5*snxj[E_F_i, f_i, kdim, :,:,:] ), # 0.5*du_l/dx_k of epsilon_kl
@@ -169,7 +167,7 @@ def S_fi(r, f_i, E_F_i, F_i,
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
                     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
-                    S[kdim, idim, :, :nloc, :nloc] += \
+                    S[..., kdim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_i, f_i, :, :, :], # u_i
                             0.5*snxi[E_F_i, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
@@ -177,7 +175,7 @@ def S_fi(r, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i,f_i, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
-                    S[ldim, idim, :, :nloc, :nloc] += \
+                    S[..., ldim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_i, f_i, :, :, :], # u_i
                             0.5*snxi[E_F_i, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
@@ -186,32 +184,26 @@ def S_fi(r, f_i, E_F_i, F_i,
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
     # mu * u_i v_i
-    for idim in range(2):
-        S[idim, idim,:,:nloc,:nloc] += torch.mul(
+    for idim in range(ndim):
+        S[..., idim, idim] += torch.mul(
             torch.sum(torch.mul(torch.mul(
             sni[E_F_i, f_i, :,:,:],
             snj[E_F_i, f_i, :,:,:]),
             sdetweiv[E_F_i, f_i, :,:,:]),
             -1)   ,   mu_e)
     # multiply S and c_i and add to (subtract from) r 
-    r[:, E_F_i, :] -= torch.einsum('ij...kl,j...l->i...k', S, u_i[:,E_F_i,:])
+    r[E_F_i, :, :] -= torch.einsum('...ijkl,...jl->...ik', S, u_i[E_F_i, :, :])
     # put diagonal of S into diagS
-    # print(torch.diagonal(S,dim1=-2,dim2=-1).shape)
-    # print(torch.diagonal(torch.diagonal(S,dim1=-2,dim2=-1),dim1=0,dim2=1).shape)
-    # print(
-    #     torch.permute(torch.diagonal(torch.diagonal(S,dim1=-2,dim2=-1),dim1=0,dim2=1),(2,0,1)).shape
-    # )
-    # print(diagS[:,E_F_i,:].shape)
-    diagS[:,E_F_i,:] += torch.permute(torch.diagonal(torch.diagonal(S,dim1=-2,dim2=-1),dim1=0,dim2=1),(2,0,1))
+    diagS[E_F_i, :, :] += torch.diagonal(torch.diagonal(S, dim1=1, dim2=2), dim1=1, dim2=2)
 
     # other side
-    S *= 0. # local S matrix
-    for idim in range(2):
-        for jdim in range(2):
-            for kdim in range(2):
-                for ldim in range(2):
+    S *= 0.  # local S matrix
+    for idim in range(ndim):
+        for jdim in range(ndim):
+            for kdim in range(ndim):
+                for ldim in range(ndim):
                     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
-                    S[idim, kdim, :, :nloc, :nloc] += \
+                    S[..., idim, kdim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :], # v_i
                             0.5*torch.flip(snxj[E_F_inb, f_inb, ldim, :,:,:],[-1]) ), # 0.5*du_k/dx_l of epsilon_kl
@@ -219,7 +211,7 @@ def S_fi(r, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i,f_i, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
-                    S[idim, ldim, :, :nloc, :nloc] += \
+                    S[..., idim, ldim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_i, f_i, :, :, :], # v_i
                             0.5*torch.flip(snxj[E_F_inb, f_inb, kdim, :,:,:],[-1]) ), # 0.5*du_l/dx_k of epsilon_kl
@@ -228,7 +220,7 @@ def S_fi(r, f_i, E_F_i, F_i,
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
                     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
-                    S[kdim, idim, :, :nloc, :nloc] += \
+                    S[..., kdim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             torch.flip(snj[E_F_inb, f_inb, :, :, :],[-1]), # u_i
                             0.5*snxi[E_F_i, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
@@ -236,7 +228,7 @@ def S_fi(r, f_i, E_F_i, F_i,
                             sdetweiv[E_F_i,f_i, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
-                    S[ldim, idim, :, :nloc, :nloc] += \
+                    S[..., ldim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             torch.flip(snj[E_F_inb, f_inb, :, :, :],[-1]), # u_i
                             0.5*snxi[E_F_i, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
@@ -245,8 +237,8 @@ def S_fi(r, f_i, E_F_i, F_i,
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-0.5)
     # mu * u_i v_i
-    for idim in range(2):
-        S[idim, idim,:,:nloc,:nloc] += torch.mul(
+    for idim in range(ndim):
+        S[..., idim, idim] += torch.mul(
             torch.sum(torch.mul(torch.mul(
             sni[E_F_i, f_i, :,:,:],
             torch.flip(snj[E_F_inb, f_inb, :,:,:],[-1])),
@@ -254,7 +246,7 @@ def S_fi(r, f_i, E_F_i, F_i,
             -1), -mu_e)
     # this S is off-diagonal contribution, therefore no need to put in diagS
     # multiply S and c_i and add to (subtract from) r 
-    r[:, E_F_i, :] -= torch.einsum('ij...kl,j...l->i...k', S, u_i[:,E_F_inb,:])
+    r[E_F_i, :, :] -= torch.einsum('...ijkl,...jl->...ik', S, u_i[E_F_inb, :, :])
 
     return r, diagS
 
@@ -297,14 +289,14 @@ def S_fb(r, f_b, E_F_b, F_b,
         .expand(-1,nloc,nloc)
     
     # only one side
-    S = torch.zeros(ndim, ndim, batch_in, nloc, nloc,
-        device=dev, dtype=torch.float64) # local S matrix
+    S = torch.zeros(batch_in, nloc, nloc, ndim, ndim,
+                    device=dev, dtype=torch.float64)  # local S matrix
     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
     for idim in range(ndim):
         for jdim in range(ndim):
             for kdim in range(ndim):
                 for ldim in range(ndim):
-                    S[kdim, idim, :, :nloc, :nloc] += \
+                    S[..., kdim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_b, f_b, :, :, :], # u_i
                             0.5*snxi[E_F_b, f_b, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
@@ -312,7 +304,7 @@ def S_fb(r, f_b, E_F_b, F_b,
                             sdetweiv[E_F_b,f_b, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-1.0)
-                    S[ldim, idim, :, :nloc, :nloc] += \
+                    S[..., ldim, idim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             snj[E_F_b, f_b, :, :, :], # u_i
                             0.5*snxi[E_F_b, f_b, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
@@ -321,22 +313,23 @@ def S_fb(r, f_b, E_F_b, F_b,
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-1.0)
     # mu * u_i v_i
-    for idim in range(2):
-        S[idim, idim,:,:nloc,:nloc] += torch.mul(
+    for idim in range(ndim):
+        S[..., idim, idim] += torch.mul(
             torch.sum(torch.mul(torch.mul(
             sni[E_F_b, f_b, :,:,:],
             snj[E_F_b, f_b, :,:,:]),
             sdetweiv[E_F_b, f_b, :,:,:]),
             -1)   ,   mu_e)
-    # multiply S and c_i and add to (subtract from) r 
-    r[:, E_F_b, :] += torch.einsum('ij...kl,j...l->i...k', S, u_bc[:,E_F_b,:])
+    # calculate b_bc and add to r:
+    # r <- r + b_bc
+    r[E_F_b, :, :] += torch.einsum('...ijkl,...jl->...ik', S, u_bc[E_F_b, :, :])
 
     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
     for idim in range(ndim):
         for jdim in range(ndim):
             for kdim in range(ndim):
                 for ldim in range(ndim):
-                    S[idim, kdim, :, :nloc, :nloc] += \
+                    S[..., idim, kdim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_b, f_b, :, :, :], # v_i
                             0.5*snxj[E_F_b, f_b, ldim, :,:,:] ), # 0.5*du_k/dx_l of epsilon_kl
@@ -344,7 +337,7 @@ def S_fb(r, f_b, E_F_b, F_b,
                             sdetweiv[E_F_b,f_b, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-1.0)
-                    S[idim, ldim, :, :nloc, :nloc] += \
+                    S[..., idim, ldim] += \
                         torch.sum(torch.mul(torch.mul(torch.mul(
                             sni[E_F_b, f_b, :, :, :], # v_i
                             0.5*snxj[E_F_b, f_b, kdim, :,:,:] ), # 0.5*du_l/dx_k of epsilon_kl
@@ -352,8 +345,8 @@ def S_fb(r, f_b, E_F_b, F_b,
                             sdetweiv[E_F_b,f_b, :,:,:]),
                             -1)\
                         *cijkl[idim,jdim,kdim,ldim]*(-1.0)
-    # multiply S and c_i and add to (subtract from) r 
-    r[:, E_F_b, :] -= torch.einsum('ij...kl,j...l->i...k', S, u_i[:,E_F_b,:])
-    diagS[:,E_F_b,:] += torch.permute(torch.diagonal(torch.diagonal(S,dim1=-2,dim2=-1),dim1=0,dim2=1),(2,0,1))
+    # multiply S and u_i and add to (subtract from) r
+    r[E_F_b, :, :] -= torch.einsum('...ijkl,...jl->...ik', S, u_i[E_F_b, :, :])
+    diagS[E_F_b, :, :] += torch.diagonal(torch.diagonal(S, dim1=1, dim2=2), dim1=1, dim2=2)
     
     return r,diagS
