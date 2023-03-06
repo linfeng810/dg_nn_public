@@ -234,18 +234,31 @@ if (config.solver=='iterative') :
             # get diagA and residual at fine grid r0
             r0 *=0
             with torch.no_grad():
-                r0, diagK = volume_mf_linear_elastic.K_mf(
+                r0, diagK, diagK20 = volume_mf_linear_elastic.K_mf(
                         r0, n, nx, detwei, u_i, f)
-            [r0, diagS] = surface_mf_linear_elastic.S_mf(
+            r0, diagS, diagS20 = surface_mf_linear_elastic.S_mf(
                         r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-            # I think we need to smooth one time at finest grid as well.
-            # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
-            # np.savetxt('r0.txt', r0.view(-1).cpu().numpy(), delimiter=',')
-            max = torch.max(diagS+diagK)
-            maxD = torch.ones_like(diagS)*max
-            u_i += config.jac_wei * r0 / (diagS+diagK)
-            # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
             r0l2 = torch.linalg.norm(r0.view(-1),dim=0)
+            # I think we need to smooth one time at finest grid as well.
+            if False:  # point Jacobi iteration
+                # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
+                # np.savetxt('r0.txt', r0.view(-1).cpu().numpy(), delimiter=',')
+                max = torch.max(diagS+diagK)
+                maxD = torch.ones_like(diagS)*max
+                u_i += config.jac_wei * r0 / (diagS+diagK)
+            if True:  # block Jacobi iteration (20x20 block)
+                # for i in range(nele):
+                #     np.savetxt('diagSK20_'+str(i)+'.txt', (diagS20+diagK20)[i,...].cpu().numpy(),
+                #                delimiter=',')
+                invDiagSK = torch.inverse(diagS20+diagK20)
+                # for i in range(nele):
+                #     np.savetxt('invDiagSK20_'+str(i)+'.txt', invDiagSK[i,...].cpu().numpy(),
+                #                delimiter=',')
+                # print(invDiagSK.shape)
+                r0 = torch.matmul(invDiagSK, r0.view(nele,-1,1)).view(nele*nloc, ndim)
+                u_i += config.jac_wei * r0
+                # print(r0.shape)
+            # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
 
@@ -260,12 +273,11 @@ if (config.solver=='iterative') :
 
         r0 *= 0
         with torch.no_grad():
-            r0, diagK = volume_mf_linear_elastic.K_mf(
+            r0, _, _ = volume_mf_linear_elastic.K_mf(
                 r0, n, nx, detwei, u_i, f)
-        [r0, diagS] = surface_mf_linear_elastic.S_mf(r0,
-                                                     sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-        # I think we need to smooth one time at finest grid as well.
-        u_i += config.jac_wei * r0 / (diagS + diagK)
+        r0, _, _ = surface_mf_linear_elastic.S_mf(r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+        # # I think we need to smooth one time at finest grid as well.
+        # u_i += config.jac_wei * r0 / (diagS + diagK)
         r0l2 = torch.linalg.norm(r0.view(-1), dim=0)
         r0l2all.append(r0l2.cpu().numpy())
         print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())

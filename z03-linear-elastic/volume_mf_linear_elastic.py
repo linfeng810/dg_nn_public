@@ -56,6 +56,8 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=torch.empty(0)):
         residual vector that has taken into account of K*u
     diagK : torch tensor (nele*nloc, ndim)
         diagonal of volume integral matrix (may contain mass if transient)
+    diagK20 : torch tensor (nele, nloc*ndim, nloc*ndim)
+        20x20 block diagonal of K (may contain mass if transient)
     '''
 
     u_i = u_i.view(nele, nloc, ndim)
@@ -123,7 +125,9 @@ def K_mf(r, n, nx, detwei, u_i, f, u_old=torch.empty(0)):
     # make memory contiguous
     r = r.view(nele*nloc, ndim).contiguous()
     diagK = diagK.view(nele*nloc, ndim).contiguous()
-    return r, diagK
+    diagK20 = torch.permute(K, (0,1,3,2,4)).contiguous()
+    diagK20 = diagK20.view(nele, nloc*ndim, nloc*ndim)
+    return r, diagK, diagK20
 
 def RKR_mf(n, nx, detwei, R):
     '''

@@ -40,7 +40,7 @@ ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
-jac_its = 1e2 # max jacobi iteration steps
+jac_its = 1e5  # max jacobi iteration steps
 jac_wei = 1./3.  # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step

@@ -1,4 +1,4 @@
-clear;
+% clear;
 ndim=2;
 nloc=10;
 % first read in u_all and x_all
@@ -75,10 +75,10 @@ Lgnd.Position(2) = 0.4;
 % nele = nonods/10;
 % title([num2str(nele), ' elements approximation']);
 % 
-% l2history = readmatrix('r0l2all.txt');
-% 
-% figure(3); clf;
-% semilogy(l2history, LineWidth=2);
-% xlabel('MG cycles');
-% ylabel('L2 of residuals');
-% title(['num of elements: ', num2str(nele)])
+l2history = readmatrix('r0l2all.txt');
+
+figure(3); clf;
+semilogy(l2history, LineWidth=2);
+xlabel('Jacobi iterations');
+ylabel('L2 of residuals');
+title(['num of elements: ', num2str(nele)])

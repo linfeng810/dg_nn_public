@@ -430,7 +430,7 @@ def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
             mask[jdim,:,:] += torch.tensor((whichc == color), device=dev, dtype=torch.float64)  # 1 if true; 0 if false
             RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask)  # (ndim,nloc,nele) Rm
             RSRm = torch.permute(RSRm, (2,1,0)).contiguous()
-            [RSRm, _] = surface_mf_linear_elastic.S_mf(
+            [RSRm, _, _] = surface_mf_linear_elastic.S_mf(
                 r=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
                 sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal, nbele=nbele, nbf=nbf, 
                 u_bc=torch.zeros(ndim, nonods, device=dev, dtype=torch.float64), 
