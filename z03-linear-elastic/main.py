@@ -180,6 +180,8 @@ if (config.solver=='iterative') :
         [diagRAR, RARvalues] = volume_mf_linear_elastic.calc_RAR(
                 diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola)
         del diagRKR, diagRSR, RKRvalues, RSRvalues # we will only use diagRAR and RARvalues
+        from scipy.sparse import bsr_matrix
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim*nele, ndim*nele))
         RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous() # (ndim,ndim,ncola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
@@ -221,11 +223,15 @@ if (config.solver=='iterative') :
             #     variables_sfc,
             #     nlevel,
             #     nodes_per_level)
-            # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
-                                                     RARvalues,
-                                                     fina, cola,
-                                                     diagRAR)
+            # # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
+            #                                          RARvalues,
+            #                                          fina, cola,
+            #                                          diagRAR)
+            # what if we direc solve R^T A R e = r1?
+            e_direct = sp.sparse.linalg.spsolve(RAR.tocsr(), r1.contiguous().view(-1).cpu().numpy())
+            e_direct = np.reshape(e_direct, (ndim, nele))
+            e1 += torch.tensor(e_direct, device=dev, dtype=torch.float64)
             # pass e_1 back to fine mesh and correct u_i
             u_i += torch.permute(
                 torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
