@@ -195,42 +195,42 @@ if (config.solver=='iterative') :
         while (r0l2>1e-9 and its<config.jac_its):
             u_i = u_i.view(nonods, ndim)
             
-            # ## on fine grid
-            # # get diagA and residual at fine grid r0
-            # with torch.no_grad():
-            #     r0, _ = volume_mf_linear_elastic.K_mf(
-            #         r0, n, nx, detwei, u_i, f )
-            # # r0 *= 0.
-            # # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            # [r0, _] = surface_mf_linear_elastic.S_mf(r0,
-            #                 sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-            #
-            # # per element condensation
-            # # passing r0 to next level coarse grid and solve Ae=r0
-            # r1 = torch.matmul(r0.view(ndim,nele,nloc),R) # restrict residual to coarser mesh, (ndim, nele)
-            #
-            # # for its1 in range(config.mg_its):
-            #
-            # ## use SFC to generate a series of coarse grid
-            # # and iterate there (V-cycle saw-tooth fasion)
+            ## on fine grid
+            # get diagA and residual at fine grid r0
+            with torch.no_grad():
+                r0, _, _ = volume_mf_linear_elastic.K_mf(
+                    r0, n, nx, detwei, u_i, f )
+            # r0 *= 0.
+            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
+            r0, _, _ = surface_mf_linear_elastic.S_mf(r0,
+                            sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+
+            # per element condensation
+            # passing r0 to next level coarse grid and solve Ae=r0
+            r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
+            # (nele, ndim)
+            r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
+            # for its1 in range(config.mg_its):
+
+            e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
+            # # smooth on SFC coarse grid (V-cycle saw-tooth fasion)
             # # then return an error on level-1 grid (P0DG)
-            # e1 = mg.mg_smooth(r1,
+            # e1 += mg.mg_smooth(
+            #     r1,  # input r1 shape (ndim, nele) to fit restrictor
             #     space_filling_curve_numbering,
             #     variables_sfc,
             #     nlevel,
             #     nodes_per_level)
-            #
-            # ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
-            #                                          RARvalues,
-            #                                          fina, cola,
-            #                                          diagRAR)
-            #
-            # # pass e_1 back to fine mesh and correct u_i
-            # # print(R.view(nloc,1).shape)
-            # # print(e1.view(ndim,1,nele).shape)
-            # u_i += torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)).view(ndim,nonods)
-            ## finally give residual
+            # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
+                                                     RARvalues,
+                                                     fina, cola,
+                                                     diagRAR)
+            # pass e_1 back to fine mesh and correct u_i
+            u_i += torch.permute(
+                torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
+                .contiguous().view(nele*nloc,ndim)
+            # finally give residual
             # get diagA and residual at fine grid r0
             r0 *=0
             with torch.no_grad():

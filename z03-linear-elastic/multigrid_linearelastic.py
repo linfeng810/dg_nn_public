@@ -40,11 +40,10 @@ def mg_smooth(r1, sfc, variables_sfc, nlevel, nodes_per_level):
         a list of all ingredients one needs to perform a smoothing
         step on level-th grid. Each list member is a list of the 
         following member:
-        a_sfc_sparse : torch coo sparse tensor, (nonods_level, nonods_level)
-            coarse level grid operator
-        b_sfc_sparse : torch tensor, (nonods_level)
-            should be residual but didn't use here. (DEPRECATED)
-        diag_weights : torch tensor, (nonods_level)
+        a_sfc_sparse : list of torch coo sparse tensor, len= ndim x ndim
+            each member is the (idim,jdim) block of a_sfc_sparse --
+            coarse level grid operator, (nonods_level, nonods_level)
+        diag_weights : torch tensor, (ndim, nonods_level)
             diagonal of coarse grid operator
         nonods : integer
             number of nodes on level-th grid
@@ -78,7 +77,7 @@ def mg_smooth(r1, sfc, variables_sfc, nlevel, nodes_per_level):
     r_s = []
     r_s.append(r)
     for i in range(1,nlevel):
-        # pad one node with same value as final node so that odd nodes won't be joined
+        # pad one node with 0 as final node so that odd nodes won't be joined
         r = F.pad(r, (0,1), "constant", 0)
         with torch.no_grad():
             r = sfc_restrictor(r)
@@ -141,11 +140,12 @@ def get_a_diaga(level,
     diagonal : torch tensor, (ndim,nonods)
         Diagonal values in a_sfc_level_sparse
     nonods: scalar
-        Number of nodes in specified level
+        Number of nodes in the *specified* level. N.B. this is *NOT*
+        the global number of nodes.
 
     '''
-    # level 0 is the highest level
-    # level nlevel-1 is the lowest level
+    # level 0 is the highest level;
+    # level nlevel-1 is the lowest level;
     # subtracting 1 because fortran indexes from 1 but python indexes from 0
     
     start_index = fin_sfc_nonods[level] - 1
