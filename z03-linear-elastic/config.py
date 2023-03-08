@@ -23,7 +23,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='small_square.msh' # directory to mesh file (gmsh)
+filename='square_refine4.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -45,19 +45,15 @@ jac_wei = 2./3.  # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step
 
-
-####################
-# discretisation settings
-classicIP = True # boolean
-
 ####################
 # material property
 ####################
-E = 1.0e5
-nu = 0.3  # or 0.49, or 0.4999
+E = 2.5
+nu = 0.25  # or 0.49, or 0.4999
 lam = E*nu/(1.+nu)/(1.-2.*nu)
-mu = E/2.0/(1.-nu)
-lam = 1.0; mu = 1.0
+mu = E/2.0/(1.+nu)
+print('Lame coefficient: lamda, mu', lam, mu)
+# lam = 1.0; mu = 1.0
 kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
@@ -81,7 +77,15 @@ def rhs_f(x_all):
         np.cos(np.pi*x_all[:,0]) * np.sin(np.pi*x_all[:,0])\
         * (2*np.cos(2*np.pi*x_all[:,1])-1)
     f = torch.tensor(f, device=dev, dtype=torch.float64)
+    fNorm = torch.linalg.norm(f.view(-1), dim=0)
     # f *=0
     # np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
     # np.savetxt('x_all.txt', x_all, delimiter=',')
-    return f
+    return f, fNorm
+
+
+####################
+# discretisation settings
+classicIP = True  # boolean
+eta_e = 36.*E  # penalty coefficient
+print('Surface jump penalty coefficient eta_e: ', eta_e)

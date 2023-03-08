@@ -234,6 +234,7 @@ def calc_RAR(diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola):
     diagRAR = diagRSR + diagRKR 
 
     RARvalues = torch.zeros_like(RSRvalues, device=dev, dtype=torch.float64)
+    RARvalues += RSRvalues
     for ele in range(nele):
         for spIdx in range(fina[ele], fina[ele+1]):
             if (cola[spIdx]==ele) :

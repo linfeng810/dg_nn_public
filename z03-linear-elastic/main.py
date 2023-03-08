@@ -121,7 +121,7 @@ tstep=int(np.ceil((tend-tstart)/dt))+1
 u = u.reshape(nele, nloc, ndim) # reshape doesn't change memory allocation.
 u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
-f = config.rhs_f(x_all) # rhs force
+f, fNorm = config.rhs_f(x_all) # rhs force
 
 u = torch.rand_like(u) # initial guess
 # u = torch.ones_like(u)
@@ -182,6 +182,7 @@ if (config.solver=='iterative') :
         del diagRKR, diagRSR, RKRvalues, RSRvalues # we will only use diagRAR and RARvalues
         from scipy.sparse import bsr_matrix
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim*nele, ndim*nele))
+        np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
         RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous() # (ndim,ndim,ncola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
@@ -207,35 +208,35 @@ if (config.solver=='iterative') :
             r0, _, _ = surface_mf_linear_elastic.S_mf(r0,
                             sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
 
-            # per element condensation
-            # passing r0 to next level coarse grid and solve Ae=r0
-            r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
-            # (nele, ndim)
-            r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
-            # for its1 in range(config.mg_its):
-
-            e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
-            # # smooth on SFC coarse grid (V-cycle saw-tooth fasion)
-            # # then return an error on level-1 grid (P0DG)
-            # e1 += mg.mg_smooth(
-            #     r1,  # input r1 shape (ndim, nele) to fit restrictor
-            #     space_filling_curve_numbering,
-            #     variables_sfc,
-            #     nlevel,
-            #     nodes_per_level)
-            # # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
-            #                                          RARvalues,
-            #                                          fina, cola,
-            #                                          diagRAR)
-            # what if we direc solve R^T A R e = r1?
-            e_direct = sp.sparse.linalg.spsolve(RAR.tocsr(), r1.contiguous().view(-1).cpu().numpy())
-            e_direct = np.reshape(e_direct, (ndim, nele))
-            e1 += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-            # pass e_1 back to fine mesh and correct u_i
-            u_i += torch.permute(
-                torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
-                .contiguous().view(nele*nloc,ndim)
+            # # per element condensation
+            # # passing r0 to next level coarse grid and solve Ae=r0
+            # r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
+            # # (nele, ndim)
+            # r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
+            # # for its1 in range(config.mg_its):
+            #
+            # e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
+            # # # smooth on SFC coarse grid (V-cycle saw-tooth fasion)
+            # # # then return an error on level-1 grid (P0DG)
+            # # e1 += mg.mg_smooth(
+            # #     r1,  # input r1 shape (ndim, nele) to fit restrictor
+            # #     space_filling_curve_numbering,
+            # #     variables_sfc,
+            # #     nlevel,
+            # #     nodes_per_level)
+            # # # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            # # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
+            # #                                          RARvalues,
+            # #                                          fina, cola,
+            # #                                          diagRAR)
+            # # what if we direc solve R^T A R e = r1?
+            # e_direct = sp.sparse.linalg.spsolve(RAR.tocsr(), r1.contiguous().view(-1).cpu().numpy())
+            # e_direct = np.reshape(e_direct, (ndim, nele))
+            # e1 += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+            # # pass e_1 back to fine mesh and correct u_i
+            # u_i += torch.permute(
+            #     torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
+            #     .contiguous().view(nele*nloc,ndim)
             # finally give residual
             # get diagA and residual at fine grid r0
             r0 *=0
@@ -244,7 +245,7 @@ if (config.solver=='iterative') :
                         r0, n, nx, detwei, u_i, f)
             r0, diagS, diagS20 = surface_mf_linear_elastic.S_mf(
                         r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)
+            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/fNorm
             # I think we need to smooth one time at finest grid as well.
             if False:  # point Jacobi iteration
                 # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
@@ -284,7 +285,7 @@ if (config.solver=='iterative') :
         r0, _, _ = surface_mf_linear_elastic.S_mf(r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
         # # I think we need to smooth one time at finest grid as well.
         # u_i += config.jac_wei * r0 / (diagS + diagK)
-        r0l2 = torch.linalg.norm(r0.view(-1), dim=0)
+        r0l2 = torch.linalg.norm(r0.view(-1), dim=0)/fNorm
         r0l2all.append(r0l2.cpu().numpy())
         print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
             

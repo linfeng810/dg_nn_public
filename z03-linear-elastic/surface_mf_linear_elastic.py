@@ -25,7 +25,8 @@ nface = config.ndim+1
 sngi = config.sngi
 cijkl = config.cijkl
 
-eta_e = 36.  # penalty coefficient
+eta_e = 36.*config.E  # penalty coefficient
+print('Surface jump penalty coefficient eta_e: ', eta_e)
 
 ## main function
 def S_mf(r, sn, snx, sdetwei, snormal, 

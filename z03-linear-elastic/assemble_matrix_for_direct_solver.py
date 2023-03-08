@@ -25,7 +25,7 @@ cijkl = config.cijkl
 ngi = config.ngi
 sngi = config.sngi
 
-eta_e=36.  # penalty coefficient
+eta_e = config.eta_e
 
 def SK_matrix(n, nx, detwei,
               sn, snx, sdetwei, snormal,
