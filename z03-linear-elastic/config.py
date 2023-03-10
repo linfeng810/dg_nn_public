@@ -44,6 +44,7 @@ jac_its = 1e1  # max jacobi iteration steps
 jac_wei = 2./3.  # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step
+jac_resThres = 1e-9  # iterative converge threshold
 
 ####################
 # material property

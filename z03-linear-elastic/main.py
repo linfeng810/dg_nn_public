@@ -195,7 +195,7 @@ if (config.solver=='iterative') :
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
-        while (r0l2>1e-9 and its<config.jac_its):
+        while (r0l2>config.jac_resThres and its<config.jac_its):
             u_i = u_i.view(nonods, ndim)
             
             ## on fine grid
