@@ -27,6 +27,7 @@ mu = config.mu
 dt = config.dt 
 rho = config.rho 
 
+# @profile
 def K_mf(r, n, nx, detwei, u_i, f, u_old=torch.empty(0)):
     '''
     This function compute the Ku contribution to the residual:

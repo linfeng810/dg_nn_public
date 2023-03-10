@@ -23,7 +23,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine4.msh' # directory to mesh file (gmsh)
+filename='square_refine5.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -40,7 +40,7 @@ ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
-jac_its = 1e5  # max jacobi iteration steps
+jac_its = 1e1  # max jacobi iteration steps
 jac_wei = 2./3.  # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step
@@ -62,6 +62,9 @@ kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
     +mu*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
+
+ijkldim_nz = [[0,0,0,0], [0,0,1,1], [0,1,0,1], [0,1,1,0],
+              [1,0,0,1], [1,0,1,0], [1,1,0,0], [1,1,1,1]]  # non-zero indices of cijkl
 # print('cijkl=', cijkl)
 
 #####################
