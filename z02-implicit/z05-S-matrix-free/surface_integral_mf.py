@@ -70,7 +70,7 @@ def S_mf(r, sn, snx, sdetwei, snormal,
     diagS = torch.zeros(config.nonods, device = config.dev, dtype=torch.float64)
     b_bc = torch.zeros(config.nonods, device=config.dev, dtype=torch.float64)
     # put numpy array to torch tensor in expected device
-    sn = torch.tensor(sn, dtype=torch.float64, device=dev)
+    # sn = torch.tensor(sn, dtype=torch.float64, device=dev)
     # first lets separate nbf to get two list of F_i and F_b
     F_i = np.where(np.logical_not(np.isnan(nbf)))[0] # interior face
     F_b = np.where(np.isnan(nbf))[0]   # boundary face

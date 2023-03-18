@@ -48,25 +48,28 @@ class mk(Module):
 
         batch_in = c_i.shape[0]
         # stiffness matrix 
-        nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-        nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
-            nx1nx1) # (batch_in, nloc, nloc)
-        # print('nx1nx1',nx1nx1)
-        nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-        nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
-            nx2nx2) # (batch_in, nloc, nloc)
+        # nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
+        #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+        # nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
+        #     nx1nx1) # (batch_in, nloc, nloc)
+        # # print('nx1nx1',nx1nx1)
+        # nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
+        #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+        # nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
+        #     nx2nx2) # (batch_in, nloc, nloc)
+        nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
+        nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)
         del nx
         nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
         del nx1nx1 , nx2nx2 
         
         # print('nxnx', nxnx)
         # mass matrix
-        nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
-        nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
-            nn) # (batch_in, nloc, nloc)
+        # nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
+        #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
+        # nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
+        #     nn) # (batch_in, nloc, nloc)
+        nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
         # for ele in range(batch_in):
         #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
         
@@ -114,25 +117,28 @@ class mk_lv1(Module):
 
         batch_in = e_i.shape[0]
         # stiffness matrix 
-        nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-        nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
-            nx1nx1) # (batch_in, nloc, nloc)
-        # print('nx1nx1',nx1nx1)
-        nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-        nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
-            nx2nx2) # (batch_in, nloc, nloc)
+        # nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
+        #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+        # nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
+        #     nx1nx1) # (batch_in, nloc, nloc)
+        # # print('nx1nx1',nx1nx1)
+        # nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
+        #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+        # nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
+        #     nx2nx2) # (batch_in, nloc, nloc)
+        nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
+        nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)
         del nx
         nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
         del nx1nx1 , nx2nx2 
 
         # print('nxnx', nxnx)
         # mass matrix
-        nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
-            detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
-        nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
-            nn) # (batch_in, nloc, nloc)
+        # nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
+        #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
+        # nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
+        #     nn) # (batch_in, nloc, nloc)
+        nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei).contiguous()
         # for ele in range(batch_in):
         #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
         
@@ -154,9 +160,9 @@ def calc_RKR(n, nx, detwei, R, k=1,dt=1):
 
     # Input
 
-    n : torch tensor, (ngi, nloc)
+    n : torch tensor, (nloc, ngi)
         shape function N_i
-    nx : torch tensor, (nele, ndim, ngi, nloc)
+    nx : torch tensor, (nele, ndim, nloc, ngi)
         derivative of shape functions dN_i/dx
     detwei : torch tensor, (nele, ngi)
         determinant x weights
@@ -175,31 +181,34 @@ def calc_RKR(n, nx, detwei, R, k=1,dt=1):
 
     batch_in = nx.shape[0]
     # stiffness matrix 
-    nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
-        detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-    nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
-        nx1nx1) # (batch_in, nloc, nloc)
-    # print('nx1nx1',nx1nx1)
-    nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
-        detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-    nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
-        nx2nx2) # (batch_in, nloc, nloc)
+    # nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
+    #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+    # nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
+    #     nx1nx1) # (batch_in, nloc, nloc)
+    # # print('nx1nx1',nx1nx1)
+    # nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
+    #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
+    # nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
+    #     nx2nx2) # (batch_in, nloc, nloc)
+    nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
+    nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)
     del nx
     nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
     del nx1nx1 , nx2nx2 
 
     # print('nxnx', nxnx)
     # mass matrix
-    nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
-        detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
-    nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
-        nn) # (batch_in, nloc, nloc)
+    # nn = torch.mul(n.unsqueeze(0).expand(batch_in, nloc, ngi), \
+    #     detwei.unsqueeze(1).expand(batch_in, nloc, ngi))   # (batch_in, nloc, ngi)
+    # nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
+    #     nn) # (batch_in, nloc, nloc)
+    nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
     # for ele in range(batch_in):
     #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
     
     if (config.isTransient) :
         nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)
-    
+    # print(nxnx)
     RKR = torch.bmm(nxnx, R.view(nloc,1).unsqueeze(0).expand(batch_in, nloc, 1)) # (batch_in, nloc, 1)
     RKR = torch.bmm(R.view(1,nloc).unsqueeze(0).expand(batch_in, 1, nloc), RKR) # (batch_in, 1, 1)
 
