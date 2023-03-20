@@ -44,7 +44,7 @@ tstart = config.tstart
 print('computation on ',dev)
 print('nele=', nele)
 
-[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4 ] =mesh_init.init()
+[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4 ] = mesh_init.init()
 # [fina, cola, ncola] = mesh_init.connectivity(nbele)
 # coloring and get probing vector
 [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
@@ -55,8 +55,8 @@ print('1. time elapsed, ',time.time()-starttime)
 # shape functions
 #####################################################
 # get shape functions on reference element
-[n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc, \
-    config.ngi, config.ndim)
+[n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc,
+                                           config.ngi, config.ndim, config.snloc, config.sngi)
 n = torch.tensor(n, device=config.dev, dtype=torch.float64)
 nlx = torch.tensor(nlx, device=config.dev, dtype=torch.float64)
 ## set weights in det_nlx
@@ -124,7 +124,7 @@ for inod in bc3:
     # print('bc3 inod %d x %f y %f'%(inod,x_inod, y_inod))
     # c[inod]= x_inod
 for inod in bc4:
-    x_inod = x_ref_in[inod//10, 0, inod%10]
+    x_inod = x_ref_in[inod//nloc, 0, inod%nloc]
     c[inod]= torch.sin(torch.pi*x_inod)
     # y_inod = x_ref_in[inod//10, 1, inod%10]
     # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
@@ -155,10 +155,15 @@ sn = torch.tensor(sn, dtype=torch.float64, device=dev)
 print('6. time elapsed, ',time.time()-starttime)
 
 # per element condensation Rotation matrix (diagonal)
-# R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40., \
-#     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
-R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
-    1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+if nloc == 10:
+    # R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40., \
+    #     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
+    R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
+        1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+elif nloc == 3:
+    R = torch.tensor([1./3., 1./3., 1./3.], device=dev, dtype=torch.float64)
+else:
+    raise Exception('Element type is not accepted. Please check nloc.')
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
@@ -166,6 +171,7 @@ if (config.solver=='iterative') :
     # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
     [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
         x_all, nbele, nbf, c_bc.view(-1))
+    # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
     [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
     # print('diagRSR min max', diagRSR.min(), diagRSR.max())
     # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
@@ -190,6 +196,8 @@ if (config.solver=='iterative') :
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
         RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
         [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
+        RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(), cola, fina), shape=(nele, nele))
+        # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
         # np.savetxt('RAR.txt', RAR.to_dense().cpu().numpy(), delimiter=',')
         # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
@@ -219,38 +227,45 @@ if (config.solver=='iterative') :
             # per element condensation
             # passing r0 to next level coarse grid and solve Ae=r0
             r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
-            
+
             e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
 
             # for its1 in range(config.mg_its):
-                
-            ## use SFC to generate a series of coarse grid
-            # and iterate there (V-cycle saw-tooth fasion)
-            # then return a residual on level-1 grid (P0DG)
-            e_i = multi_grid.mg_on_P0DG(r1, 
-                e_i, 
-                space_filling_curve_numbering, 
-                variables_sfc, 
-                nlevel, 
-                nodes_per_level)
-            
-            ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            with torch.no_grad():
-                nx, detwei = Det_nlx.forward(x_ref_in, weight)
 
-            # mass matrix and rhs
-            with torch.no_grad():
-                [diagRAR,rr1] = Mk1.forward(e_i, r1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
-            rr1 = rr1 - torch.sparse.mm(RSR, e_i)
-            # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
+            # ## use SFC to generate a series of coarse grid
+            # # and iterate there (V-cycle saw-tooth fasion)
+            # # then return a residual on level-1 grid (P0DG)
+            # e_i = multi_grid.mg_on_P0DG(r1,
+            #     e_i,
+            #     space_filling_curve_numbering,
+            #     variables_sfc,
+            #     nlevel,
+            #     nodes_per_level)
 
-            diagA1 = diagRAR+diagRSR 
+            # ## smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            # with torch.no_grad():
+            #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+            #
+            # # mass matrix and rhs
+            # with torch.no_grad():
+            #     [diagRAR,rr1] = Mk1.forward(e_i, r1,k=1,dt=dt,n=n,nx=nx,detwei=detwei, R=R)
+            # rr1 = rr1 - torch.sparse.mm(RSR, e_i)
+            # # print('coarse grid residual: ', torch.linalg.norm(rr1.view(-1), dim=0))
+            #
+            # diagA1 = diagRAR+diagRSR
+            #
+            # diagA1 = 1./diagA1
+            # e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
 
-            diagA1 = 1./diagA1
-            e_i = e_i.view(nele,1) + config.jac_wei * torch.mul(diagA1, rr1)
+            # what if we direc solve R^T A R e = r1?
+            e_direct = sp.sparse.linalg.spsolve(RARmat, r1.contiguous().view(-1).cpu().numpy())
+            # np.savetxt('RARmat.txt', RARmat.toarray(), delimiter=',')
+            e_i = e_i.view(-1)
+            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+
             # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
-            # pass e_i back to fine mesh 
-            e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i)
+            # pass e_i back to fine mesh
+            e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1,1))
             c_i = c_i.view(-1) + e_i0.view(-1)
             ## finally give residual
             with torch.no_grad():
@@ -266,6 +281,7 @@ if (config.solver=='iterative') :
                             nbele, nbf, c_bc, c_i)
             diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
             diagA = 1./diagA
+            c_i = c_i.view(-1)
             c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
             # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')

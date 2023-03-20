@@ -70,6 +70,7 @@ class mk(Module):
         # nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
         #     nn) # (batch_in, nloc, nloc)
         nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
+        # print(nn)
         # for ele in range(batch_in):
         #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
         

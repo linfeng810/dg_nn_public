@@ -140,42 +140,66 @@ def init():
     for iface in range(len(nbf)):
         nbele[iface] = np.sign(nbf[iface])*(np.abs(nbf[iface])//3)
 
-    
-    # generate cubic nodes from element vertices
-    x_all = []
-    for ele in range(nele):
-        # vertex nodes global index
-        idx = mesh.cells[0][1][ele]
-        # vertex nodes coordinate 
-        x_loc=[]
-        for id in idx:
-            x_loc.append(mesh.points[id])
-        # print(x_loc)
-        # ! a reference cubic element looks like this:
-        # !  y
-        # !  | 
-        # !  2
-        # !  | \
-        # !  6  5
-        # !  |   \
-        # !  7 10 4
-        # !  |     \
-        # !  3-8-9--1--x
-        # nodes 1-3
-        x_all.append([x_loc[0][0], x_loc[0][1]])
-        x_all.append([x_loc[1][0], x_loc[1][1]])
-        x_all.append([x_loc[2][0], x_loc[2][1]])
-        # nodes 4,5
-        x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
-        x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
-        # nodes 6,7
-        x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
-        x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
-        # nodes 8,9
-        x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
-        x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
-        # node 10
-        x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+    if nloc == 10:
+        # generate cubic nodes from element vertices
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[0][1][ele]
+            # vertex nodes coordinate
+            x_loc=[]
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # print(x_loc)
+            # ! a reference cubic element looks like this:
+            # !  y
+            # !  |
+            # !  2
+            # !  | \
+            # !  6  5
+            # !  |   \
+            # !  7 10 4
+            # !  |     \
+            # !  3-8-9--1--x
+            # nodes 1-3
+            x_all.append([x_loc[0][0], x_loc[0][1]])
+            x_all.append([x_loc[1][0], x_loc[1][1]])
+            x_all.append([x_loc[2][0], x_loc[2][1]])
+            # nodes 4,5
+            x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
+            x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
+            # nodes 6,7
+            x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
+            x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
+            # nodes 8,9
+            x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
+            x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
+            # node 10
+            x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+    elif nloc == 3:  # linear element
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[0][1][ele]
+            # vertex nodes coordinate
+            x_loc=[]
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # print(x_loc)
+            # ! a reference linear element looks like this:
+            # !  y
+            # !  |
+            # !  2
+            # !  | \
+            # !  |  \
+            # !  |   \
+            # !  |    \
+            # !  |     \
+            # !  3------1--x
+            # nodes 1-3
+            x_all.append([x_loc[0][0], x_loc[0][1]])
+            x_all.append([x_loc[1][0], x_loc[1][1]])
+            x_all.append([x_loc[2][0], x_loc[2][1]])
 
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
@@ -288,6 +312,12 @@ def face_iloc2(iface):
     return iloc_list
 
 def sgi2(sgi):
-    # return gaussian pnts index on the other side 
-    order_on_other_side = [3,2,1,0]
+    # return gaussian pnts index on the other side
+    if config.sngi == 4:  # cubic element
+        order_on_other_side = [3,2,1,0]
+    elif config.sngi == 2:  # linear element
+        order_on_other_side = [1,0]
+    else:
+        raise Exception(f"config.sngi is not accepted in sgi2 (find gaussian "
+                        f"points on the other side)")
     return order_on_other_side[sgi]

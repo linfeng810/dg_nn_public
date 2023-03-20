@@ -104,7 +104,7 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
           nxn = 0.
           nn = 0.
           do sgi = 1,sngi 
-            sgi2 = 5- sgi ! sgi on the other side
+            sgi2 = sngi+1 - sgi ! sgi on the other side
             do idim = 1,ndim 
               nnx = nnx + sn(iface2,jnod2,sgi2)*snx(ele,iface,idim,inod,sgi)*sdetwei(ele,iface,sgi) &
                 * snormal(ele2,iface2,idim)

@@ -220,7 +220,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
     if (config.classicIP):
         c_bc = c_bc.cpu().numpy()
         values, indices, nidx, b_bc = classicip(
-            sn, snx, sdetwei, snormal, nbele, nbf, c_bc,
+            sn.cpu().numpy(), snx, sdetwei, snormal, nbele, nbf, c_bc,
             60*nonods
         )
         values = values[:nidx]

@@ -1,9 +1,10 @@
 % first read in c_all and x_all
-
+cd z12-ele256-refine3/
 % c_all: (n_timestep , nonods)
 % x_all: (nonods, 2)
 c_all = readmatrix('c_all.txt');
 x_all = readmatrix('x_all.txt');
+nloc = 3;
 
 % l2 norm of a-b
 % sqrt( (a1-b1)^2 + (a2-b2)^2 + ... )
@@ -35,7 +36,7 @@ plot3(x_all(:,1), x_all(:,2), c_all(2,:),'x', ...
 xlabel('x')
 ylabel('y')
 zlabel('z : magnitude of c')
-nele = nonods/10;
+nele = nonods/nloc;
 title([num2str(nele), ' elements approximation']);
 
 legend('numerical', 'analytical')
@@ -45,7 +46,7 @@ plot3(x_all(:,1), x_all(:,2), c_all(2,:)'-c_ana, 'x');
 xlabel('x')
 ylabel('y')
 zlabel('z : error of c')
-nele = nonods/10;
+nele = nonods/nloc;
 title([num2str(nele), ' elements approximation']);
 
 l2history = readmatrix('r0l2all.txt');
@@ -55,3 +56,4 @@ semilogy(l2history, LineWidth=2);
 xlabel('MG cycles');
 ylabel('L2 of residuals');
 title(['num of elements: ', num2str(nele)])
+cd ..

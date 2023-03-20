@@ -18,7 +18,7 @@ tstart = config.tstart
 dev = config.dev
 sngi = config.sngi
 
-def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
+def SHATRInew(nloc,ngi,ndim, snloc, sngi):
     '''
     shape functions on a reference element
 
@@ -60,7 +60,7 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
     if (ndim!=2) :
         raise Exception('Input dimension should be 2')
         
-    if (ngi==13):
+    if nloc==10:  # cubic elements
         alpha = -0.149570044467682
         beta = 0.333333333333333
         alpha1 = 0.175615257433208
@@ -88,10 +88,15 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
         weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3 
         weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
         # print('sum of weights', np.sum(weight))
+    elif nloc==3:  # linear elements
+        weight[:] = 1./3.
+        l1[0] = 0.5;    l2[0] = 0.5;    l3[0] = 0
+        l1[1] = 0;      l2[1] = 0.5;    l3[1] = 0.5
+        l1[2] = 0.5;    l2[2] = 0;      l3[2] = 0.5
 
     weight = weight*0.5
 
-    if (sngi==4):
+    if snloc == 4:  # cubic element
         ## 4pnt gaussian quadrature in 1D
         a = 0.339981043584856
         b = 0.861136311594053
@@ -119,6 +124,23 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
         sl2[2,:] = 0.
         sl3[2,:] = np.asarray([b2,a2,a1,b1])
         sl1[2,:] = 1-sl3[2,:]
+    elif snloc == 2:  # linear element
+        # 2 pnt gaussian quadrature in 1D
+        a = 0.5 + 0.5/np.sqrt(3.)
+        b = 0.5 - 0.5/np.sqrt(3.)
+        sweight = 1.
+        # face 1
+        sl1[0, :] = np.asarray([b, a])
+        sl2[0, :] = 1 - sl1[0, :]
+        sl3[0, :] = 0.
+        # face 2
+        sl1[1, :] = 0.
+        sl2[1, :] = np.asarray([b, a])
+        sl3[1, :] = 1 - sl2[1, :]
+        # face 3
+        sl2[2, :] = 0.
+        sl3[2, :] = np.asarray([b, a])
+        sl1[2, :] = 1 - sl3[2, :]
     
     sweight = sweight/2.
 
@@ -176,7 +198,20 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
             nly[ 8, gi ] = -(9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
             # central node...
             nly[ 9, gi ] = 27.*l1[ gi ]*( 1. - 2.*l2[gi]  - l1[ gi ] )
-        
+    elif nloc == 3:  # linear element
+        for gi in range(ngi):
+            n[0, gi] = l1[gi]
+            n[1, gi] = l2[gi]
+            n[2, gi] = l3[gi]
+            # x derivative
+            nlx[0, gi] = 1.0
+            nlx[1, gi] = 0.0
+            nlx[2, gi] = -1.0
+            # y derivative
+            nly[0, gi] = 0.0
+            nly[1, gi] = 1.0
+            nly[2, gi] = -1.0
+
     nlx_all=np.stack([nlx,nly],axis=0)
 
     ## shape function at surface gaussian quadrature points
@@ -235,7 +270,21 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
                 snly[iface, 8, gi ] = -(9./2.)*sl1[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
                 # central node...
                 snly[iface, 9, gi ] = 27.*sl1[iface, gi ]*( 1. - 2.*sl2[iface,gi]  - sl1[iface, gi ] )
-        
+    elif nloc == 3:  # linear element
+        for iface in range(nface):
+            for gi in range(sngi):
+                sn[iface, 0, gi] = sl1[iface, gi]
+                sn[iface, 1, gi] = sl2[iface, gi]
+                sn[iface, 2, gi] = sl3[iface, gi]
+                # x-derivative
+                snlx[iface, 0, gi] = 1.0
+                snlx[iface, 1, gi] = 0.0
+                snlx[iface, 2, gi] = -1.0
+                # y-derivative
+                snly[iface, 0, gi] = 0.0
+                snly[iface, 1, gi] = 1.0
+                snly[iface, 2, gi] = -1.0
+
     snlx_all=np.stack([snlx,snly],axis=1)
 
     return n, nlx_all, weight, sn, snlx_all, sweight
@@ -300,19 +349,19 @@ class det_nlx(Module):
         # calculate jacobian
         self.calc_j11 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
         self.calc_j12 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
         self.calc_j21 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
         self.calc_j22 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
 
         # stack jacobian to ngi* (ndim*ndim)
