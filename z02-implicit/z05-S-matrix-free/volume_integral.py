@@ -43,6 +43,7 @@ class mk(Module):
         # nx - shape function derivatives Nix & Niy, (batch_size, ndim, ngi, nloc)
         # detwei - determinant times GI weight, (batch_size, ngi)
         ### output
+        # bdiagA - block diagonal of matrix A (batch_size, nloc, nloc)
         # diagA - diagonal of lhs matrix A_1 (M/dt + K), (batch_size, nloc)
         # r1  - part of residual b-A_1 c_i, (batch_size, 1, nloc)
 
@@ -94,8 +95,9 @@ class mk(Module):
         diagA = torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1).contiguous()  # use continuous thus diagonal are stored contiguously
            # otherwise by default diagonal returns memory position of diagonal in originally stored tensor
            # wouldn't be able to do e.g. .view
+        bdiagA = nxnx
         
-        return diagA, r1
+        return bdiagA, diagA, r1
 
 # mass and stifness operator on level 1 coarse grid (per element condensation)
 class mk_lv1(Module):

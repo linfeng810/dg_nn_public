@@ -90,29 +90,32 @@ def S_mf(r, sn, snx, sdetwei, snormal,
     diagS = torch.zeros(nonods, device=dev, dtype=torch.float64)
     diagS = diagS.view(nele,nloc)
 
+    bdiagS = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
     # for interior faces, update r
     # r <- r-S*c
     # use r+= or r-= to make sure in-place assignment to avoid copy
     # update 3 local faces separately to avoid change r with multiple values
     for iface in range(nface):
-        r, diagS = S_fi(r, f_i[f_i==iface], E_F_i[f_i==iface], F_i[f_i==iface], 
+        r, diagS, bdiagS = S_fi(r, f_i[f_i==iface], E_F_i[f_i==iface], F_i[f_i==iface],
                 f_inb[f_i==iface], E_F_inb[f_i==iface], F_inb[f_i==iface], 
-                sn, snx, snormal, sdetwei, c_i, diagS)
+                sn, snx, snormal, sdetwei, c_i, diagS, bdiagS)
         
     # for boundary faces, update r
     # r <= r + b_bc - S*c
     # let's hope that each element has only one boundary face.
-    r,diagS = S_fb(r, f_b, E_F_b, F_b,
-             sn, snx, snormal, sdetwei, c_i, c_bc, diagS)
+    r, diagS, bdiagS = S_fb(r, f_b, E_F_b, F_b,
+             sn, snx, snormal, sdetwei, c_i, c_bc, diagS, bdiagS)
 
     r = r.view(-1).contiguous()
     diagS = diagS.view(-1).contiguous()
-    return r, diagS
+    bdiagS = bdiagS.contiguous()
+    return r, diagS, bdiagS
+
 
 def S_fi(r, f_i, E_F_i, F_i, 
          f_inb, E_F_inb, F_inb, 
          sn, snx, snormal, sdetwei, c_i,
-         diagS):
+         diagS, bdiagS):
     '''
     this function add interior face S*c contribution
     to r
@@ -178,6 +181,7 @@ def S_fi(r, f_i, E_F_i, F_i,
     r[E_F_i,:] -= torch.matmul(S, c_i[E_F_i,:].view(batch_in,nloc,1)).squeeze()
     # put diagonal of S into diagS
     diagS[E_F_i,:] += torch.diagonal(S,dim1=-2,dim2=-1)
+    bdiagS[E_F_i, ...] += S
 
     # other side
     S = torch.zeros(batch_in, nloc, nloc,
@@ -209,11 +213,12 @@ def S_fi(r, f_i, E_F_i, F_i,
     # multiply S and c_i and add to (subtract from) r 
     r[E_F_i,:] -= torch.matmul(S, c_i[E_F_inb,:].view(batch_in,nloc,1)).squeeze()
 
-    return r, diagS
+    return r, diagS, bdiagS
+
 
 def S_fb(r, f_b, E_F_b, F_b,
     sn, snx, snormal, sdetwei, c_i, c_bc,
-    diagS):
+    diagS, bdiagS):
     '''
     This function add boundary face S*c_i contribution
     to residual 
@@ -281,5 +286,6 @@ def S_fb(r, f_b, E_F_b, F_b,
     # calculate S*c and add to (subtract from) r
     r[E_F_b, :] -= torch.matmul(S, c_i[E_F_b,:].view(batch_in,nloc,1)).squeeze()
     diagS[E_F_b,:] += torch.diagonal(S,dim1=-2,dim2=-1)
+    bdiagS[E_F_b, ...] += S
     
-    return r,diagS
+    return r, diagS, bdiagS

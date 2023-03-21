@@ -217,11 +217,11 @@ if (config.solver=='iterative') :
                 nx, detwei = Det_nlx.forward(x_ref_in, weight)
             # get diagA and residual at fine grid r0
             with torch.no_grad():
-                [diagA,r0] = Mk.forward(c_i, c_n,
+                bdiagA, diagA, r0 = Mk.forward(c_i, c_n,
                                         k=1,dt=dt,n=n,nx=nx,detwei=detwei)
-            r0 *= 0.
+
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+            r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
                                        nbele, nbf, c_bc, c_i)
             
             # per element condensation
@@ -273,16 +273,23 @@ if (config.solver=='iterative') :
 
             # mass matrix and rhs
             with torch.no_grad():
-                [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, \
+                bdiagA, diagA, r0 = Mk.forward(c_i.view(-1,1,nloc), c_n, \
                     k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+            r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
                             nbele, nbf, c_bc, c_i)
-            diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-            diagA = 1./diagA
-            c_i = c_i.view(-1)
-            c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
+            if False:  # point Jacobian iteration
+                diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
+                diagA = 1./diagA
+                c_i = c_i.view(-1)
+                c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
+            if True:  # block Jacobian iteration
+                bdiagA = bdiagA + bdiagS
+                bdiagA = torch.inverse(bdiagA)
+                c_i = c_i.view(nele, nloc)
+                c_i += config.jac_wei * torch.einsum('...ij,...j->...i', bdiagA, r0.view(nele, nloc))
+                c_i = c_i.view(-1)
             # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
 
@@ -301,11 +308,11 @@ if (config.solver=='iterative') :
 
         # mass matrix and rhs
         with torch.no_grad():
-            [diagA,r0] = Mk.forward(c_i.view(-1,1,nloc), c_n, 
+            bdiagA, diagA, r0 = Mk.forward(c_i.view(-1,1,nloc), c_n,
                 k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
         # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        [r0, diagS] = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+        r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
                             nbele, nbf, c_bc, c_i)
         
         diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
