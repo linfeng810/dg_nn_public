@@ -44,7 +44,7 @@ tstart = config.tstart
 print('computation on ',dev)
 print('nele=', nele)
 
-[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4 ] = mesh_init.init()
+[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
 # [fina, cola, ncola] = mesh_init.connectivity(nbele)
 # coloring and get probing vector
 [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
@@ -359,7 +359,7 @@ if (config.solver=='direct'):
     with torch.no_grad():
         nx, detwei = Det_nlx.forward(x_ref_in, weight)
     # transfer to cpu
-    nx = nx.cpu().numpy() # (nele, ndim, ngi, nloc)
+    nx = nx.cpu().numpy() # (nele, ndim, nloc, ngi)
     detwei = detwei.cpu().numpy() # (nele, ngi)
     indices = []
     values = []
@@ -372,7 +372,7 @@ if (config.solver=='direct'):
                 nxnx = 0
                 for idim in range(ndim):
                     for gi in range(ngi):
-                        nxnx += nx[ele,idim,gi,iloc] * k[idim,idim] * nx[ele,idim,gi,jloc] * detwei[ele,gi]
+                        nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
                 indices.append([glob_iloc, glob_jloc])
                 values.append(nxnx)
                 # print(glob_iloc, glob_jloc, nxnx,';')
@@ -384,11 +384,87 @@ if (config.solver=='direct'):
 
     ## direct solver in scipy
     c_i = sp.sparse.linalg.spsolve(S_sp+K_sp, b_bc_np)
-    print(c_i)
 
     ## store to c_all to print out
-    c_all[1,:] = c_i 
+    c_all[1,:] = c_i
 
+    if False:  # output a series of matrices for fourier analysis.
+        np.savetxt('Amat.txt', (S_sp+K_sp).toarray(), delimiter=',')
+
+
+        '''
+        Continuous Galerkin discretisation
+        '''
+        # we need cg_ndgln, OK got it.
+        Kcg_idx = []
+        Kcg_val = []
+        for ele in range(nele):
+            for iloc in range(nloc):
+                glob_iloc = cg_ndgln[ele*nloc + iloc]
+                for jloc in range(nloc):
+                    glob_jloc = cg_ndgln[ele*nloc + jloc]
+                    nxnx = 0
+                    for idim in range(ndim):
+                        for gi in range(ngi):
+                            nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
+                    # print(glob_iloc, glob_jloc, nxnx)
+                    Kcg_idx.append([glob_iloc, glob_jloc])
+                    Kcg_val.append(nxnx)
+        Kcg_idx = np.asarray(Kcg_idx)
+        Kcg_val = np.asarray(Kcg_val)
+        Kcg = sp.sparse.coo_matrix((Kcg_val, (Kcg_idx[:,0], Kcg_idx[:,1]) ), shape=(cg_nonods, cg_nonods))
+        Kcg = Kcg.tocsr()
+        # cg boundary condition strongly impose:
+        for bc in cg_bc:
+            for inod in bc:
+                Kcg[inod,:] = 0.
+                Kcg[:,inod] = 0.
+                Kcg[inod,inod] = 1.
+        np.savetxt('Kmat_cg.txt', Kcg.toarray(), delimiter=',')
+
+        # let psi in P1CG, phi in P1DG
+        # compute projection matrix from P1DG to P1CG
+        # [psi_i psi_j]^(-1) * [psi_i phi_k]
+        #     M_psi    ^(-1) *    P_psi_phi
+        M_psi_idx = []
+        M_psi_val = []
+        P_psi_idx = []
+        P_psi_val = []
+        M_phi_idx = []
+        M_phi_val = []
+        for ele in range(nele):
+            for iloc in range(nloc):
+                glob_iloc = cg_ndgln[ele * nloc + iloc]
+                glob_lloc = ele * nloc + iloc
+                for jloc in range(nloc):
+                    kloc = jloc
+                    glob_jloc = cg_ndgln[ele * nloc + jloc]
+                    glob_kloc = ele * nloc + kloc
+                    # print(glob_jloc, glob_kloc)
+                    nn = 0.
+                    for gi in range(ngi):
+                        nn += n[iloc,gi] * n[jloc,gi] * detwei[ele,gi]
+                    M_psi_idx.append([glob_iloc, glob_jloc])
+                    M_psi_val.append(nn)
+                    P_psi_idx.append([glob_iloc, glob_kloc])
+                    P_psi_val.append(nn)
+                    M_phi_idx.append([glob_lloc, glob_kloc])
+                    M_phi_val.append(nn)
+        M_psi_idx = np.asarray(M_psi_idx)
+        M_psi_val = np.asarray(M_psi_val)
+        M_psi = sp.sparse.coo_matrix((M_psi_val, (M_psi_idx[:, 0], M_psi_idx[:, 1])), shape=(cg_nonods, cg_nonods))
+        M_psi = M_psi.tocsr()
+        P_psi_idx = np.asarray(P_psi_idx)
+        P_psi_val = np.asarray(P_psi_val)
+        P_psi = sp.sparse.coo_matrix((P_psi_val, (P_psi_idx[:, 0], P_psi_idx[:, 1])), shape=(cg_nonods, nonods))
+        P_psi = P_psi.tocsr()
+        M_phi_idx = np.asarray(M_phi_idx)
+        M_phi_val = np.asarray(M_phi_val)
+        M_phi = sp.sparse.coo_matrix((M_phi_val, (M_phi_idx[:, 0], M_phi_idx[:, 1])), shape=(nonods, nonods))
+        M_phi = M_phi.tocsr()
+        np.savetxt('Mpsimat.txt', M_psi.toarray(), delimiter=',')
+        np.savetxt('Ppsimat.txt', P_psi.toarray(), delimiter=',')
+        np.savetxt('Mphimat.txt', M_phi.toarray(), delimiter=',')
 
 #############################################################
 # write output
