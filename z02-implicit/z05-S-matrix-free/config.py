@@ -57,3 +57,4 @@ mg_smooth_its = 1 # smooth step
 ####################
 # discretisation settings
 classicIP = True # boolean
+eta_e = 36.
