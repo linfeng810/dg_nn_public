@@ -21,7 +21,7 @@ nloc = config.nloc
 nface = config.ndim+1
 sngi = config.sngi
 
-eta_e=36. # penalty coefficient
+eta_e=config.eta_e # penalty coefficient
 
 ## main function
 def S_mf(r, sn, snx, sdetwei, snormal, 

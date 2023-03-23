@@ -138,7 +138,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
 
     ### Classic IP method as addressed in Arnold et al. 2002
     if (False):
-        eta_e = 36. # penalty coefficient
+        eta_e = config.eta_e # penalty coefficient
         for ele in range(nele):
             for iface in range(config.nface):
                 mu_e = eta_e/np.sum(sdetwei[ele,iface,:]) # penalty coeff
@@ -221,7 +221,7 @@ def S_Minv_sparse(sn, snx, sdetwei, snormal, x_all, nbele, nbf, c_bc):
         c_bc = c_bc.cpu().numpy()
         values, indices, nidx, b_bc = classicip(
             sn.cpu().numpy(), snx, sdetwei, snormal, nbele, nbf, c_bc,
-            60*nonods
+            6*nloc*nonods, config.eta_e
         )
         values = values[:nidx]
         indices = indices[:nidx,:]-1
