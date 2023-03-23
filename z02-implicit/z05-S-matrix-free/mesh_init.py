@@ -43,7 +43,7 @@ def init():
     for ele in range(nele):
         for iloc in range(3):
             cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
-    
+    # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele,finele,colele,_ = getfinele(
@@ -200,7 +200,7 @@ def init():
             x_all.append([x_loc[0][0], x_loc[0][1]])
             x_all.append([x_loc[1][0], x_loc[1][1]])
             x_all.append([x_loc[2][0], x_loc[2][1]])
-
+    cg_nonods = mesh.points.shape[0]
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
 
@@ -233,17 +233,28 @@ def init():
         if x_all[inod,1]>1.-1e-8 :
             bc4.append(inod)
 
-    # mark boundary nodes for one-element triangle
-    # bc1 = [0,1,3,4]
-    # bc2 = [1,5,6,2]
-    # bc3 = [0,2,8,7]
-    # bc4 = []
-    # print(bc1)
-    # print(bc2)
-    # print(bc3)
-    # print(bc4)
-
-    return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 
+    # cg bc
+    cg_bc1 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 0] < 1e-8:
+            cg_bc1.append(inod)
+    # bc2: y=0
+    cg_bc2 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 1] < 1e-8:
+            cg_bc2.append(inod)
+    # bc3: x=1
+    cg_bc3 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 0] > 1. - 1e-8:
+            cg_bc3.append(inod)
+    # bc4: y=1
+    cg_bc4 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 1] > 1. - 1e-8:
+            cg_bc4.append(inod)
+    cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
+    return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
 
 def connectivity(nbele):
     '''
