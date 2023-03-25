@@ -388,3 +388,31 @@ def RSR_matrix_color(S,R,whichc,ncolor, fina, cola, ncola):
         diagRSR[ele,0] = RSR[ele,ele]
 
     return diagRSR, RSR, RTbig
+
+
+def RSR_DG_to_CG(S, I_cf, I_fc):
+    '''
+    Get the CG space operator and diagonal
+
+    Input
+    -----
+    S : torch csr sparse (nonods, nonods)
+        surface integral matrix
+    I_cf : torch csr sparse (cg_nonods, nonods)
+        fine to coarse (DG to CG) restrictor
+    I_fc : torch csr sparse (nonods, cg_nonods)
+        coarse to fine (CG to DG) prolongator
+
+    Output
+    ------
+    diagRSR : torch tensor (nonods)
+        diagonal of I_cf * S * I_fc
+    RSR : torch csr tensor (cg_nonods, cg_nonods)
+        I_cf * S * I_fc
+    '''
+    RSR = torch.sparse.mm(S, I_fc)
+    RSR = torch.sparse.mm(I_cf, RSR)
+    diagRSR = torch.zeros(config.cg_nonods, device=dev, dtype=torch.float64)
+    for inod in range(config.cg_nonods):
+        diagRSR[inod] = RSR[inod,inod]
+    return diagRSR, RSR

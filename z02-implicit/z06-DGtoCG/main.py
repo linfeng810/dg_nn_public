@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import scipy.sparse
 ####################################################
 # preamble
 ####################################################
@@ -10,15 +10,15 @@ import torch
 from torch.nn import Conv1d,Sequential,Module
 import scipy as sp
 # import time
-# from scipy.sparse import coo_matrix 
+from scipy.sparse import coo_matrix
 from tqdm import tqdm
 import config
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
-from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color
+from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color, RSR_DG_to_CG
 import surface_integral_mf
-from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR
+from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR, RKR_DG_to_CG, RAR_DG_to_CG
 from color import color2
 import multi_grid
 import time 
@@ -154,16 +154,53 @@ print('5. time elapsed, ',time.time()-starttime)
 sn = torch.tensor(sn, dtype=torch.float64, device=dev)
 print('6. time elapsed, ',time.time()-starttime)
 
-# per element condensation Rotation matrix (diagonal)
-if nloc == 10:
-    # R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40., \
-    #     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
-    R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
-        1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
-elif nloc == 3:
-    R = torch.tensor([1./3., 1./3., 1./3.], device=dev, dtype=torch.float64)
-else:
-    raise Exception('Element type is not accepted. Please check nloc.')
+if False:  # per element condensation Rotation matrix (diagonal)
+    if nloc == 10:
+        # R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40., \
+        #     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
+        R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10., \
+            1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+    elif nloc == 3:
+        R = torch.tensor([1./3., 1./3., 1./3.], device=dev, dtype=torch.float64)
+    else:
+        raise Exception('Element type is not accepted. Please check nloc.')
+if True:  # from P1DG to P1CG
+    I_fc_colx = np.arange(0, nonods)
+    I_fc_coly = cg_ndgln
+    I_fc_val = np.ones(nonods)
+    I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
+                      shape=(cg_nonods, nonods))  # fine to coarse == DG to CG
+    I_cf = I_cf.tocsr()
+    print('don assemble I_cf I_fc', time.time()-starttime)
+    no_dgnodes = I_cf.sum(axis=1)
+    print('done suming', time.time()-starttime)
+    # weight by 1 / overlapping dg nodes number
+    for i in range(nonods):
+        I_fc_val[i] /= no_dgnodes[I_fc_coly[i]]
+    print('done weighting', time.time()-starttime)
+    # for i in tqdm(range(cg_nonods)):
+    #     # no_dgnodes = np.sum(I_cf[i,:])
+    #     I_cf[i,:] /= no_dgnodes[i]
+    #     I_fc[:,i] /= no_dgnodes[i]
+    # print('done weighting', time.time()-starttime)
+    I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
+                      shape=(cg_nonods, nonods))  # fine to coarse == DG to CG
+    I_cf = I_cf.tocsr()
+    I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
+                      shape=(nonods, cg_nonods))  # coarse to fine == CG to DG
+    I_fc = I_fc.tocsr()
+    print('done transform to csr', time.time()-starttime)
+    # transfer to torch device
+    I_fc = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_fc.indptr),
+                                   col_indices=torch.tensor(I_fc.indices),
+                                   values=I_fc.data,
+                                   size=(nonods, cg_nonods),
+                                   device=dev)
+    I_cf = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_cf.indptr),
+                                   col_indices=torch.tensor(I_cf.indices),
+                                   values=I_cf.data,
+                                   size=(cg_nonods, nonods),
+                                   device=dev)
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
@@ -172,10 +209,16 @@ if (config.solver=='iterative') :
     [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
         x_all, nbele, nbf, c_bc.view(-1))
     # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
-    [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
+    if False:  # PnDG to P0DG
+        [diagRSR, RSR, RTbig] = RSR_matrix_color(S, R,
+                                                 whichc, ncolor,
+                                                 fina, cola, ncola) # matvec multiplication
+    if True:  # P1DG to P1CG
+        diagRSR, RSR = RSR_DG_to_CG(S, I_cf, I_fc)
     # print('diagRSR min max', diagRSR.min(), diagRSR.max())
     # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
     # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
+    # np.savetxt('RSR.txt', RSR.to_dense().cpu().numpy(), delimiter=',')
     del S, diagS, b_bc
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
@@ -194,9 +237,21 @@ if (config.solver=='iterative') :
         ## prepare for MG on SFC-coarse grids
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)
-        RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
-        [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
-        RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(), cola, fina), shape=(nele, nele))
+        if False:  # PnDG to P0DG
+            RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
+            [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
+            RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(), cola, fina), shape=(nele, nele))
+        if True:  # P1DG to P1CG
+            print('don calculating nx', time.time()-starttime)
+            diagRKR, RKR = RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1)
+            print('done RKR', time.time()-starttime)
+            diagRAR, RAR = RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR)
+            print('done RAR', time.time()-starttime)
+            RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
+                                           RAR.col_indices().cpu().numpy(),
+                                           RAR.crow_indices().cpu().numpy()),
+                                          shape=(cg_nonods, cg_nonods))
+            print('dong scipy sparse RAR', time.time()-starttime)
         # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
         # np.savetxt('RAR.txt', RAR.to_dense().cpu().numpy(), delimiter=',')
         # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
@@ -224,10 +279,12 @@ if (config.solver=='iterative') :
             r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
                                        nbele, nbf, c_bc, c_i)
             
-            # per element condensation
-            # passing r0 to next level coarse grid and solve Ae=r0
-            r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
-
+            if False:  # PnDG to P0DG
+                # per element condensation
+                # passing r0 to next level coarse grid and solve Ae=r0
+                r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
+            if True:  # P1DG to P1CG
+                r1 = torch.matmul(I_cf, r0.view(-1))
             e_i = torch.zeros((r1.shape[0],1), device=dev, dtype=torch.float64)
 
             # for its1 in range(config.mg_its):
@@ -264,8 +321,11 @@ if (config.solver=='iterative') :
             e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
 
             # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
-            # pass e_i back to fine mesh
-            e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1,1))
+            if False:  # from P0DG to PnDG
+                # pass e_i back to fine mesh
+                e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1,1))
+            if True:  # from P1CG to P1DG
+                e_i0 = torch.mv(I_fc, e_i.view(-1))
             c_i = c_i.view(-1) + e_i0.view(-1)
             ## finally give residual
             with torch.no_grad():
@@ -301,7 +361,7 @@ if (config.solver=='iterative') :
 
         ## smooth a final time after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)
-        
+        print('10. finishing cycles...', time.time()-starttime)
         # calculate shape functions from element nodes coordinate
         with torch.no_grad():
             nx, detwei = Det_nlx.forward(x_ref_in, weight)

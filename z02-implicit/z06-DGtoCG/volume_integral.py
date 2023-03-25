@@ -246,3 +246,64 @@ def calc_RAR(RKR, RSR, diagRSR):
     # RAR = RSR
     
     return RAR, diagRAR
+
+
+def RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1):
+    '''
+    Compute RKR, where R is from P1DG to P1CG
+
+    Input
+    -----
+    n : torch tensor (nloc, ngi)
+        shape function on reference element
+    nx : torch tensor (nele, ndim, nloc, ngi)
+        shape func derivative
+    detwei : torch tensor (nele, ngi)
+        determinant times quadrature weight
+    I_fc : torch csr tensor (nonods, cg_nonods)
+        prolongator from P1CG to P1DG
+    I_cf : torch csr tensor (cg_nonods, nonods)
+        restrictor from P1DG to P1CG
+    k : scaler
+        diffusion coefficient
+    dt : scaler
+        time step
+
+    Output
+    ------
+    diagRKR : torch tensor (cg_nonods)
+        diagonal of I_cf * K * I_fc
+    RKR : torch csr tensor (cg_nonods, cg_nonods)
+    '''
+    K = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    if config.isTransient:
+        K += torch.einsum('ig,jg,...g->...ij', n, n, detwei)/dt
+    for idim in range(config.ndim):
+        K += torch.einsum('...ig,...jg,...g->...ij', nx[:,idim,:,:], nx[:,idim,:,:], detwei)*k
+    # Transform K to scr
+    K_fina = torch.arange(0, nloc*nonods+1, 3)
+    K_cola = torch.einsum('ij,k->ikj',
+                          torch.arange(0,nonods, dtype=torch.long).view(nele,nloc),
+                          torch.ones(nloc, dtype=torch.long)).contiguous().view(-1)
+    K_csr = torch.sparse_csr_tensor(crow_indices=K_fina,
+                                    col_indices=K_cola,
+                                    values=K.view(-1),
+                                    device=dev, dtype=torch.float64, size=(nonods, nonods))
+
+    RKR = torch.sparse.mm(K_csr, I_fc)
+    RKR = torch.sparse.mm(I_cf, RKR)
+    diagRKR = torch.zeros(config.cg_nonods, device=dev, dtype=torch.float64)
+    for inod in range(config.cg_nonods):
+        diagRKR[inod] = RKR[inod, inod]
+    return diagRKR, RKR
+
+
+def RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR):
+    '''
+    add RSR and RAR
+    '''
+    RAR = RSR + RKR
+    del RSR, RKR
+    diagRAR = diagRSR + diagRKR
+    del diagRSR, diagRKR
+    return diagRAR, RAR

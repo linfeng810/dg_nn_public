@@ -185,7 +185,6 @@ def mg_on_P0DG_prep(RAR):
         number of nodes (DOFs) on each level
     '''
 
-    r1_np = np.zeros((config.nele,1))
     # np.savetxt('RAR.txt', RAR.to_dense().cpu().numpy(), delimiter=',')
     ## get SFC
     cola = RAR.col_indices().detach().clone().cpu().numpy()
@@ -193,9 +192,10 @@ def mg_on_P0DG_prep(RAR):
     vals = RAR.values().detach().clone().cpu().numpy()
     starting_node = 1 # setting according to BY
     graph_trim = -10  # ''
-    ncurve = 1        # '' 
-    nele = config.nele # this is the shape of RAR # or should we use RAR.shape[0] for clarity? 
+    ncurve = 1        # ''
+    nonods = RAR.shape[0] # this is the shape of RAR # or should we use RAR.shape[0] for clarity?
     ncola = cola.shape[0]
+    dummy_vec = np.zeros(nonods)
 
     whichd, sfc = \
         sf.ncurve_python_subdomain_space_filling_curve( \
@@ -203,14 +203,14 @@ def mg_on_P0DG_prep(RAR):
         ) # note that fortran array index start from 1, so cola and fina should +1.
     # np.savetxt('sfc.txt', sfc[:,0], delimiter=',')
     ## get coarse grid info
-    max_nlevel = sf.calculate_nlevel_sfc(nele) + 1
-    max_nonods_sfc_all_grids = 5*config.nele 
+    max_nlevel = sf.calculate_nlevel_sfc(nonods) + 1
+    max_nonods_sfc_all_grids = 5*nonods
     max_ncola_sfc_all_un = 10*ncola
 
     a_sfc, fina_sfc_all_un, cola_sfc_all_un, ncola_sfc_all_un, b_sfc, \
         ml_sfc, fin_sfc_nonods, nonods_sfc_all_grids, nlevel = \
         map_sfc.best_sfc_mapping_to_sfc_matrix_unstructured(\
-            a=vals,b=r1_np[:,0], ml=r1_np[:,0],\
+            a=vals,b=dummy_vec, ml=dummy_vec,\
             fina=fina+1,cola=cola+1, \
             sfc_node_ordering=sfc[:,0], \
             max_nonods_sfc_all_grids=max_nonods_sfc_all_grids, \
