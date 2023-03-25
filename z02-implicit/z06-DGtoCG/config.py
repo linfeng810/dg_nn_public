@@ -44,12 +44,14 @@ else:
 nonods = nloc*nele # number of nodes
 ndim = 2 # dimesnion of the problem
 nface = 3 # number of element faces
-ndglno=np.arange(0,nonods) # local to global 
+ndglno=np.arange(0,nonods) # local to global
+cg_ndglno=[]
+cg_nonods=[]
 
 
 ######################
 jac_its = 1e5 # max jacobi iteration steps
-jac_wei = 1. # jacobi weight
+jac_wei = 2./3. # jacobi weight
 mg_its = 1          # mg cycle
 mg_smooth_its = 1 # smooth step
 

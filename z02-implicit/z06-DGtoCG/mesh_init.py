@@ -43,6 +43,7 @@ def init():
     for ele in range(nele):
         for iloc in range(3):
             cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
+    config.cg_ndglno = cg_ndglno
     # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
@@ -201,6 +202,7 @@ def init():
             x_all.append([x_loc[1][0], x_loc[1][1]])
             x_all.append([x_loc[2][0], x_loc[2][1]])
     cg_nonods = mesh.points.shape[0]
+    config.cg_nonods = cg_nonods
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
 
