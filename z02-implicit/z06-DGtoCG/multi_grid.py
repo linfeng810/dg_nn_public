@@ -126,22 +126,25 @@ def mg_smooth(level, e_i, b, variables_sfc):
             number of nodes on level-th grid
 
     # Output
-    e_ip1 : torch tensor (nonods_level[level])
+    e_i : torch tensor (nonods_level[level])
         error after smooth (at i+1-th smooth step)
+    res_this_level : torch tensor (nonods_level[level])
+        residual on this level (at i+1-th smooth step)
     '''
     # get a_sfc and ml_sfc for this level and curve
     a_sfc_sparse, _, diag_weights, nonods_level = variables_sfc[level]
     # np.savetxt('a_sfc_'+str(level)+'.txt', a_sfc_sparse.to_dense().cpu().numpy(), delimiter=',')
-    e_ip1 = torch.sparse.mm(a_sfc_sparse, e_i.view(nonods_level,1))
-    e_ip1 = b.view(-1) - e_ip1.view(-1)
+    res_this_level = torch.sparse.mm(a_sfc_sparse, e_i.view(nonods_level,1)).view(-1)
+    res_this_level *= -1.
+    res_this_level += b.view(-1)
     # print(diag_weights.view(-1).min(), diag_weights.view(-1).max())
-    e_ip1 = e_i.view(-1) + config.jac_wei * e_ip1 / diag_weights.view(-1).max()
+    e_i = e_i.view(-1)
+    e_i += config.jac_wei * res_this_level / diag_weights.view(-1).max()
     # print('a ', a_sfc_sparse.to_dense())
     # print('b ', b)
     # print('diag ', diag_weights)
     # print('e_i ', e_i)
-    # print('e_ip1 ', e_ip1)
-    return e_ip1
+    return e_i, res_this_level
 
 def mg_on_P0DG_prep(RAR):
     '''
@@ -281,40 +284,80 @@ def mg_on_P0DG(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
         dtype=torch.float64, \
         device=config.dev).view(1, 1, 2)
 
-    ## ordering node according to SFC
-    ncurve = 1 # always use 1 sfc
-    N = len(sfc)
-    inverse_numbering = np.zeros((N, ncurve), dtype=int)
-    inverse_numbering[:, 0] = np.argsort(sfc[:, 0])
+    # ## ordering node according to SFC
+    # ncurve = 1 # always use 1 sfc
+    # N = len(sfc)
+    # inverse_numbering = np.zeros((N, ncurve), dtype=int)
+    # inverse_numbering[:, 0] = np.argsort(sfc[:, 0])
+    #
+    # r = r1[inverse_numbering[:,0],0].view(1,1,config.cg_nonods)
 
-    r = r1[inverse_numbering[:,0],0].view(1,1,config.nele)
-    r_s = []
-    r_s.append(r)
-    for i in range(1,nlevel):
+    # choose a level to directly solve on. then we'll iterate from there and levels up
+    for level in range(1,nlevel):
+        if nodes_per_level[level] < 100000:
+            smooth_start_level = level
+            break
+    smooth_start_level = 4
+    # print('start_level: ', start_level)
+
+    r = r1.view(1,1,config.cg_nonods)
+    r_s = [r]
+    for i in range(1,smooth_start_level+1):
         # pad one node with same value as final node so that odd nodes won't be joined
         r = F.pad(r, (0,1), "constant", 0)
         # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
         with torch.no_grad():
             r = sfc_restrictor(r)
         r_s.append(r)
+    # mg sweep on the rest SFC levels (level up)
+    for level1 in reversed(range(0,smooth_start_level)):
+        for level in reversed(range(level1,smooth_start_level+1)):
+            if level == smooth_start_level:  # direct solve on start_level
+                # get operator
+                a_sfc_l = variables_sfc[level][0]
+                cola = a_sfc_l.col_indices().detach().clone().cpu().numpy()
+                fina = a_sfc_l.crow_indices().detach().clone().cpu().numpy()
+                vals = a_sfc_l.values().detach().clone().cpu().numpy()
+                # direct solve on level1 sfc coarse grid
+                from scipy.sparse import csr_matrix, linalg
+                # np.savetxt('a_sfc_l0.txt', variables_sfc[0][0].to_dense().cpu().numpy(), delimiter=',')
+                # np.savetxt('a_sfc_l1.txt', variables_sfc[1][0].to_dense().cpu().numpy(), delimiter=',')
+                a_on_l = csr_matrix((vals, cola, fina), shape=(nodes_per_level[level], nodes_per_level[level]))
+                # np.savetxt('a_sfc_l1_sp.txt', a_on_l1.todense(), delimiter=',')
+                e_i_direct = linalg.spsolve(a_on_l, r_s[level].view(-1).cpu().numpy())
+                # prolongation
+                e_i = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64).view(1, 1, -1)
+            else:  # smooth
+                for its_l in range(config.mg_its[level+1]):  # sfc level is the level+1 overall level.
+                    # (since we have a level0 = PnDG)
+                    CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level] / nodes_per_level[level+1])
+                    e_i = CNN1D_prol_odd(e_i.view(1, 1, -1))
+                    e_i, r_i = mg_smooth(
+                        level=level,
+                        e_i=e_i,
+                        b=r_s[level],
+                        variables_sfc=variables_sfc)
+                    # print('  sfc level ', level, 'its ', its_l, 'residual l2norm', torch.linalg.norm(r_i.view(-1),dim=0))
+        if level1 == 0:
+            break
+        # get residual on level1 and restrict to lower level(s)
+        _, r_i = mg_smooth(
+            level=level1,
+            e_i=e_i,
+            b=r_s[level1],
+            variables_sfc=variables_sfc)
+        r = r_i.view(1, 1, nodes_per_level[level1])
+        r_s[level1] *= 0
+        r_s[level1] += r
+        for i in range(level1, smooth_start_level):
+            # pad one node with same value as final node so that odd nodes won't be joined
+            r = F.pad(r, (0, 1), "constant", 0)
+            # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
+            with torch.no_grad():
+                r = sfc_restrictor(r)
+            r_s[i+1] *= 0
+            r_s[i+1] += r
 
-    ## on 1DOF level
-    e_i = r_s[-1]/variables_sfc[-1][2]
-    CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[-2]/nodes_per_level[-1])
-    e_i = CNN1D_prol_odd(e_i.view(1,1,-1))
-    # e_i = torch.zeros([1,1,2], device=config.dev, dtype=torch.float64)
-    ## mg sweep
-    for level in reversed(range(1,nlevel-1)):
-        for _ in range(config.mg_smooth_its):
-            e_i = mg_smooth(level=level, 
-                e_i=e_i, 
-                b=r_s[level], 
-                variables_sfc=variables_sfc)
-        CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level-1]/nodes_per_level[level])
-        e_i = CNN1D_prol_odd(e_i.view(1,1,-1))
-    
-    # Map e_i to original order
-    e_i = e_i[0,0,sfc[:,0]-1]
     # correct r1 residual
     e_i1p1 = e_i1.view(-1) + e_i.view(-1)
 

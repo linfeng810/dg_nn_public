@@ -202,6 +202,7 @@ def init():
             x_all.append([x_loc[1][0], x_loc[1][1]])
             x_all.append([x_loc[2][0], x_loc[2][1]])
     cg_nonods = mesh.points.shape[0]
+    np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
     config.cg_nonods = cg_nonods
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)

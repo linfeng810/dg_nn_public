@@ -23,7 +23,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square.msh' # directory to mesh file (gmsh)
+filename='square_refine5.msh' # directory to mesh file (gmsh)
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -50,10 +50,12 @@ cg_nonods=[]
 
 
 ######################
-jac_its = 1e5 # max jacobi iteration steps
-jac_wei = 2./3. # jacobi weight
-mg_its = 1          # mg cycle
-mg_smooth_its = 1 # smooth step
+jac_its = 2e3  # max jacobi iteration steps on PnDG (overall MG cycles)
+jac_wei = 1./3. # jacobi weight
+mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...
+mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)
+pre_smooth_its = 0
+post_smooth_its = 1  # thus we have a V(pre,post)-cycle
 
 
 ####################
