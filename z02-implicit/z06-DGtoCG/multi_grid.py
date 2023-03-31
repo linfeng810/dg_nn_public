@@ -134,12 +134,12 @@ def mg_smooth(level, e_i, b, variables_sfc):
     # get a_sfc and ml_sfc for this level and curve
     a_sfc_sparse, _, diag_weights, nonods_level = variables_sfc[level]
     # np.savetxt('a_sfc_'+str(level)+'.txt', a_sfc_sparse.to_dense().cpu().numpy(), delimiter=',')
-    res_this_level = torch.sparse.mm(a_sfc_sparse, e_i.view(nonods_level,1)).view(-1)
+    res_this_level = torch.sparse.mm(a_sfc_sparse, e_i.view(-1,1)).view(-1)
     res_this_level *= -1.
     res_this_level += b.view(-1)
     # print(diag_weights.view(-1).min(), diag_weights.view(-1).max())
     e_i = e_i.view(-1)
-    e_i += config.jac_wei * res_this_level / diag_weights.view(-1).max()
+    e_i += config.jac_wei * res_this_level / diag_weights.view(-1)
     # print('a ', a_sfc_sparse.to_dense())
     # print('b ', b)
     # print('diag ', diag_weights)
@@ -231,58 +231,23 @@ def mg_on_P0DG_prep(RAR):
             a_sfc))
     return sfc, variables_sfc, nlevel, nodes_per_level
 
-def mg_on_P0DG(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
+def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
     '''
     # Multi-grid cycle on P0DG mesh
 
     This function takes in residual on P0DG mesh, forms 
     a series of coarse grid via space-filling-curve, then 
-    smooths the residual on each level until it gets a
-    correction :math:`e_1`. Finally, it returns 
-    :math:`r_1 <- r_1 + e_1`.
-
-    # Input 
-
-    r1 : torch tensor, (nele, 1)
-        residual passed from PnDG mesh via restrictor, 
-
-    e_i1 : torch tensor, (nele, 1)
-        previous computed error on P0DG (level-1 grid).
-
-    sfc : numpy list (nele)
-        space filling curve index for ele.
-    variables_sfc : list (nlevel)
-        a list of all ingredients one needs to perform a smoothing
-        step on level-th grid. Each list member is a list of the 
-        following member:
-        a_sfc_sparse : torch coo sparse tensor, (nonods_level, nonods_level)
-            coarse level grid operator
-        b_sfc_sparse : torch tensor, (nonods_level)
-            should be residual but didn't use here. (DEPRECATED)
-        diag_weights : torch tensor, (nonods_level)
-            diagonal of coarse grid operator
-        nonods : integer
-            number of nodes on level-th grid
-    nlevel : scalar, int
-        number of SFC coarse grid levels
-    nodes_per_level : list of int, (nlevel)
-        number of nodes (DOFs) on each level
-
-    # output
-
-    e_i1p1 : torch tensor, (nele, 1)
-        corrected error on P0DG. To be passed to P0DG 
-        smoother.
+    smooths the residual on each level.
     '''
 
-    ## get residual on each level
-    sfc_restrictor = torch.nn.Conv1d(in_channels=1, \
-        out_channels=1, kernel_size=2, \
-        stride=2, padding='valid', bias=False)
+    # restrict residual
+    sfc_restrictor = torch.nn.Conv1d(in_channels=1,
+                                     out_channels=1, kernel_size=2,
+                                     stride=2, padding='valid', bias=False)
     sfc_restrictor.weight.data = \
-        torch.tensor([[1., 1.]], \
-        dtype=torch.float64, \
-        device=config.dev).view(1, 1, 2)
+        torch.tensor([[1., 1.]],
+                     dtype=torch.float64,
+                     device=config.dev).view(1, 1, 2)
 
     # ## ordering node according to SFC
     # ncurve = 1 # always use 1 sfc
@@ -294,23 +259,48 @@ def mg_on_P0DG(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
 
     # choose a level to directly solve on. then we'll iterate from there and levels up
     for level in range(1,nlevel):
-        if nodes_per_level[level] < 100000:
+        if nodes_per_level[level] < 2:
             smooth_start_level = level
             break
     smooth_start_level = 4
-    # print('start_level: ', start_level)
+    print('start_level: ', smooth_start_level)
 
-    r = r1.view(1,1,config.cg_nonods)
-    r_s = [r]
-    for i in range(1,smooth_start_level+1):
+    r = r0.view(1,1,config.cg_nonods)  # residual r in error equation, Ae=r
+    e_i = e_i0.view(1, 1, config.cg_nonods)  # error
+    r_s = [r]  # collection of r
+    e_s = [e_i.view(-1)]  # collec. of e, all stored as 1D tensor
+    rr = rr0
+    for i in range(1,smooth_start_level):
         # pad one node with same value as final node so that odd nodes won't be joined
-        r = F.pad(r, (0,1), "constant", 0)
-        # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
+        rr = F.pad(rr, (0,1), "constant", 0)
+        e_i = F.pad(e_s[i-1].view(1,1,-1), (0,1), "constant", 0)
         with torch.no_grad():
-            r = sfc_restrictor(r)
-        r_s.append(r)
-    # mg sweep on the rest SFC levels (level up)
-    for level1 in reversed(range(0,smooth_start_level)):
+            rr = sfc_restrictor(rr)
+            r_s.append(rr)
+            e_i = sfc_restrictor(e_i)
+            e_s.append(e_i.view(-1))
+        # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
+        for its in range(config.pre_smooth_its):
+            e_s[i], _ = mg_smooth(
+                level=i,
+                e_i=e_s[i],
+                b=r_s[i],
+                variables_sfc=variables_sfc)
+        # after presmooth, get residual on this level
+        _, rr = mg_smooth(
+            level=i,
+            e_i=e_s[i],
+            b=r_s[i],
+            variables_sfc=variables_sfc)
+        rr = rr.view(1, 1, nodes_per_level[i])
+    # restrict residual to smooth_start_level
+    rr = F.pad(rr, (0, 1), "constant", 0)
+    with torch.no_grad():
+        rr = sfc_restrictor(rr).view(1, 1, nodes_per_level[smooth_start_level])
+        r_s.append(rr)
+    e_s.append(torch.zeros_like(rr.view(-1), device=config.dev, dtype=torch.float64))  # 占个坑
+    # mg sweep on SFC levels (level up)
+    for level1 in reversed(range(0,1)):  # if bunny-net cycle, use range(0,smooth_start_level)
         for level in reversed(range(level1,smooth_start_level+1)):
             if level == smooth_start_level:  # direct solve on start_level
                 # get operator
@@ -326,39 +316,37 @@ def mg_on_P0DG(r1, e_i1, sfc, variables_sfc, nlevel, nodes_per_level):
                 # np.savetxt('a_sfc_l1_sp.txt', a_on_l1.todense(), delimiter=',')
                 e_i_direct = linalg.spsolve(a_on_l, r_s[level].view(-1).cpu().numpy())
                 # prolongation
-                e_i = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64).view(1, 1, -1)
+                e_s[level] = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64)
             else:  # smooth
-                for its_l in range(config.mg_its[level+1]):  # sfc level is the level+1 overall level.
+                CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level] / nodes_per_level[level+1])
+                e_s[level] += CNN1D_prol_odd(e_s[level+1].view(1,1,-1)).view(-1)
+                for its in range(config.post_smooth_its):  # sfc level is the level+1 overall level.
                     # (since we have a level0 = PnDG)
-                    CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level] / nodes_per_level[level+1])
-                    e_i = CNN1D_prol_odd(e_i.view(1, 1, -1))
-                    e_i, r_i = mg_smooth(
+                    e_s[level], _ = mg_smooth(
                         level=level,
-                        e_i=e_i,
+                        e_i=e_s[level],
                         b=r_s[level],
                         variables_sfc=variables_sfc)
                     # print('  sfc level ', level, 'its ', its_l, 'residual l2norm', torch.linalg.norm(r_i.view(-1),dim=0))
         if level1 == 0:
             break
         # get residual on level1 and restrict to lower level(s)
-        _, r_i = mg_smooth(
+        _, rr = mg_smooth(
             level=level1,
-            e_i=e_i,
+            e_i=e_s[level],
             b=r_s[level1],
             variables_sfc=variables_sfc)
-        r = r_i.view(1, 1, nodes_per_level[level1])
-        r_s[level1] *= 0
-        r_s[level1] += r
+        rr = rr.view(1, 1, nodes_per_level[level1])
+        r_s[level1] = rr
         for i in range(level1, smooth_start_level):
             # pad one node with same value as final node so that odd nodes won't be joined
-            r = F.pad(r, (0, 1), "constant", 0)
+            rr = F.pad(rr, (0, 1), "constant", 0)
             # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
             with torch.no_grad():
-                r = sfc_restrictor(r)
-            r_s[i+1] *= 0
-            r_s[i+1] += r
+                rr = sfc_restrictor(rr)
+            r_s[i+1] = rr
 
-    # correct r1 residual
-    e_i1p1 = e_i1.view(-1) + e_i.view(-1)
+    # # correct r1 residual
+    # e_i1p1 = e_i1.view(-1) + e_i.view(-1)
 
-    return e_i1p1.view(-1,1)
+    return e_s[0].view(-1,1)

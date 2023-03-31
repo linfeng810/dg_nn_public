@@ -138,7 +138,7 @@ c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 c_bc = c.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
 # print('c_bc',c_bc)
-c = torch.rand_like(c)
+c = torch.rand_like(c)*0
 c_all=np.empty([tstep,nonods])
 c_all[0,:]=c.view(-1).cpu().numpy()[:]
 print('5. time elapsed, ',time.time()-starttime)
@@ -328,21 +328,22 @@ if (config.solver=='iterative') :
                     diagA1 = 1. / variables_sfc[0][2]
                     e_i = e_i.view(cg_nonods, 1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1, 1)
                 # for _ in range(100):
-                if False:  # SFC multi-grid saw-tooth iteration
+                if True:  # SFC multi-grid saw-tooth iteration
                     rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
                     rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
                     # use SFC to generate a series of coarse grid
                     # and iterate there (V-cycle saw-tooth fasion)
                     # then return a residual on level-1 grid (P1CG)
                     e_i = multi_grid.mg_on_P0DG(
-                        rr1.view(cg_nonods, 1),
+                        r1_sfc.view(cg_nonods, 1),
+                        rr1,
                         e_i,
                         space_filling_curve_numbering,
                         variables_sfc,
                         nlevel,
                         nodes_per_level)
 
-                if True:  # direct solver on first SFC coarsened grid (thus constitutes a 3-level MG)
+                else:  # direct solver on first SFC coarsened grid (thus constitutes a 3-level MG)
                     rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
                     rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
                     level = 1
@@ -375,17 +376,16 @@ if (config.solver=='iterative') :
                     e_ip1 = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64).view(1, 1, -1)
                     CNN1D_prol_odd = torch.nn.Upsample(scale_factor=nodes_per_level[level - 1] / nodes_per_level[level])
                     e_ip1 = CNN1D_prol_odd(e_ip1.view(1, 1, -1))
-                    # Map e_i to original order
                     e_i += torch.squeeze(e_ip1).view(cg_nonods, 1)
                     # e_i += e_ip1[0, 0, space_filling_curve_numbering[:, 0] - 1].view(-1,1)
 
-                for _ in range(config.post_smooth_its):
-                    # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-                    rr1 = r1_sfc-torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1),dim=0)/rr1_l2_0
+                    for _ in range(config.post_smooth_its):
+                        # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+                        rr1 = r1_sfc-torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
+                        rr1_l2 = torch.linalg.norm(rr1.view(-1),dim=0)/rr1_l2_0
 
-                    diagA1 = 1./variables_sfc[0][2]
-                    e_i = e_i.view(cg_nonods,1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1,1)
+                        diagA1 = 1./variables_sfc[0][2]
+                        e_i = e_i.view(cg_nonods,1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1,1)
 
                 its1 += 1
                 # print('its1: %d, residual on P1CG: '%(its1), rr1_l2)
