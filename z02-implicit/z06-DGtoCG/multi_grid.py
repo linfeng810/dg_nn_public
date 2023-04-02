@@ -229,6 +229,15 @@ def mg_on_P0DG_prep(RAR):
             fina_sfc_all_un,
             cola_sfc_all_un,
             a_sfc))
+
+    # choose a level to directly solve on. then we'll iterate from there and levels up
+    if config.smooth_start_level < 0:
+        # for level in range(1,nlevel):
+        #     if nodes_per_level[level] < 2:
+        #         config.smooth_start_level = level
+        #         break
+        config.smooth_start_level += nlevel
+    print('start_level: ', config.smooth_start_level)
     return sfc, variables_sfc, nlevel, nodes_per_level
 
 def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
@@ -257,14 +266,7 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
     #
     # r = r1[inverse_numbering[:,0],0].view(1,1,config.cg_nonods)
 
-    # choose a level to directly solve on. then we'll iterate from there and levels up
-    for level in range(1,nlevel):
-        if nodes_per_level[level] < 2:
-            smooth_start_level = level
-            break
-    smooth_start_level = 4
-    print('start_level: ', smooth_start_level)
-
+    smooth_start_level = config.smooth_start_level
     r = r0.view(1,1,config.cg_nonods)  # residual r in error equation, Ae=r
     e_i = e_i0.view(1, 1, config.cg_nonods)  # error
     r_s = [r]  # collection of r
@@ -293,12 +295,13 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
             b=r_s[i],
             variables_sfc=variables_sfc)
         rr = rr.view(1, 1, nodes_per_level[i])
-    # restrict residual to smooth_start_level
-    rr = F.pad(rr, (0, 1), "constant", 0)
-    with torch.no_grad():
-        rr = sfc_restrictor(rr).view(1, 1, nodes_per_level[smooth_start_level])
-        r_s.append(rr)
-    e_s.append(torch.zeros_like(rr.view(-1), device=config.dev, dtype=torch.float64))  # 占个坑
+    if smooth_start_level > 0:
+        # restrict residual to smooth_start_level
+        rr = F.pad(rr, (0, 1), "constant", 0)
+        with torch.no_grad():
+            rr = sfc_restrictor(rr).view(1, 1, nodes_per_level[smooth_start_level])
+            r_s.append(rr)
+        e_s.append(torch.zeros_like(rr.view(-1), device=config.dev, dtype=torch.float64))  # 占个坑
     # mg sweep on SFC levels (level up)
     for level1 in reversed(range(0,1)):  # if bunny-net cycle, use range(0,smooth_start_level)
         for level in reversed(range(level1,smooth_start_level+1)):
