@@ -2,6 +2,7 @@
 import toughio
 import numpy as np
 import torch
+import sys
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -23,7 +24,9 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine7.msh' # directory to mesh file (gmsh)
+filename='square_refine5.msh' # directory to mesh file (gmsh)
+if len(sys.argv) > 1:
+    filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
@@ -50,13 +53,15 @@ cg_nonods=[]
 
 
 ######################
-jac_its = 2e3  # max jacobi iteration steps on PnDG (overall MG cycles)
+jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_wei = 2./3. # jacobi weight
 mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...
 mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)
-pre_smooth_its = 0
-post_smooth_its = 1  # thus we have a V(pre,post)-cycle
-
+pre_smooth_its = 3
+post_smooth_its = 3  # thus we have a V(pre,post)-cycle
+smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
+if len(sys.argv) > 2:
+    smooth_start_level = int(sys.argv[2])
 
 ####################
 # discretisation settings
