@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import scipy.sparse
+
 ####################################################
 # preamble
 ####################################################
@@ -10,7 +10,7 @@ import torch
 from torch.nn import Conv1d,Sequential,Module
 import scipy as sp
 # import time
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
 import mesh_init 
@@ -33,7 +33,8 @@ np.set_printoptions(precision=16)
 dev = config.dev
 nele = config.nele 
 mesh = config.mesh 
-nonods = config.nonods 
+nonods = config.nonods
+p1dg_nonods = config.p1dg_nonods
 ngi = config.ngi
 ndim = config.ndim
 nloc = config.nloc 
@@ -164,18 +165,18 @@ if False:  # per element condensation Rotation matrix (diagonal)
         R = torch.tensor([1./3., 1./3., 1./3.], device=dev, dtype=torch.float64)
     else:
         raise Exception('Element type is not accepted. Please check nloc.')
-if True:  # from P1DG to P1CG
-    I_fc_colx = np.arange(0, nonods)
+if True:  # from PnDG to P1CG
+    I_fc_colx = np.arange(0, p1dg_nonods)
     I_fc_coly = cg_ndgln
-    I_fc_val = np.ones(nonods)
+    I_fc_val = np.ones(p1dg_nonods)
     I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
-                      shape=(cg_nonods, nonods))  # fine to coarse == DG to CG
+                      shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
     I_cf = I_cf.tocsr()
     print('don assemble I_cf I_fc', time.time()-starttime)
     no_dgnodes = I_cf.sum(axis=1)
     print('done suming', time.time()-starttime)
     # weight by 1 / overlapping dg nodes number
-    for i in range(nonods):
+    for i in range(p1dg_nonods):
         I_fc_val[i] /= no_dgnodes[I_fc_coly[i]]
     print('done weighting', time.time()-starttime)
     # for i in tqdm(range(cg_nonods)):
@@ -184,23 +185,69 @@ if True:  # from P1DG to P1CG
     #     I_fc[:,i] /= no_dgnodes[i]
     # print('done weighting', time.time()-starttime)
     I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
-                      shape=(cg_nonods, nonods))  # fine to coarse == DG to CG
+                      shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
     I_cf = I_cf.tocsr()
     I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
-                      shape=(nonods, cg_nonods))  # coarse to fine == CG to DG
+                      shape=(p1dg_nonods, cg_nonods))  # coarse to fine == CG to DG
     I_fc = I_fc.tocsr()
     print('done transform to csr', time.time()-starttime)
     # transfer to torch device
     I_fc = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_fc.indptr),
                                    col_indices=torch.tensor(I_fc.indices),
                                    values=I_fc.data,
-                                   size=(nonods, cg_nonods),
+                                   size=(p1dg_nonods, cg_nonods),
                                    device=dev)
     I_cf = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_cf.indptr),
                                    col_indices=torch.tensor(I_cf.indices),
                                    values=I_cf.data,
-                                   size=(cg_nonods, nonods),
+                                   size=(cg_nonods, p1dg_nonods),
                                    device=dev)
+    # PnDG to P1DG
+    if config.ele_type == 'cubic':
+        # I_13 = np.asarray([
+        #     [1./ 10, 0, 0, 27./ 40, -9./ 40, -9./ 40, -9./ 40, -9./ 40, 27./ 40, 9./ 20],
+        #     [0, 1./ 10, 0, -9./ 40, 27./ 40, 27./ 40, -9./ 40, -9./ 40, -9./ 40, 9./ 20],
+        #     [0, 0, 1./ 10, -9./ 40, -9./ 40, -9./ 40, 27./ 40, 27./ 40, -9./ 40, 9./ 20],
+        # ], dtype=np.float64)  # from P3DG to P1DG, restrictor
+        I_31 = np.asarray([
+            [1., 0, 0],
+            [0, 1., 0],
+            [0, 0, 1.],
+            [2./ 3, 1./ 3, 0],
+            [1./ 3, 2./ 3, 0],
+            [0, 2./ 3, 1./ 3],
+            [0, 1./ 3, 2./ 3],
+            [1./ 3, 0, 2./ 3],
+            [2./ 3, 0, 1./ 3],
+            [1./ 3, 1./ 3, 1./ 3]
+        ], dtype=np.float64)  # P1DG to P3DG, element-wise prolongation operator
+        I_13 = np.transpose(I_31).copy()
+        I_31_big = bsr_matrix((I_31.repeat(nele, axis=0).reshape(10, nele, 3).transpose((1, 0, 2)),
+                               np.arange(0,nele), np.arange(0,nele+1)),
+                              shape=(nonods, p1dg_nonods))
+        I_31_big = I_31_big.tocsr()
+        I_13_big = bsr_matrix((I_13.repeat(nele, axis=0).reshape(3, nele, 10).transpose((1, 0, 2)),
+                               np.arange(0,nele), np.arange(0,nele+1)),
+                              shape=(p1dg_nonods, nonods))
+        I_13_big = I_13_big.tocsr()
+        I_31_big = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_31_big.indptr),
+                                           col_indices=torch.tensor(I_31_big.indices),
+                                           values=I_31_big.data,
+                                           size=(nonods, p1dg_nonods),
+                                           device=dev)
+        I_13_big = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_13_big.indptr),
+                                           col_indices=torch.tensor(I_13_big.indices),
+                                           values=I_13_big.data,
+                                           size=(p1dg_nonods, nonods),
+                                           device=dev)
+        # np.savetxt('I_dc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('I_cd.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
+        I_fc = torch.sparse.mm(I_31_big, I_fc)
+        I_cf = torch.sparse.mm(I_cf, I_13_big)
+        # np.savetxt('I_31_big.txt', I_31_big.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('I_13_big.txt', I_13_big.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('I_fc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
@@ -259,7 +306,7 @@ if (config.solver=='iterative') :
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P0DG_prep(RAR)
-        np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
+        # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o  
@@ -534,79 +581,80 @@ if (config.solver=='direct'):
         np.savetxt('Amat.txt', (S_sp+K_sp).toarray(), delimiter=',')
 
 
-        '''
-        Continuous Galerkin discretisation
-        '''
-        # we need cg_ndgln, OK got it.
-        Kcg_idx = []
-        Kcg_val = []
-        for ele in range(nele):
-            for iloc in range(nloc):
-                glob_iloc = cg_ndgln[ele*nloc + iloc]
-                for jloc in range(nloc):
-                    glob_jloc = cg_ndgln[ele*nloc + jloc]
-                    nxnx = 0
-                    for idim in range(ndim):
-                        for gi in range(ngi):
-                            nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
-                    # print(glob_iloc, glob_jloc, nxnx)
-                    Kcg_idx.append([glob_iloc, glob_jloc])
-                    Kcg_val.append(nxnx)
-        Kcg_idx = np.asarray(Kcg_idx)
-        Kcg_val = np.asarray(Kcg_val)
-        Kcg = sp.sparse.coo_matrix((Kcg_val, (Kcg_idx[:,0], Kcg_idx[:,1]) ), shape=(cg_nonods, cg_nonods))
-        Kcg = Kcg.tocsr()
-        # cg boundary condition strongly impose:
-        for bc in cg_bc:
-            for inod in bc:
-                Kcg[inod,:] = 0.
-                Kcg[:,inod] = 0.
-                Kcg[inod,inod] = 1.
-        np.savetxt('Kmat_cg.txt', Kcg.toarray(), delimiter=',')
+        # '''
+        # Continuous Galerkin discretisation
+        # '''
+        # # we need cg_ndgln, OK got it.
+        # Kcg_idx = []
+        # Kcg_val = []
+        # for ele in range(nele):
+        #     for iloc in range(3):
+        #         glob_iloc = cg_ndgln[ele*3 + iloc]
+        #         for jloc in range(3):
+        #             glob_jloc = cg_ndgln[ele*3 + jloc]
+        #             nxnx = 0
+        #             for idim in range(ndim):
+        #                 for gi in range(3):
+        #                     nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
+        #             # print(glob_iloc, glob_jloc, nxnx)
+        #             Kcg_idx.append([glob_iloc, glob_jloc])
+        #             Kcg_val.append(nxnx)
+        # Kcg_idx = np.asarray(Kcg_idx)
+        # Kcg_val = np.asarray(Kcg_val)
+        # Kcg = sp.sparse.coo_matrix((Kcg_val, (Kcg_idx[:,0], Kcg_idx[:,1]) ), shape=(cg_nonods, cg_nonods))
+        # Kcg = Kcg.tocsr()
+        # # cg boundary condition strongly impose:
+        # for bc in cg_bc:
+        #     for inod in bc:
+        #         Kcg[inod,:] = 0.
+        #         Kcg[:,inod] = 0.
+        #         Kcg[inod,inod] = 1.
+        # np.savetxt('Kmat_cg.txt', Kcg.toarray(), delimiter=',')
 
-        # let psi in P1CG, phi in P1DG
-        # compute projection matrix from P1DG to P1CG
-        # [psi_i psi_j]^(-1) * [psi_i phi_k]
-        #     M_psi    ^(-1) *    P_psi_phi
-        M_psi_idx = []
-        M_psi_val = []
-        P_psi_idx = []
-        P_psi_val = []
-        M_phi_idx = []
-        M_phi_val = []
-        for ele in range(nele):
-            for iloc in range(nloc):
-                glob_iloc = cg_ndgln[ele * nloc + iloc]
-                glob_lloc = ele * nloc + iloc
-                for jloc in range(nloc):
-                    kloc = jloc
-                    glob_jloc = cg_ndgln[ele * nloc + jloc]
-                    glob_kloc = ele * nloc + kloc
-                    # print(glob_jloc, glob_kloc)
-                    nn = 0.
-                    for gi in range(ngi):
-                        nn += n[iloc,gi] * n[jloc,gi] * detwei[ele,gi]
-                    M_psi_idx.append([glob_iloc, glob_jloc])
-                    M_psi_val.append(nn)
-                    P_psi_idx.append([glob_iloc, glob_kloc])
-                    P_psi_val.append(nn)
-                    M_phi_idx.append([glob_lloc, glob_kloc])
-                    M_phi_val.append(nn)
-        M_psi_idx = np.asarray(M_psi_idx)
-        M_psi_val = np.asarray(M_psi_val)
-        M_psi = sp.sparse.coo_matrix((M_psi_val, (M_psi_idx[:, 0], M_psi_idx[:, 1])), shape=(cg_nonods, cg_nonods))
-        M_psi = M_psi.tocsr()
-        P_psi_idx = np.asarray(P_psi_idx)
-        P_psi_val = np.asarray(P_psi_val)
-        P_psi = sp.sparse.coo_matrix((P_psi_val, (P_psi_idx[:, 0], P_psi_idx[:, 1])), shape=(cg_nonods, nonods))
-        P_psi = P_psi.tocsr()
-        M_phi_idx = np.asarray(M_phi_idx)
-        M_phi_val = np.asarray(M_phi_val)
-        M_phi = sp.sparse.coo_matrix((M_phi_val, (M_phi_idx[:, 0], M_phi_idx[:, 1])), shape=(nonods, nonods))
-        M_phi = M_phi.tocsr()
-        np.savetxt('Mpsimat.txt', M_psi.toarray(), delimiter=',')
-        np.savetxt('Ppsimat.txt', P_psi.toarray(), delimiter=',')
-        np.savetxt('Mphimat.txt', M_phi.toarray(), delimiter=',')
+        # # let psi in P1CG, phi in P1DG
+        # # compute projection matrix from P1DG to P1CG
+        # # [psi_i psi_j]^(-1) * [psi_i phi_k]
+        # #     M_psi    ^(-1) *    P_psi_phi
+        # M_psi_idx = []
+        # M_psi_val = []
+        # P_psi_idx = []
+        # P_psi_val = []
+        # M_phi_idx = []
+        # M_phi_val = []
+        # for ele in range(nele):
+        #     for iloc in range(3):
+        #         glob_iloc = cg_ndgln[ele * 3 + iloc]
+        #         glob_lloc = ele * 3 + iloc
+        #         for jloc in range(3):
+        #             kloc = jloc
+        #             glob_jloc = cg_ndgln[ele * 3 + jloc]
+        #             glob_kloc = ele * 3 + kloc
+        #             # print(glob_jloc, glob_kloc)
+        #             nn = 0.
+        #             for gi in range(3):
+        #                 nn += n[iloc,gi] * n[jloc,gi] * detwei[ele,gi]
+        #             M_psi_idx.append([glob_iloc, glob_jloc])
+        #             M_psi_val.append(nn.cpu())
+        #             P_psi_idx.append([glob_iloc, glob_kloc])
+        #             P_psi_val.append(nn.cpu())
+        #             M_phi_idx.append([glob_lloc, glob_kloc])
+        #             M_phi_val.append(nn.cpu())
+        # M_psi_idx = np.asarray(M_psi_idx)
+        # M_psi_val = np.asarray(M_psi_val)
+        # M_psi = sp.sparse.coo_matrix((M_psi_val, (M_psi_idx[:, 0], M_psi_idx[:, 1])), shape=(cg_nonods, cg_nonods))
+        # M_psi = M_psi.tocsr()
+        # P_psi_idx = np.asarray(P_psi_idx)
+        # P_psi_val = np.asarray(P_psi_val)
+        # P_psi = sp.sparse.coo_matrix((P_psi_val, (P_psi_idx[:, 0], P_psi_idx[:, 1])), shape=(cg_nonods, p1dg_nonods))
+        # P_psi = P_psi.tocsr()
+        # M_phi_idx = np.asarray(M_phi_idx)
+        # M_phi_val = np.asarray(M_phi_val)
+        # M_phi = sp.sparse.coo_matrix((M_phi_val, (M_phi_idx[:, 0], M_phi_idx[:, 1])), shape=(p1dg_nonods, p1dg_nonods))
+        # M_phi = M_phi.tocsr()
+        # np.savetxt('Mpsimat.txt', M_psi.toarray(), delimiter=',')
+        # np.savetxt('Ppsimat.txt', P_psi.toarray(), delimiter=',')
+        # np.savetxt('Mphimat.txt', M_phi.toarray(), delimiter=',')
+        np.savetxt('cg_ndglno.txt', cg_ndgln, delimiter=',')
 
 #############################################################
 # write output

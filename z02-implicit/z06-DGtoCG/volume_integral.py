@@ -281,7 +281,7 @@ def RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1):
     for idim in range(config.ndim):
         K += torch.einsum('...ig,...jg,...g->...ij', nx[:,idim,:,:], nx[:,idim,:,:], detwei)*k
     # Transform K to scr
-    K_fina = torch.arange(0, nloc*nonods+1, 3)
+    K_fina = torch.arange(0, nloc*nonods+1, nloc)
     K_cola = torch.einsum('ij,k->ikj',
                           torch.arange(0,nonods, dtype=torch.long).view(nele,nloc),
                           torch.ones(nloc, dtype=torch.long)).contiguous().view(-1)

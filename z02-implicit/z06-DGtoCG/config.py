@@ -31,7 +31,7 @@ mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'linear'  # 'linear' or 'cubic'
+ele_type = 'cubic'  # 'linear' or 'cubic'
 if ele_type=='cubic':
     nloc = 10  # number of nodes in an element
     ngi = 13 # number of quadrature points
@@ -45,6 +45,7 @@ elif ele_type=='linear':
 else:
     raise Exception("Element type is not acceptable.")
 nonods = nloc*nele # number of nodes
+p1dg_nonods = 3*nele  # number of nodes on P1DG grid
 ndim = 2 # dimesnion of the problem
 nface = 3 # number of element faces
 ndglno=np.arange(0,nonods) # local to global
