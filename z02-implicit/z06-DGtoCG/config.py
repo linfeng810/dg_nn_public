@@ -63,6 +63,10 @@ post_smooth_its = 3  # thus we have a V(pre,post)-cycle
 smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
 if len(sys.argv) > 2:
     smooth_start_level = int(sys.argv[2])
+if len(sys.argv) > 3:
+    pre_smooth_its = int(sys.argv[3])
+    post_smooth_its = int(sys.argv[3])
+print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
 
 ####################
 # discretisation settings
