@@ -416,3 +416,61 @@ def RSR_DG_to_CG(S, I_cf, I_fc):
     for inod in range(config.cg_nonods):
         diagRSR[inod] = RSR[inod,inod]
     return diagRSR, RSR
+
+
+def RSR_DG_to_CG_color(S, I_cf, I_fc,
+                       whichc, ncolor,
+                       fina, cola, ncola):
+    '''
+    Use color and probing to get RSR.
+
+    # Input:
+    S : torch sparse tensor (nonods, nonods)
+        surface integral matrix
+    I_cf : torch sparse tensor (cg_nonods, nonods)
+        restrictor from p3dg to p1cg
+    I_fc : torch sparse tensor (nonods, cg_nonods)
+        prolongator from p1cg to p3dg
+    whichc : np array (cg_nonods)
+        color of cg nodes
+    ncolor : integer
+        number of colors
+    fina : np array (cg_nonods+1)
+        fina of p1cg sparsity (node connectivity matrix)
+    cola : np array (ncola)
+        cola of p1cg sparsity (node connectivity matrix)
+    ncola : integer
+        nnz of p1cg sparsity
+
+    # output:
+    diagRSR : torch tensor (cg_nonods,)
+        diagonal of RSR
+    RSR : torch sparse tensor (cg_nonods, cg_nonods)
+        I_cf * R * I_fc
+    '''
+    cg_nonods = config.cg_nonods
+    value = torch.zeros(ncola, device=dev, dtype=torch.float64)  # NNZ entry values
+    for color in range(1,ncolor+1):
+        mask = (whichc == color) # 1 if true; 0 if false
+        mask = torch.tensor(mask, device=dev, dtype=torch.float64)
+        print('color: ', color)
+        Rm = torch.mv(I_fc, mask) # (nonods, 1)
+        SRm = torch.mv(S, Rm) # (nonods, 1)
+        RSRm = torch.mv(I_cf, SRm) # (cg_nonods, 1)
+        # add to value
+        for i in range(RSRm.shape[0]):
+            for count in range(fina[i], fina[i+1]):
+                j = cola[count]
+                value[count] += RSRm[i]*mask[j]
+
+    RSR = torch.sparse_csr_tensor(crow_indices=fina,
+                                  col_indices=cola,
+                                  values=value,
+                                  size=(cg_nonods, cg_nonods),
+                                  device=dev)
+
+    diagRSR = torch.zeros((cg_nonods, 1), device=dev, dtype=torch.float64)
+    for inod in range(cg_nonods):
+        diagRSR[inod,0] = RSR[inod, inod]
+
+    return diagRSR, RSR

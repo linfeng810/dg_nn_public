@@ -16,9 +16,11 @@ import config
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
-from surface_integral import S_Minv_sparse, RSR_matrix, RSR_matrix_color, RSR_DG_to_CG
+from surface_integral import S_Minv_sparse, RSR_DG_to_CG, RSR_DG_to_CG_color
 import surface_integral_mf
-from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR, RKR_DG_to_CG, RAR_DG_to_CG
+from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR, \
+    RKR_DG_to_CG, RKR_DG_to_CG_color, RAR_DG_to_CG, \
+    calc_RAR_mf_color
 from color import color2
 import multi_grid
 import time 
@@ -47,10 +49,15 @@ print('nele=', nele)
 
 [x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
 # [fina, cola, ncola] = mesh_init.connectivity(nbele)
-# coloring and get probing vector
-[whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
+if False:  # P0DG connectivity and coloring
+    # coloring and get probing vector
+    [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
+if True:  # P1CG connectivity and coloring
+    fina, cola, ncola = mesh_init.p1cg_sparsity(cg_ndgln)
+    whichc, ncolor = color2(fina=fina, cola=cola, nnode=cg_nonods)
 # np.savetxt('whichc.txt', whichc, delimiter=',')
 print('ncolor', ncolor, 'whichc type', whichc.dtype)
+print('cg_nonods', cg_nonods, 'ncola (p1cg sparsity)', ncola)
 print('1. time elapsed, ',time.time()-starttime)
 #####################################################
 # shape functions
@@ -135,7 +142,7 @@ for inod in bc4:
 
 tstep=int(np.ceil((tend-tstart)/dt))+1
 c = c.reshape(nele,nloc) # reshape doesn't change memory allocation.
-c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
+# c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
 c_bc = c.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
 # print('c_bc',c_bc)
@@ -145,11 +152,10 @@ c_all[0,:]=c.view(-1).cpu().numpy()[:]
 print('5. time elapsed, ',time.time()-starttime)
 ## surface integral 
 
-# surface shape functions 
-# output :
-# snx: (nele, nface, ndim, nloc, sngi)
-# sdetwei: (nele, nface, sgni)
+# prepare shape functions ** only once ** store for all future usages
 [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
+with torch.no_grad():
+    nx, detwei = Det_nlx.forward(x_ref_in, weight)
 
 # put numpy array to torch tensor in expected device
 sn = torch.tensor(sn, dtype=torch.float64, device=dev)
@@ -203,7 +209,8 @@ if True:  # from PnDG to P1CG
                                    size=(cg_nonods, p1dg_nonods),
                                    device=dev)
     # PnDG to P1DG
-    if config.ele_type == 'cubic':
+    # if config.ele_type == 'cubic':
+    if False:
         # I_13 = np.asarray([
         #     [1./ 10, 0, 0, 27./ 40, -9./ 40, -9./ 40, -9./ 40, -9./ 40, 27./ 40, 9./ 20],
         #     [0, 1./ 10, 0, -9./ 40, 27./ 40, 27./ 40, -9./ 40, -9./ 40, -9./ 40, 9./ 20],
@@ -243,7 +250,9 @@ if True:  # from PnDG to P1CG
         # np.savetxt('I_dc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
         # np.savetxt('I_cd.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
         I_fc = torch.sparse.mm(I_31_big, I_fc)
+        del I_31_big
         I_cf = torch.sparse.mm(I_cf, I_13_big)
+        del I_13_big
         # np.savetxt('I_31_big.txt', I_31_big.to_dense().cpu().numpy(), delimiter=',')
         # np.savetxt('I_13_big.txt', I_13_big.to_dense().cpu().numpy(), delimiter=',')
         # np.savetxt('I_fc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
@@ -253,20 +262,24 @@ print('7. time elapsed, ',time.time()-starttime)
 if (config.solver=='iterative') :
     # surface integral operator restrcted by R
     # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
-    [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-        x_all, nbele, nbf, c_bc.view(-1))
+    # [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
+    #     x_all, nbele, nbf, c_bc.view(-1))
     # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
-    if False:  # PnDG to P0DG
-        [diagRSR, RSR, RTbig] = RSR_matrix_color(S, R,
-                                                 whichc, ncolor,
-                                                 fina, cola, ncola) # matvec multiplication
-    if True:  # P1DG to P1CG
-        diagRSR, RSR = RSR_DG_to_CG(S, I_cf, I_fc)
+    # if False:  # PnDG to P0DG
+    #     [diagRSR, RSR, RTbig] = RSR_matrix_color(S, R,
+    #                                              whichc, ncolor,
+    #                                              fina, cola, ncola) # matvec multiplication
+    # if True:  # P1DG to P1CG
+    #     # diagRSR, RSR = RSR_DG_to_CG(S, I_cf, I_fc)  # this is time and memory consuming. Consider use matrix-free
+    #     diagRSR, RSR = RSR_DG_to_CG_color(S, I_cf, I_fc,
+    #                                       whichc, ncolor,
+    #                                       fina, cola, ncola)
+    #     print(torch.cuda.memory_summary())
     # print('diagRSR min max', diagRSR.min(), diagRSR.max())
     # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
     # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
     # np.savetxt('RSR.txt', RSR.to_dense().cpu().numpy(), delimiter=',')
-    del S, diagS, b_bc
+    # del S, diagS, b_bc
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
     # print("Using quit()")
@@ -282,30 +295,39 @@ if (config.solver=='iterative') :
         r0 = torch.zeros(config.nonods, device=dev, dtype=torch.float64)
 
         ## prepare for MG on SFC-coarse grids
-        with torch.no_grad():
-            nx, detwei = Det_nlx.forward(x_ref_in, weight)
-        if False:  # PnDG to P0DG
-            RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
-            [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
-            RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(), cola, fina), shape=(nele, nele))
-        if True:  # P1DG to P1CG
-            print('don calculating nx', time.time()-starttime)
-            diagRKR, RKR = RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1)
-            print('done RKR', time.time()-starttime)
-            diagRAR, RAR = RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR)
-            print('done RAR', time.time()-starttime)
-            RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
-                                           RAR.col_indices().cpu().numpy(),
-                                           RAR.crow_indices().cpu().numpy()),
-                                          shape=(cg_nonods, cg_nonods))
-            print('dong scipy sparse RAR', time.time()-starttime)
-            # np.savetxt('RAR.txt', RARmat.todense(), delimiter=',')
-        # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-        # np.savetxt('RAR.txt', RAR.to_dense().cpu().numpy(), delimiter=',')
-        # np.savetxt('diagRAR.txt', diagRAR.cpu().numpy(), delimiter=',')
+        # with torch.no_grad():
+        #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+        # if False:  # PnDG to P0DG
+        #     RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
+        #     [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
+        #     RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(), cola, fina), shape=(nele, nele))
+        # if True:  # P1DG to P1CG
+        #     print('don calculating nx', time.time()-starttime)
+        #     # diagRKR, RKR = RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1)  # matmat mul, memory hungry
+        #     diagRKR, RKR = RKR_DG_to_CG_color(n, nx, detwei, I_fc, I_cf,
+        #                                       whichc, ncolor,
+        #                                       fina, cola, ncola)
+        #     print('done RKR', time.time()-starttime)
+        #     diagRAR, RAR = RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR)
+        #     print('done RAR', time.time()-starttime)
+        #     RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
+        #                                    RAR.col_indices().cpu().numpy(),
+        #                                    RAR.crow_indices().cpu().numpy()),
+        #                                   shape=(cg_nonods, cg_nonods))
+        #     print('dong scipy sparse RAR', time.time()-starttime)
+        RAR = calc_RAR_mf_color(Mk, n, nx, detwei,
+                                sn, snx, sdetwei, snormal,
+                                nbele, nbf,
+                                I_fc, I_cf,
+                                whichc, ncolor,
+                                fina, cola, ncola)
+        print(torch.cuda.mem_get_info(device=dev))
+        print('RAR fina cola len: ', RAR.crow_indices().shape, RAR.col_indices().shape)
+        print('finishing getting RAR: ', time.time()-starttime)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P0DG_prep(RAR)
+        # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
         # sawtooth iteration : sooth one time at each white dot
@@ -315,18 +337,19 @@ if (config.solver=='iterative') :
         while (r0l2>1e-9 and its<config.jac_its):
             c_i = c_i.view(-1,1,nloc)
 
-            for _ in range(config.pre_smooth_its):
+            for its1 in range(config.pre_smooth_its):
                 ## on fine grid
                 # calculate shape functions from element nodes coordinate
-                with torch.no_grad():
-                    nx, detwei = Det_nlx.forward(x_ref_in, weight)
+                # with torch.no_grad():
+                #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+                r0 *= 0
                 # get diagA and residual at fine grid r0
                 with torch.no_grad():
-                    bdiagA, diagA, r0 = Mk.forward(c_i, c_n,
+                    bdiagA, _, r0 = Mk.forward(r0, c_i, c_n,
                                             k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+                r0, _, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
                                            nbele, nbf, c_bc, c_i)
                 bdiagA = bdiagA + bdiagS
                 bdiagA = torch.inverse(bdiagA)
@@ -336,15 +359,16 @@ if (config.solver=='iterative') :
 
             # residual on PnDG
             # calculate shape functions from element nodes coordinate
-            with torch.no_grad():
-                nx, detwei = Det_nlx.forward(x_ref_in, weight)
+            # with torch.no_grad():
+            #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
             # get diagA and residual at fine grid r0
+            r0 *= 0
             with torch.no_grad():
-                bdiagA, diagA, r0 = Mk.forward(c_i, c_n,
+                _, _, r0 = Mk.forward(r0, c_i, c_n,
                                                k=1, dt=dt, n=n, nx=nx, detwei=detwei)
 
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+            r0, _, _ = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
                                                          nbele, nbf, c_bc, c_i)
             
             if False:  # PnDG to P0DG
@@ -352,7 +376,8 @@ if (config.solver=='iterative') :
                 # passing r0 to next level coarse grid and solve Ae=r0
                 r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
             if True:  # P1DG to P1CG
-                r1 = torch.matmul(I_cf, r0.view(-1))
+                r1 = multi_grid.p3dg_to_p1dg_restrictor(r0)
+                r1 = torch.matmul(I_cf, r1)
             # reordering node according to SFC
             ncurve = 1  # always use 1 sfc
             N = len(space_filling_curve_numbering)
@@ -452,16 +477,17 @@ if (config.solver=='iterative') :
                 e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1,1))
             if True:  # from P1CG to P1DG
                 e_i0 = torch.mv(I_fc, e_i.view(-1))
+                e_i0 = multi_grid.p1dg_to_p3dg_prolongator(e_i0)
             c_i = c_i.view(-1) + e_i0.view(-1)
 
             for _ in range(config.post_smooth_its):
                 # post smooth
-                with torch.no_grad():
-                    nx, detwei = Det_nlx.forward(x_ref_in, weight)
-
+                # with torch.no_grad():
+                #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+                r0 *= 0
                 # mass matrix and rhs
                 with torch.no_grad():
-                    bdiagA, diagA, r0 = Mk.forward(c_i.view(-1,1,nloc), c_n, \
+                    bdiagA, diagA, r0 = Mk.forward(r0, c_i.view(-1,1,nloc), c_n, \
                         k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
@@ -492,12 +518,12 @@ if (config.solver=='iterative') :
         # c_i = c_i.view(-1,1,nloc)
         print('10. finishing cycles...', time.time()-starttime)
         # calculate shape functions from element nodes coordinate
-        with torch.no_grad():
-            nx, detwei = Det_nlx.forward(x_ref_in, weight)
-
+        # with torch.no_grad():
+        #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+        r0 *= 0
         # mass matrix and rhs
         with torch.no_grad():
-            bdiagA, diagA, r0 = Mk.forward(c_i.view(-1,1,nloc), c_n,
+            bdiagA, diagA, r0 = Mk.forward(r0, c_i.view(-1,1,nloc), c_n,
                 k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
         # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
@@ -577,7 +603,7 @@ if (config.solver=='direct'):
     ## store to c_all to print out
     c_all[1,:] = c_i
 
-    if False:  # output a series of matrices for fourier analysis.
+    if True:  # output a series of matrices for fourier analysis.
         np.savetxt('Amat.txt', (S_sp+K_sp).toarray(), delimiter=',')
 
 

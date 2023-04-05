@@ -96,8 +96,26 @@ def S_mf(r, sn, snx, sdetwei, snormal,
     # use r+= or r-= to make sure in-place assignment to avoid copy
     # update 3 local faces separately to avoid change r with multiple values
     for iface in range(nface):
-        r, diagS, bdiagS = S_fi(r, f_i[f_i==iface], E_F_i[f_i==iface], F_i[f_i==iface],
-                f_inb[f_i==iface], E_F_inb[f_i==iface], F_inb[f_i==iface], 
+        # r, diagS, bdiagS = S_fi(r, f_i[f_i==iface], E_F_i[f_i==iface], F_i[f_i==iface],
+        #         f_inb[f_i==iface], E_F_inb[f_i==iface], F_inb[f_i==iface],
+        #         sn, snx, snormal, sdetwei, c_i, diagS, bdiagS)
+
+        # if split and compute separately (to save memory)
+        idx_iface = f_i==iface
+        # break the whole idx_iface list into 2 parts
+        # and do S_fi for each part
+        # so that we have a smaller "batch" size to solve memory issue
+        brk_pnt = [0,
+                   int(idx_iface.shape[0] / 4.),
+                   int(idx_iface.shape[0] / 4. * 2.),
+                   int(idx_iface.shape[0] / 4. * 3.),
+                   idx_iface.shape[0]]
+        for i in range(4):
+            idx_list = np.zeros_like(idx_iface, dtype=bool)
+            idx_list[brk_pnt[i]:brk_pnt[i+1]] += idx_iface[brk_pnt[i]:brk_pnt[i+1]]
+            r, diagS, bdiagS = S_fi(
+                r, f_i[idx_list], E_F_i[idx_list], F_i[idx_list],
+                f_inb[idx_list], E_F_inb[idx_list], F_inb[idx_list],
                 sn, snx, snormal, sdetwei, c_i, diagS, bdiagS)
         
     # for boundary faces, update r

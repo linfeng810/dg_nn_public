@@ -193,17 +193,20 @@ def mg_on_P0DG_prep(RAR):
     cola = RAR.col_indices().detach().clone().cpu().numpy()
     fina = RAR.crow_indices().detach().clone().cpu().numpy()
     vals = RAR.values().detach().clone().cpu().numpy()
+    nonods = RAR.shape[0] # this is the shape of RAR # or should we use RAR.shape[0] for clarity?
     starting_node = 1 # setting according to BY
     graph_trim = -10  # ''
     ncurve = 1        # ''
-    nonods = RAR.shape[0] # this is the shape of RAR # or should we use RAR.shape[0] for clarity?
     ncola = cola.shape[0]
     dummy_vec = np.zeros(nonods)
-
+    import time
+    start_time = time.time()
+    print('to get space filling curve...', time.time()-start_time)
     whichd, sfc = \
         sf.ncurve_python_subdomain_space_filling_curve( \
         cola+1, fina+1, starting_node, graph_trim, ncurve, \
         ) # note that fortran array index start from 1, so cola and fina should +1.
+    print('to get sfc operators...', time.time()-start_time)
     # np.savetxt('sfc.txt', sfc[:,0], delimiter=',')
     ## get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(nonods) + 1
@@ -219,6 +222,7 @@ def mg_on_P0DG_prep(RAR):
             max_nonods_sfc_all_grids=max_nonods_sfc_all_grids, \
             max_ncola_sfc_all_un=max_ncola_sfc_all_un, \
             max_nlevel=max_nlevel)
+    print('back from sfc operator fortran subroutine,', time.time()-start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     a_sfc = torch.from_numpy(a_sfc[:ncola_sfc_all_un]).to(device=config.dev)
     del b_sfc, ml_sfc
@@ -229,7 +233,7 @@ def mg_on_P0DG_prep(RAR):
             fina_sfc_all_un,
             cola_sfc_all_un,
             a_sfc))
-
+    print('after forming sfc operator torch csr tensors', time.time()-start_time)
     # choose a level to directly solve on. then we'll iterate from there and levels up
     if config.smooth_start_level < 0:
         # for level in range(1,nlevel):
@@ -353,3 +357,46 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
     # e_i1p1 = e_i1.view(-1) + e_i.view(-1)
 
     return e_s[0].view(-1,1)
+
+
+def p3dg_to_p1dg_restrictor(x):
+    '''
+    takes in a vector on p3dg, do restriction and spit out
+    its projection on p1dg.
+    '''
+    I_31 = torch.tensor([
+        [1., 0, 0],
+        [0, 1., 0],
+        [0, 0, 1.],
+        [2. / 3, 1. / 3, 0],
+        [1. / 3, 2. / 3, 0],
+        [0, 2. / 3, 1. / 3],
+        [0, 1. / 3, 2. / 3],
+        [1. / 3, 0, 2. / 3],
+        [2. / 3, 0, 1. / 3],
+        [1. / 3, 1. / 3, 1. / 3]
+    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
+    I_13 = torch.transpose(I_31, dim0=0, dim1=1)
+    y = torch.einsum('ij,kj->ki', I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
+    return y
+
+
+def p1dg_to_p3dg_prolongator(x):
+    '''
+    takes in a vector on p1dg, do prolongation and spit out
+    its projection on p3dg
+    '''
+    I_31 = torch.tensor([
+        [1., 0, 0],
+        [0, 1., 0],
+        [0, 0, 1.],
+        [2. / 3, 1. / 3, 0],
+        [1. / 3, 2. / 3, 0],
+        [0, 2. / 3, 1. / 3],
+        [0, 1. / 3, 2. / 3],
+        [1. / 3, 0, 2. / 3],
+        [2. / 3, 0, 1. / 3],
+        [1. / 3, 1. / 3, 1. / 3]
+    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
+    y = torch.einsum('ij,kj->ki', I_31, x.view(config.nele, 3)).contiguous().view(-1)
+    return y

@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 import config , time
-from get_nb import getfinele 
+from get_nb import getfinele, getfin_p1cg
 
 def init():
     # initiate mesh ...
@@ -335,3 +335,34 @@ def sgi2(sgi):
         raise Exception(f"config.sngi is not accepted in sgi2 (find gaussian "
                         f"points on the other side)")
     return order_on_other_side[sgi]
+
+
+def p1cg_sparsity(cg_ndglbno):
+    '''
+    get P1CG sparsity from node-global-number list
+    '''
+    import time
+    start_time = time.time()
+    print('im in get p1cg sparsity, time:', time.time()-start_time)
+    nele = config.nele
+    cg_nonods = config.cg_nonods
+    p1dg_nonods = config.p1dg_nonods
+    nloc = 3
+    idx = []
+    val = []
+    import scipy.sparse as sp
+    # for ele in range(nele):
+    #     for inod in range(nloc):
+    #         glbi = cg_ndglbno[ele*nloc+inod]
+    #         for jnod in range(nloc):
+    #             glbj = cg_ndglbno[ele*nloc+jnod]
+    #             idx.append([glbi,glbj])
+    #             val.append(0)
+    idx, n_idx = getfin_p1cg(cg_ndglbno+1, nele, nloc, p1dg_nonods)
+    print('im back from fortran, time:', time.time()-start_time)
+    idx = np.asarray(idx)-1
+    val = np.ones(n_idx)
+    spmat = sp.coo_matrix((val,(idx[0,:],idx[1,:])), shape=(cg_nonods, cg_nonods))
+    spmat = spmat.tocsr()
+    print('ive finished, time:', time.time()-start_time)
+    return spmat.indptr, spmat.indices, spmat.nnz

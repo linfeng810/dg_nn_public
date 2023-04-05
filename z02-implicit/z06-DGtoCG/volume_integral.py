@@ -3,6 +3,8 @@ from torch.nn import Module
 import config 
 import numpy as np
 
+import multi_grid
+
 dev = config.dev
 nele = config.nele 
 mesh = config.mesh 
@@ -32,7 +34,7 @@ class mk(Module):
     def __init__(self):
         super(mk, self).__init__()
 
-    def forward(self, c_i, c_n, k, dt, n, nx, detwei):
+    def forward(self, r0, c_i, c_n, k, dt, n, nx, detwei):
         ### input
         # c_i - node values at last jacobi iteration, i.e. c^n_i, (batch_size, 1, nloc)
         # c_n  - node values at last timestep, i.e. c^(n-1)_i, (batch_size, 1, nloc)
@@ -46,7 +48,7 @@ class mk(Module):
         # bdiagA - block diagonal of matrix A (batch_size, nloc, nloc)
         # diagA - diagonal of lhs matrix A_1 (M/dt + K), (batch_size, nloc)
         # r1  - part of residual b-A_1 c_i, (batch_size, 1, nloc)
-
+        c_i = c_i.view(-1, 1, nloc)
         batch_in = c_i.shape[0]
         # stiffness matrix 
         # nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
@@ -75,29 +77,26 @@ class mk(Module):
         # for ele in range(batch_in):
         #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
         
-        b = torch.zeros(batch_in, nloc, 1, device=dev, dtype=torch.float64)
+        # b = torch.zeros(batch_in, nloc, 1, device=dev, dtype=torch.float64)
         # b = b + b_bc.view(batch_in, nloc,1)
         if (config.isTransient) :
             print('I go to transient...')
             nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)
-        
-            b = b + torch.matmul(nn/dt,torch.transpose(c_n,1,2)) # batch matrix-vector multiplication, 
+            r0 = r0.view(batch_in, nloc, 1)
+            r0 += torch.matmul(nn/dt,torch.transpose(c_n,1,2)) # batch matrix-vector multiplication,
                         # input1: (batch_in, nloc, nloc)
                 # input2: (batch_in, nloc, 1)
                 # broadcast over batch
                 # output: (batch_in, nloc, 1)
-        
-        r1 = torch.matmul(nxnx, torch.transpose(c_i,1,2)) # batch m-v multiplication of (M/dt+K)*c_i
-        
-        r1 = b-r1 
-        r1 = torch.transpose(r1,1,2) # return to (batch_in, 1, nloc)
+        r0 = r0.view(-1)
+        r0 -= torch.matmul(nxnx, torch.transpose(c_i,1,2)).view(-1)  # batch m-v multiplication of (M/dt+K)*c_i
         
         diagA = torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1).contiguous()  # use continuous thus diagonal are stored contiguously
            # otherwise by default diagonal returns memory position of diagonal in originally stored tensor
            # wouldn't be able to do e.g. .view
         bdiagA = nxnx
         
-        return bdiagA, diagA, r1
+        return bdiagA, diagA, r0
 
 # mass and stifness operator on level 1 coarse grid (per element condensation)
 class mk_lv1(Module):
@@ -298,6 +297,82 @@ def RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1):
     return diagRKR, RKR
 
 
+def RKR_DG_to_CG_color(n, nx, detwei, I_fc, I_cf,
+                       whichc, ncolor,
+                       fina, cola, ncola,
+                       k=1, dt=1):
+    '''
+    Compute RKR, where R is from P1DG to P1CG
+    via coloring probing method.
+
+    Input
+    -----
+    n : torch tensor (nloc, ngi)
+        shape function on reference element
+    nx : torch tensor (nele, ndim, nloc, ngi)
+        shape func derivative
+    detwei : torch tensor (nele, ngi)
+        determinant times quadrature weight
+    I_fc : torch csr tensor (nonods, cg_nonods)
+        prolongator from P1CG to P1DG
+    I_cf : torch csr tensor (cg_nonods, nonods)
+        restrictor from P1DG to P1CG
+    k : scaler
+        diffusion coefficient
+    dt : scaler
+        time step
+
+    Output
+    ------
+    diagRKR : torch tensor (cg_nonods)
+        diagonal of I_cf * K * I_fc
+    RKR : torch csr tensor (cg_nonods, cg_nonods)
+    '''
+    K = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    if config.isTransient:
+        K += torch.einsum('ig,jg,...g->...ij', n, n, detwei)/dt
+    for idim in range(config.ndim):
+        K += torch.einsum('...ig,...jg,...g->...ij', nx[:,idim,:,:], nx[:,idim,:,:], detwei)*k
+    # Transform K to scr
+    K_fina = torch.arange(0, nloc*nonods+1, nloc)
+    K_cola = torch.einsum('ij,k->ikj',
+                          torch.arange(0,nonods, dtype=torch.long).view(nele,nloc),
+                          torch.ones(nloc, dtype=torch.long)).contiguous().view(-1)
+    K_csr = torch.sparse_csr_tensor(crow_indices=K_fina,
+                                    col_indices=K_cola,
+                                    values=K.view(-1),
+                                    device=dev, dtype=torch.float64, size=(nonods, nonods))
+
+    # RKR = torch.sparse.mm(K_csr, I_fc)
+    # RKR = torch.sparse.mm(I_cf, RKR)
+    cg_nonods = config.cg_nonods
+    value = torch.zeros(ncola, device=dev, dtype=torch.float64)  # NNZ entry values
+    for color in range(1,ncolor+1):
+        mask = (whichc == color) # 1 if true; 0 if false
+        mask = torch.tensor(mask, device=dev, dtype=torch.float64)
+        print('color: ', color)
+        Rm = torch.mv(I_fc, mask) # (nonods, 1)
+        KRm = torch.mv(K_csr, Rm) # (nonods, 1)
+        RKRm = torch.mv(I_cf, KRm) # (cg_nonods, 1)
+        # add to value
+        for i in range(RKRm.shape[0]):
+            for count in range(fina[i], fina[i+1]):
+                j = cola[count]
+                value[count] += RKRm[i]*mask[j]
+
+    RKR = torch.sparse_csr_tensor(crow_indices=fina,
+                                  col_indices=cola,
+                                  values=value,
+                                  size=(cg_nonods, cg_nonods),
+                                  device=dev)
+
+    diagRKR = torch.zeros(config.cg_nonods, device=dev, dtype=torch.float64)
+    for inod in range(config.cg_nonods):
+        diagRKR[inod] = RKR[inod, inod]
+
+    return diagRKR, RKR
+
+
 def RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR):
     '''
     add RSR and RAR
@@ -307,3 +382,68 @@ def RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR):
     diagRAR = diagRSR + diagRKR
     del diagRSR, diagRKR
     return diagRAR, RAR
+
+
+def calc_RAR_mf_color(Mk, n, nx, detwei,
+                      sn, snx, sdetwei, snormal,
+                      nbele, nbf,
+                      I_fc, I_cf,
+                      whichc, ncolor,
+                      fina, cola, ncola):
+    '''
+    get RAR matrix-freely via coloring method
+
+    # Input:
+    Volume shape functions:
+        n, nx, detwei
+    Surface shape functions:
+        sn, snx, setwei, snormal
+    Neighbouring info for surface integral:
+        nbele, nbf
+    Restrictor/prolongator: (p1dg <-> p1dg)
+        I_cf, I_fc
+    Coloring:
+        whichc, color
+    RAR sparsity:
+        fina, cola, ncola
+
+    # Output:
+    RAR: torch csr tensor, (cg_nonods, cg_nonods)
+        I_cf * A * I_fc
+    '''
+    import surface_integral_mf
+    import time
+    start_time = time.time()
+    cg_nonods = config.cg_nonods
+    value = torch.zeros(ncola, device=dev, dtype=torch.float64)  # NNZ entry values
+    dummy = torch.zeros(nonods, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
+    ARm = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # nx, detwei = Det_nlx.forward(x_ref_in, weight)
+    for color in range(1, ncolor + 1):
+        mask = (whichc == color)  # 1 if true; 0 if false
+        mask = torch.tensor(mask, device=dev, dtype=torch.float64)
+        print('color: ', color)
+        Rm = torch.mv(I_fc, mask)  # (p1dg_nonods, 1)
+        Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
+        ARm *= 0
+        _, _, ARm = Mk.forward(ARm, Rm, dummy,
+                               k=1, dt=dt, n=n, nx=nx, detwei=detwei)
+        # del nx, detwei  # to save memmory, nx and detwei will be calculated when required and destroyed right after.
+        ARm, _, _ = surface_integral_mf.S_mf(ARm, sn, snx, sdetwei, snormal,
+                                             nbele, nbf, dummy, Rm)
+        ARm *= -1.  # (p3dg_nonods, )
+        RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
+        RARm = torch.mv(I_cf, RARm)  # (cg_nonods, 1)
+        # add to value
+        for i in range(RARm.shape[0]):
+            for count in range(fina[i], fina[i + 1]):
+                j = cola[count]
+                value[count] += RARm[i] * mask[j]
+        print('finishing (another) one color, time comsumed: ', time.time()-start_time)
+
+    RAR = torch.sparse_csr_tensor(crow_indices=fina,
+                                  col_indices=cola,
+                                  values=value,
+                                  size=(cg_nonods, cg_nonods),
+                                  device=dev)
+    return RAR
