@@ -18,7 +18,7 @@ import mesh_init
 from shape_function import SHATRInew, det_nlx, sdet_snlx, get_det_nlx
 from surface_integral import S_Minv_sparse, RSR_DG_to_CG, RSR_DG_to_CG_color
 import surface_integral_mf
-from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR, \
+from volume_integral import K_mf, calc_RKR, calc_RAR, \
     RKR_DG_to_CG, RKR_DG_to_CG_color, RAR_DG_to_CG, \
     calc_RAR_mf_color
 from color import color2
@@ -72,8 +72,8 @@ print('3. time elapsed, ',time.time()-starttime)
 # assemble local mass matrix and stiffness matrix
 #######################################################
 
-Mk = mk()
-Mk.to(device=dev)
+# Mk = mk()
+# Mk.to(device=dev)
 
 print('4. time elapsed, ',time.time()-starttime)
 
@@ -294,7 +294,7 @@ if (config.solver=='iterative') :
         #                                    RAR.crow_indices().cpu().numpy()),
         #                                   shape=(cg_nonods, cg_nonods))
         #     print('dong scipy sparse RAR', time.time()-starttime)
-        RAR = calc_RAR_mf_color(Mk, n, nx, detwei,
+        RAR = calc_RAR_mf_color(n, nx, detwei,
                                 sn, snx, sdetwei, snormal,
                                 nbele, nbf,
                                 I_fc, I_cf,
@@ -324,7 +324,7 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 # get diagA and residual at fine grid r0
                 with torch.no_grad():
-                    bdiagA, _, r0 = Mk.forward(r0, c_i, c_n,
+                    bdiagA, _, r0 = K_mf(r0, c_i, c_n,
                                             k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
@@ -343,7 +343,7 @@ if (config.solver=='iterative') :
             # get diagA and residual at fine grid r0
             r0 *= 0
             with torch.no_grad():
-                _, _, r0 = Mk.forward(r0, c_i, c_n,
+                _, _, r0 = K_mf(r0, c_i, c_n,
                                                k=1, dt=dt, n=n, nx=nx, detwei=detwei)
 
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
@@ -466,7 +466,7 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 # mass matrix and rhs
                 with torch.no_grad():
-                    bdiagA, diagA, r0 = Mk.forward(r0, c_i.view(-1,1,nloc), c_n, \
+                    bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n, \
                         k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
@@ -502,7 +502,7 @@ if (config.solver=='iterative') :
         r0 *= 0
         # mass matrix and rhs
         with torch.no_grad():
-            bdiagA, diagA, r0 = Mk.forward(r0, c_i.view(-1,1,nloc), c_n,
+            bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n,
                 k=1,dt=dt,n=n,nx=nx,detwei=detwei)
 
         # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
