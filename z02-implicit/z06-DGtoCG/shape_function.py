@@ -657,3 +657,90 @@ def sdet_snlx(snlx, x_loc, sweight):
     # print(snx.shape, sdetwei.shape)
 
     return snx, sdetwei, snormal
+
+
+def get_det_nlx(nlx, x_loc, weight):
+    '''
+    take in element nodes coordinates, spit out
+    detwei and local shape function derivative
+
+    # Input
+    nlx : torch tensor (ndim, nloc, ngi)
+        shape function derivative on reference element
+    x_loc : torch tensor (batch_in, ndim, nloc)
+        nodes coordinates
+    weight : torch tensor (ngi,)
+        quadrature points weight
+
+    # Output
+    nx : torch tensor (batch_in, ndim, nloc, ngi)
+        local shpae function derivatives
+    detwei : torch tensor (batch_in, ngi)
+        determinant x quadrature weight
+    '''
+    batch_in = x_loc.shape[0]
+    # print(x_loc.is_cuda)
+    x = x_loc[:, 0, :].view(batch_in, nloc)
+    y = x_loc[:, 1, :].view(batch_in, nloc)
+    # print('x',x,'\ny',y)
+    # print(torch.cuda.memory_summary())
+    # first we calculate jacobian matrix (J^T) = [j11,j12;
+    #                                             j21,j22]
+    # [ d x/d xi,   dy/d xi ;
+    #   d x/d eta,  dy/d eta]
+    # output: each component of jacobi
+    # (batch_size , ngi)
+    j11 = torch.einsum('ij,ki->kj', nlx[0, :, :], x).view(batch_in, ngi)
+    j12 = torch.einsum('ij,ki->kj', nlx[0, :, :], y).view(batch_in, ngi)
+    j21 = torch.einsum('ij,ki->kj', nlx[1, :, :], x).view(batch_in, ngi)
+    j22 = torch.einsum('ij,ki->kj', nlx[1, :, :], y).view(batch_in, ngi)
+    # j11 = torch.tensordot(nlx[0,:,:], x, dims=([0],[2])).view(ngi, batch_in)
+    # j12 = torch.tensordot(nlx[0,:,:], y, dims=([0],[2])).view(ngi, batch_in)
+    # j21 = torch.tensordot(nlx[1,:,:], x, dims=([0],[2])).view(ngi, batch_in)
+    # j22 = torch.tensordot(nlx[1,:,:], y, dims=([0],[2])).view(ngi, batch_in)
+    # calculate determinant of jacobian
+    det = torch.mul(j11, j22) - torch.mul(j21, j12)
+    det = det.view(batch_in, ngi)
+    invdet = torch.div(1.0, det)
+    det = abs(det)
+    # print('det', det)
+    # print('invdet', invdet)
+    detwei = torch.mul(det, torch.tensor(weight, device=dev).unsqueeze(0).expand(det.shape[0], ngi))  # detwei
+    del det
+    #######
+    # calculate and store inv jacobian...
+    # inverse of jacobian
+    # print(torch.cuda.memory_summary())
+    # calculate nx
+    nlx1 = nlx[0, :, :].expand(batch_in, -1, -1)
+    nlx2 = nlx[1, :, :].expand(batch_in, -1, -1)
+    invj11 = torch.mul(j22, invdet).view(batch_in, -1)
+    invj12 = torch.mul(j12, invdet).view(batch_in, -1) * (-1.0)
+    del j22
+    del j12
+    invj11 = invj11.unsqueeze(1).expand(-1, nloc, -1)
+    invj12 = invj12.unsqueeze(1).expand(-1, nloc, -1)
+    # print('invj11', invj11)
+    # print('invj12', invj12)
+    nx1 = torch.mul(invj11, nlx1) + torch.mul(invj12, nlx2)
+    del invj11
+    del invj12
+
+    invj21 = torch.mul(j21, invdet).view(batch_in, -1) * (-1.0)
+    invj22 = torch.mul(j11, invdet).view(batch_in, -1)
+    del j21
+    del j11
+    invj21 = invj21.unsqueeze(1).expand(-1, nloc, -1)
+    invj22 = invj22.unsqueeze(1).expand(-1, nloc, -1)
+    del invdet
+    # print('invj21', invj21)
+    # print('invj22', invj22)
+    # print('invj11expand', invj22)
+    # print(invj11.shape, nlx1.shape)
+    nx2 = torch.mul(invj21, nlx1) + torch.mul(invj22, nlx2)
+    del invj21
+    del invj22
+
+    nx = torch.stack((nx1, nx2), dim=1)
+
+    return nx, detwei

@@ -15,7 +15,7 @@ from tqdm import tqdm
 import config
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
-from shape_function import SHATRInew, det_nlx, sdet_snlx
+from shape_function import SHATRInew, det_nlx, sdet_snlx, get_det_nlx
 from surface_integral import S_Minv_sparse, RSR_DG_to_CG, RSR_DG_to_CG_color
 import surface_integral_mf
 from volume_integral import mk, mk_lv1, calc_RKR, calc_RAR, \
@@ -67,36 +67,14 @@ print('1. time elapsed, ',time.time()-starttime)
                                            config.ngi, config.ndim, config.snloc, config.sngi)
 n = torch.tensor(n, device=config.dev, dtype=torch.float64)
 nlx = torch.tensor(nlx, device=config.dev, dtype=torch.float64)
-## set weights in det_nlx
-Det_nlx = det_nlx(nlx)
-Det_nlx.to(dev)
-print('2. time elapsed, ',time.time()-starttime)
-# filter for calc jacobian
-calc_j11_j12_filter = torch.transpose(nlx[0,:,:],0,1) # dN/dx
-calc_j11_j12_filter = calc_j11_j12_filter.unsqueeze(1) # (ngi, 1, nloc)
-calc_j21_j22_filter = torch.transpose(nlx[1,:,:],0,1) # dN/dy
-calc_j21_j22_filter = calc_j21_j22_filter.unsqueeze(1) # (ngi, 1, nloc)
-# print(Det_nlx.calc_j11.weight.shape)
-# print(nlx.shape)
-# print(calc_j21_j22_filter.shape)
-Det_nlx.calc_j11.weight.data = calc_j11_j12_filter
-Det_nlx.calc_j12.weight.data = calc_j11_j12_filter
-Det_nlx.calc_j21.weight.data = calc_j21_j22_filter
-Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
-# print(Det_nlx.calc_j11.weight.shape)
-# print(Det_nlx.calc_j11.weight.data)
 print('3. time elapsed, ',time.time()-starttime)
 #######################################################
 # assemble local mass matrix and stiffness matrix
 #######################################################
 
-
 Mk = mk()
 Mk.to(device=dev)
 
-
-Mk1 = mk_lv1() # level 1 mass/stiffness operator 
-Mk.to(device=dev)
 print('4. time elapsed, ',time.time()-starttime)
 
 ####################################################
@@ -154,8 +132,9 @@ print('5. time elapsed, ',time.time()-starttime)
 
 # prepare shape functions ** only once ** store for all future usages
 [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
-with torch.no_grad():
-    nx, detwei = Det_nlx.forward(x_ref_in, weight)
+# with torch.no_grad():
+#     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
 
 # put numpy array to torch tensor in expected device
 sn = torch.tensor(sn, dtype=torch.float64, device=dev)
@@ -571,8 +550,7 @@ if (config.solver=='direct'):
 
     ### then assemble K as scipy csr spM
     # calculate shape functions from element nodes coordinate
-    with torch.no_grad():
-        nx, detwei = Det_nlx.forward(x_ref_in, weight)
+    nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
     # transfer to cpu
     nx = nx.cpu().numpy() # (nele, ndim, nloc, ngi)
     detwei = detwei.cpu().numpy() # (nele, ngi)
