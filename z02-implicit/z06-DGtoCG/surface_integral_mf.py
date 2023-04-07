@@ -6,7 +6,9 @@ Hence the name "surface_integral_mf".
 '''
 import torch 
 import config 
-import numpy as np 
+import numpy as np
+
+import shape_function
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -24,7 +26,7 @@ sngi = config.sngi
 eta_e=config.eta_e # penalty coefficient
 
 ## main function
-def S_mf(r, sn, snx, sdetwei, snormal, 
+def S_mf(r, sn, snlx, x_ref_in, sweight,
          nbele, nbf, c_bc, c_i):
     '''
     This function compute the Sc contribution to residual:
@@ -38,18 +40,21 @@ def S_mf(r, sn, snx, sdetwei, snormal,
         residual vector that hasn't taken account of S*c
     sn : numpy array (nface, nloc, sngi)
         shape function at face quad pnts
-    snx : torch tensor (nele, nface, ndim, nloc, sngi)
-        shape func derivatives at face quad pnts
-    sdetwei : torch tensor (nele, nface, sngi)
-        det x quad weights for surface integral
-    snormal : torch tensor (nele, nface, ndim)
-        unit out normal of face
+    # snx : torch tensor (nele, nface, ndim, nloc, sngi)
+    #     shape func derivatives at face quad pnts
+    # sdetwei : torch tensor (nele, nface, sngi)
+    #     det x quad weights for surface integral
+    # snormal : torch tensor (nele, nface, ndim)
+    #     unit out normal of face
+    snlx :
+    x_ref_in :
+    sweight :
     nbele : python list (nele x nface)
         list of neighbour element index
     nbf : python list (nele x nloc)
         list of neighbour face index
     c_bc : torch tensor (nonods)
-        Dirichlet boundary values at boundary nodes, 0 other wise
+        Dirichlet boundary values at boundary nodes, 0 otherwise
     c_i : torch tensor (nonods)
         field value at i-th iteration (last iteration)
 
@@ -65,10 +70,10 @@ def S_mf(r, sn, snx, sdetwei, snormal,
     c_i = c_i.view(nele,nloc)
     r = r.view(nele,nloc)
     c_bc = c_bc.view(nele,nloc)
-
+    # snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in, sweight)
     # output declaration
-    diagS = torch.zeros(config.nonods, device = config.dev, dtype=torch.float64)
-    b_bc = torch.zeros(config.nonods, device=config.dev, dtype=torch.float64)
+    # diagS = torch.zeros(config.nonods, device = config.dev, dtype=torch.float64)
+    # b_bc = torch.zeros(config.nonods, device=config.dev, dtype=torch.float64)
     # put numpy array to torch tensor in expected device
     # sn = torch.tensor(sn, dtype=torch.float64, device=dev)
     # first lets separate nbf to get two list of F_i and F_b
@@ -102,27 +107,29 @@ def S_mf(r, sn, snx, sdetwei, snormal,
 
         # if split and compute separately (to save memory)
         idx_iface = f_i==iface
-        # break the whole idx_iface list into 2 parts
+        # break the whole idx_iface list into nnn parts
         # and do S_fi for each part
         # so that we have a smaller "batch" size to solve memory issue
-        brk_pnt = [0,
-                   int(idx_iface.shape[0] / 4.),
-                   int(idx_iface.shape[0] / 4. * 2.),
-                   int(idx_iface.shape[0] / 4. * 3.),
-                   idx_iface.shape[0]]
-        for i in range(4):
+        nnn = 4
+        brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*idx_iface.shape[0], dtype=int)
+            # [0,
+            #        int(idx_iface.shape[0] / 4.),
+            #        int(idx_iface.shape[0] / 4. * 2.),
+            #        int(idx_iface.shape[0] / 4. * 3.),
+            #        idx_iface.shape[0]]
+        for i in range(nnn):
             idx_list = np.zeros_like(idx_iface, dtype=bool)
             idx_list[brk_pnt[i]:brk_pnt[i+1]] += idx_iface[brk_pnt[i]:brk_pnt[i+1]]
             r, diagS, bdiagS = S_fi(
                 r, f_i[idx_list], E_F_i[idx_list], F_i[idx_list],
                 f_inb[idx_list], E_F_inb[idx_list], F_inb[idx_list],
-                sn, snx, snormal, sdetwei, c_i, diagS, bdiagS)
+                sn, snlx, x_ref_in, sweight, c_i, diagS, bdiagS)
         
     # for boundary faces, update r
     # r <= r + b_bc - S*c
     # let's hope that each element has only one boundary face.
     r, diagS, bdiagS = S_fb(r, f_b, E_F_b, F_b,
-             sn, snx, snormal, sdetwei, c_i, c_bc, diagS, bdiagS)
+             sn, snlx, x_ref_in, sweight, c_i, c_bc, diagS, bdiagS)
 
     r = r.view(-1).contiguous()
     diagS = diagS.view(-1).contiguous()
@@ -132,7 +139,7 @@ def S_mf(r, sn, snx, sdetwei, snormal,
 
 def S_fi(r, f_i, E_F_i, F_i, 
          f_inb, E_F_inb, F_inb, 
-         sn, snx, snormal, sdetwei, c_i,
+         sn, snlx, x_ref_in, sweight, c_i,
          diagS, bdiagS):
     '''
     this function add interior face S*c contribution
@@ -141,15 +148,24 @@ def S_fi(r, f_i, E_F_i, F_i,
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_i.shape[0]
-    mu_e = eta_e/torch.sum(sdetwei[E_F_i, f_i,:],-1)
+    dummy_idx = np.arange(0,batch_in)  # this is to use with idx f_i
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
-    # all these expansion are views of original tensor, 
+    # all these expansion are views of original tensor,
     # i.e. they point to same memory as sn/snx
-    sni = sn.unsqueeze(0).expand(nele,-1,-1,-1)\
+    sni = sn.unsqueeze(0).expand(batch_in,-1,-1,-1)\
         .unsqueeze(3).expand(-1,-1,-1,nloc,-1) # expand on nloc(jnod)
-    snj = sn.unsqueeze(0).expand(nele,-1,-1,-1)\
+    snj = sn.unsqueeze(0).expand(batch_in,-1,-1,-1)\
         .unsqueeze(2).expand(-1,-1,nloc,-1,-1) # expand on nloc(inod)
+
+    # get shape function derivatives
+    # this side.
+    snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in[E_F_i], sweight)
+    # now tensor shape are:
+    # snx | snx_nb         (batch_in, nface, ndim, nloc, sngi)
+    # sdetwei | sdetwei_nb (batch_in, nface, sngi)
+    # snormal | snormal_nb (batch_in, nface, ndim)
+    mu_e = eta_e/torch.sum(sdetwei[dummy_idx, f_i,:],-1)
     snxi = snx.unsqueeze(4)\
         .expand(-1,-1,-1,-1,nloc,-1) # expand on nloc(jnod)
     snxj = snx.unsqueeze(3)\
@@ -160,6 +176,18 @@ def S_fi(r, f_i, E_F_i, F_i,
         .expand(-1,-1,-1,nloc,nloc,sngi)
     sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3)\
         .expand(-1,-1,nloc,nloc,-1)
+    # other side.
+    snx_nb, sdetwei_nb, snormal_nb = shape_function.sdet_snlx(snlx, x_ref_in[E_F_inb], sweight)
+    # snxi_nb = snx_nb.unsqueeze(4) \
+    #     .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    snxj_nb = snx_nb.unsqueeze(3) \
+        .expand(-1, -1, -1, nloc, -1, -1)  # expand on nloc(inod)
+    # make all tensors in shape (nele, nface, nloc(inod), nloc(jnod), sngi)
+    # are views of snormal/sdetwei, taken same memory
+    snormalv_nb = snormal_nb.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) \
+        .expand(-1, -1, -1, nloc, nloc, sngi)
+    # sdetweiv_nb = sdetwei_nb.unsqueeze(2).unsqueeze(3) \
+    #     .expand(-1, -1, nloc, nloc, -1)
     # print('sn shape sn memory usage',snj.shape, snj.storage().size())
     # print('snx shape snx memory usage',snxi.shape, snxi.storage().size())
     # print('snormal shape snormal memory usage',snormal.shape, snormal.storage().size())
@@ -175,25 +203,25 @@ def S_fi(r, f_i, E_F_i, F_i,
     # n_j nx_i
     for idim in range(ndim):
         S[:,:nloc,:nloc] += torch.sum(torch.mul(torch.mul(torch.mul(
-            snj[E_F_i, f_i, :, :, :],
-            snxi[E_F_i, f_i, idim, :,:,:]),
-            snormalv[E_F_i,f_i, idim, :,:,:]),
-            sdetweiv[E_F_i,f_i, :,:,:]),
+            snj[dummy_idx, f_i, :, :, :],
+            snxi[dummy_idx, f_i, idim, :,:,:]),
+            snormalv[dummy_idx,f_i, idim, :,:,:]),
+            sdetweiv[dummy_idx,f_i, :,:,:]),
             -1)*(-0.5)
     # njx ni
     for idim in range(ndim):
         S[:,:nloc,:nloc] += torch.sum(torch.mul(torch.mul(torch.mul(
-            snxj[E_F_i, f_i,idim,:,:,:],
-            sni[E_F_i, f_i, :,:,:]),
-            snormalv[E_F_i,f_i, idim, :,:,:]),
-            sdetweiv[E_F_i, f_i, :,:,:]),
+            snxj[dummy_idx, f_i,idim,:,:,:],
+            sni[dummy_idx, f_i, :,:,:]),
+            snormalv[dummy_idx,f_i, idim, :,:,:]),
+            sdetweiv[dummy_idx, f_i, :,:,:]),
             -1)*(-0.5)
     # nj ni
     S[:,:nloc,:nloc] += torch.mul(
         torch.sum(torch.mul(torch.mul(
-        sni[E_F_i, f_i, :,:,:],
-        snj[E_F_i, f_i, :,:,:]),
-        sdetweiv[E_F_i, f_i, :,:,:]),
+        sni[dummy_idx, f_i, :,:,:],
+        snj[dummy_idx, f_i, :,:,:]),
+        sdetweiv[dummy_idx, f_i, :,:,:]),
         -1)   ,   mu_e)
     # multiply S and c_i and add to (subtract from) r 
     r[E_F_i,:] -= torch.matmul(S, c_i[E_F_i,:].view(batch_in,nloc,1)).squeeze()
@@ -207,25 +235,25 @@ def S_fi(r, f_i, E_F_i, F_i,
     # Nj2 * Ni1x * n2
     for idim in range(ndim):
         S[:,:nloc,:nloc] += torch.sum(torch.mul(torch.mul(torch.mul(
-            torch.flip(snj[E_F_inb, f_inb, :, :, :], [-1]), # torch.flip make copy of data. might be memory-intensive
-            snxi[E_F_i, f_i, idim, :,:,:]),
-            snormalv[E_F_inb,f_inb, idim, :,:,:]),
-            sdetweiv[E_F_i,f_i, :,:,:]),
+            torch.flip(snj[dummy_idx, f_inb, :, :, :], [-1]), # torch.flip make copy of data. might be memory-intensive
+            snxi[dummy_idx, f_i, idim, :,:,:]),
+            snormalv_nb[dummy_idx,f_inb, idim, :,:,:]),
+            sdetweiv[dummy_idx,f_i, :,:,:]),
             -1)*(-0.5)
     # Nj2x * Ni1 * n1
     for idim in range(ndim):
         S[:,:nloc,:nloc] += torch.sum(torch.mul(torch.mul(torch.mul(
-            torch.flip(snxj[E_F_inb, f_inb,idim,:,:,:],[-1]),
-            sni[E_F_i, f_i, :,:,:]),
-            snormalv[E_F_i,f_i, idim, :,:,:]),
-            sdetweiv[E_F_i, f_i, :,:,:]),
+            torch.flip(snxj_nb[dummy_idx, f_inb,idim,:,:,:],[-1]),
+            sni[dummy_idx, f_i, :,:,:]),
+            snormalv[dummy_idx,f_i, idim, :,:,:]),
+            sdetweiv[dummy_idx, f_i, :,:,:]),
             -1)*(-0.5)
     # Nj2n2 * Ni1n1 ! n2 \cdot n1 = -1
     S[:,:nloc,:nloc] += torch.mul(
         torch.sum(torch.mul(torch.mul(
-        sni[E_F_i, f_i, :,:,:],
-        torch.flip(snj[E_F_inb, f_inb, :,:,:],[-1])),
-        sdetweiv[E_F_i, f_i, :,:,:]),
+        sni[dummy_idx, f_i, :,:,:],
+        torch.flip(snj[dummy_idx, f_inb, :,:,:],[-1])),
+        sdetweiv[dummy_idx, f_i, :,:,:]),
         -1)   ,   -mu_e)
     # this S is off-diagonal contribution, therefore no need to put in diagS
     # multiply S and c_i and add to (subtract from) r 
@@ -235,7 +263,7 @@ def S_fi(r, f_i, E_F_i, F_i,
 
 
 def S_fb(r, f_b, E_F_b, F_b,
-    sn, snx, snormal, sdetwei, c_i, c_bc,
+    sn, snlx, x_ref_in, sweight, c_i, c_bc,
     diagS, bdiagS):
     '''
     This function add boundary face S*c_i contribution
@@ -249,15 +277,19 @@ def S_fb(r, f_b, E_F_b, F_b,
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_b.shape[0]
-    mu_e = eta_e/torch.sum(sdetwei[E_F_b, f_b,:],-1)
+    dummy_idx = np.arange(0, batch_in)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
-    # all these expansion are views of original tensor, 
+    # all these expansion are views of original tensor,
     # i.e. they point to same memory as sn/snx
-    sni = sn.unsqueeze(0).expand(nele,-1,-1,-1)\
+    sni = sn.unsqueeze(0).expand(batch_in,-1,-1,-1)\
         .unsqueeze(3).expand(-1,-1,-1,nloc,-1) # expand on nloc(jnod)
-    snj = sn.unsqueeze(0).expand(nele,-1,-1,-1)\
+    snj = sn.unsqueeze(0).expand(batch_in,-1,-1,-1)\
         .unsqueeze(2).expand(-1,-1,nloc,-1,-1) # expand on nloc(inod)
+
+    # get shaps function derivatives
+    snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in[E_F_b], sweight)
+    mu_e = eta_e/torch.sum(sdetwei[dummy_idx, f_b,:],-1)
     snxi = snx.unsqueeze(4)\
         .expand(-1,-1,-1,-1,nloc,-1) # expand on nloc(jnod)
     snxj = snx.unsqueeze(3)\
@@ -277,17 +309,17 @@ def S_fb(r, f_b, E_F_b, F_b,
     # # Nj1 * Ni1x * n1
     for idim in range(ndim):
         S[:,:nloc,:nloc] -= torch.sum(torch.mul(torch.mul(torch.mul(
-            snj[E_F_b, f_b, :, :, :],
-            snxi[E_F_b, f_b, idim, :,:,:]),
-            snormalv[E_F_b,f_b, idim, :,:,:]),
-            sdetweiv[E_F_b,f_b, :,:,:]),
+            snj[dummy_idx, f_b, :, :, :],
+            snxi[dummy_idx, f_b, idim, :,:,:]),
+            snormalv[dummy_idx,f_b, idim, :,:,:]),
+            sdetweiv[dummy_idx,f_b, :,:,:]),
             -1) # *(-1.0)
     # # Nj1n1 * Ni1n1 ! n1 \cdot n1 = 1
     S[:,:nloc,:nloc] += torch.mul(
         torch.sum(torch.mul(torch.mul(
-        sni[E_F_b, f_b, :,:,:],
-        snj[E_F_b, f_b, :,:,:]),
-        sdetweiv[E_F_b, f_b, :,:,:]),
+        sni[dummy_idx, f_b, :,:,:],
+        snj[dummy_idx, f_b, :,:,:]),
+        sdetweiv[dummy_idx, f_b, :,:,:]),
         -1)   ,   mu_e)
     # calculate b_bc and add to r
     # r <- r + b_bc
@@ -296,10 +328,10 @@ def S_fb(r, f_b, E_F_b, F_b,
     # # Nj1x * Ni1 * n1
     for idim in range(ndim):
         S[:,:nloc,:nloc] -= torch.sum(torch.mul(torch.mul(torch.mul(
-            sni[E_F_b, f_b, :, :, :],
-            snxj[E_F_b, f_b, idim, :,:,:]),
-            snormalv[E_F_b,f_b, idim, :,:,:]),
-            sdetweiv[E_F_b,f_b, :,:,:]),
+            sni[dummy_idx, f_b, :, :, :],
+            snxj[dummy_idx, f_b, idim, :,:,:]),
+            snormalv[dummy_idx,f_b, idim, :,:,:]),
+            sdetweiv[dummy_idx,f_b, :,:,:]),
             -1) # *(-1.0)
     # calculate S*c and add to (subtract from) r
     r[E_F_b, :] -= torch.matmul(S, c_i[E_F_b,:].view(batch_in,nloc,1)).squeeze()

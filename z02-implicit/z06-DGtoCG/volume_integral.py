@@ -4,6 +4,7 @@ import config
 import numpy as np
 
 import multi_grid
+import shape_function
 
 dev = config.dev
 nele = config.nele 
@@ -17,7 +18,7 @@ tend = config.tend
 tstart = config.tstart
 
 
-def K_mf(r0, c_i, c_n, k, dt, n, nx, detwei):
+def K_mf(r0, c_i, c_n, k, dt, n, nlx, x_ref_in, weight):
     '''
     update residual:     r0 <- r0 - K*c_i
     if transient, also do:     r0 <- r0 + M/dt * c_n
@@ -28,8 +29,12 @@ def K_mf(r0, c_i, c_n, k, dt, n, nx, detwei):
     k  - diffusion coefficient at node, right now we simplify it using constant k. (1)
     dt - timestep. (1)
     n  - shape function Ni, (ngi, nloc)
-    nx - shape function derivatives Nix & Niy, (batch_size, ndim, ngi, nloc)
-    detwei - determinant times GI weight, (batch_size, ngi)
+    nlx : torch tensor ()
+        shape function derivative on reference element
+    x_ref_in : torch tensor ()
+        nodes coordinates
+    weight : torch tensor (ngi,)
+        volume integral quadrature weights
 
     # output
     bdiagA - block diagonal of matrix A (batch_size, nloc, nloc)
@@ -38,16 +43,8 @@ def K_mf(r0, c_i, c_n, k, dt, n, nx, detwei):
     '''
     c_i = c_i.view(-1, 1, nloc)
     batch_in = c_i.shape[0]
+    nx, detwei = shape_function.get_det_nlx(nlx, x_ref_in, weight)
     # stiffness matrix
-    # nx1nx1 = torch.mul(nx[:,0,:,:].view(batch_in, ngi, nloc), \
-    #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-    # nx1nx1 = torch.bmm(torch.transpose(nx[:,0,:,:].view(batch_in, ngi, nloc), 1,2), \
-    #     nx1nx1) # (batch_in, nloc, nloc)
-    # # print('nx1nx1',nx1nx1)
-    # nx2nx2 = torch.mul(nx[:,1,:,:].view(batch_in, ngi, nloc), \
-    #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc)) # (batch_in, ngi, nloc)
-    # nx2nx2 = torch.bmm(torch.transpose(nx[:,1,:,:].view(batch_in, ngi, nloc), 1,2), \
-    #     nx2nx2) # (batch_in, nloc, nloc)
     nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
     nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)
     del nx
@@ -372,8 +369,9 @@ def RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR):
     return diagRAR, RAR
 
 
-def calc_RAR_mf_color(n, nx, detwei,
-                      sn, snx, sdetwei, snormal,
+def calc_RAR_mf_color(n, nlx, weight,
+                      sn, snlx, sweight,
+                      x_ref_in,
                       nbele, nbf,
                       I_fc, I_cf,
                       whichc, ncolor,
@@ -415,9 +413,9 @@ def calc_RAR_mf_color(n, nx, detwei,
         Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
         ARm *= 0
         _, _, ARm = K_mf(ARm, Rm, dummy,
-                               k=1, dt=dt, n=n, nx=nx, detwei=detwei)
+                               k=1, dt=dt, n=n, nlx=nlx, x_ref_in=x_ref_in, weight=weight)
         # del nx, detwei  # to save memmory, nx and detwei will be calculated when required and destroyed right after.
-        ARm, _, _ = surface_integral_mf.S_mf(ARm, sn, snx, sdetwei, snormal,
+        ARm, _, _ = surface_integral_mf.S_mf(ARm, sn, snlx, x_ref_in, sweight,
                                              nbele, nbf, dummy, Rm)
         ARm *= -1.  # (p3dg_nonods, )
         RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )

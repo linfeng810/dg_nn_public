@@ -3,7 +3,11 @@
 ####################################################
 # preamble
 ####################################################
-# import 
+# import
+import time, os.path
+
+starttime = time.time()
+
 import toughio 
 import numpy as np
 import torch
@@ -23,9 +27,6 @@ from volume_integral import K_mf, calc_RKR, calc_RAR, \
     calc_RAR_mf_color
 from color import color2
 import multi_grid
-import time 
-
-starttime = time.time()
 
 # for pretty print out torch tensor
 # torch.set_printoptions(sci_mode=False)
@@ -55,6 +56,26 @@ if False:  # P0DG connectivity and coloring
 if True:  # P1CG connectivity and coloring
     fina, cola, ncola = mesh_init.p1cg_sparsity(cg_ndgln)
     whichc, ncolor = color2(fina=fina, cola=cola, nnode=cg_nonods)
+#     starting_node = 1 # setting according to BY
+#     graph_trim = -10  # ''
+#     ncurve = 1        # ''
+#     ncola = cola.shape[0]
+#     dummy_vec = np.zeros(nonods)
+#     import time
+#     start_time = time.time()
+#     print('to get space filling curve...', time.time()-start_time)
+#     if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
+#         print('pre-calculated sfc exists. readin from file...')
+#         sfc = np.load(config.filename[:-4] + '_sfc.npy')
+#     else:
+#         import sfc as sf  #
+#         _, sfc = \
+#             sf.ncurve_python_subdomain_space_filling_curve(
+#             cola+1, fina+1, starting_node, graph_trim, ncurve,
+#             ) # note that fortran array index start from 1, so cola and fina should +1.
+#         np.save(config.filename[:-4] + '_sfc.npy', sfc)
+#     print('to get sfc operators...', time.time()-start_time)
+# exit(0)
 # np.savetxt('whichc.txt', whichc, delimiter=',')
 print('ncolor', ncolor, 'whichc type', whichc.dtype)
 print('cg_nonods', cg_nonods, 'ncola (p1cg sparsity)', ncola)
@@ -130,11 +151,11 @@ c_all[0,:]=c.view(-1).cpu().numpy()[:]
 print('5. time elapsed, ',time.time()-starttime)
 ## surface integral 
 
-# prepare shape functions ** only once ** store for all future usages
-[snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
-# with torch.no_grad():
-#     nx, detwei = Det_nlx.forward(x_ref_in, weight)
-nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
+# # prepare shape functions ** only once ** store for all future usages
+# [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
+# # with torch.no_grad():
+# #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+# nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
 
 # put numpy array to torch tensor in expected device
 sn = torch.tensor(sn, dtype=torch.float64, device=dev)
@@ -294,8 +315,9 @@ if (config.solver=='iterative') :
         #                                    RAR.crow_indices().cpu().numpy()),
         #                                   shape=(cg_nonods, cg_nonods))
         #     print('dong scipy sparse RAR', time.time()-starttime)
-        RAR = calc_RAR_mf_color(n, nx, detwei,
-                                sn, snx, sdetwei, snormal,
+        RAR = calc_RAR_mf_color(n, nlx, weight,
+                                sn, snlx, sweight,
+                                x_ref_in,
                                 nbele, nbf,
                                 I_fc, I_cf,
                                 whichc, ncolor,
@@ -325,10 +347,10 @@ if (config.solver=='iterative') :
                 # get diagA and residual at fine grid r0
                 with torch.no_grad():
                     bdiagA, _, r0 = K_mf(r0, c_i, c_n,
-                                            k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+                                         k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, _, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+                r0, _, bdiagS = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
                                            nbele, nbf, c_bc, c_i)
                 bdiagA = bdiagA + bdiagS
                 bdiagA = torch.inverse(bdiagA)
@@ -344,10 +366,10 @@ if (config.solver=='iterative') :
             r0 *= 0
             with torch.no_grad():
                 _, _, r0 = K_mf(r0, c_i, c_n,
-                                               k=1, dt=dt, n=n, nx=nx, detwei=detwei)
+                                k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            r0, _, _ = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+            r0, _, _ = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
                                                          nbele, nbf, c_bc, c_i)
             
             if False:  # PnDG to P0DG
@@ -465,12 +487,11 @@ if (config.solver=='iterative') :
                 #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
                 r0 *= 0
                 # mass matrix and rhs
-                with torch.no_grad():
-                    bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n, \
-                        k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+                bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n,
+                                         k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+                r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
                                 nbele, nbf, c_bc, c_i)
                 if False:  # point Jacobian iteration
                     diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
@@ -503,10 +524,10 @@ if (config.solver=='iterative') :
         # mass matrix and rhs
         with torch.no_grad():
             bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n,
-                k=1,dt=dt,n=n,nx=nx,detwei=detwei)
+                k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
         # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snx, sdetwei, snormal,
+        r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
                             nbele, nbf, c_bc, c_i)
         
         diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
