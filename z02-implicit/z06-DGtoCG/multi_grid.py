@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os.path
 
 import numpy as np
 import torch
@@ -202,12 +203,16 @@ def mg_on_P0DG_prep(RAR):
     import time
     start_time = time.time()
     print('to get space filling curve...', time.time()-start_time)
-    whichd, sfc = \
-        sf.ncurve_python_subdomain_space_filling_curve( \
-        cola+1, fina+1, starting_node, graph_trim, ncurve, \
-        ) # note that fortran array index start from 1, so cola and fina should +1.
+    if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
+        print('pre-calculated sfc exists. readin from file...')
+        sfc = np.load(config.filename[:-4] + '_sfc.npy')
+    else:
+        _, sfc = \
+            sf.ncurve_python_subdomain_space_filling_curve( \
+            cola+1, fina+1, starting_node, graph_trim, ncurve, \
+            ) # note that fortran array index start from 1, so cola and fina should +1.
+        np.save(config.filename[:-4] + '_sfc.npy', sfc)
     print('to get sfc operators...', time.time()-start_time)
-    # np.savetxt('sfc.txt', sfc[:,0], delimiter=',')
     ## get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(nonods) + 1
     max_nonods_sfc_all_grids = 5*nonods
