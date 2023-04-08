@@ -13,7 +13,7 @@ nonods = config.nonods
 ngi = config.ngi
 ndim = config.ndim
 nloc = config.nloc 
-dt = config.dt 
+dt = config.dt
 tend = config.tend 
 tstart = config.tstart
 
@@ -41,47 +41,56 @@ def K_mf(r0, c_i, c_n, k, dt, n, nlx, x_ref_in, weight):
     diagA - diagonal of lhs matrix A_1 (M/dt + K), (batch_size, nloc)
     r1  - part of residual b-A_1 c_i, (batch_size, 1, nloc)
     '''
-    c_i = c_i.view(-1, 1, nloc)
-    batch_in = c_i.shape[0]
-    nx, detwei = shape_function.get_det_nlx(nlx, x_ref_in, weight)
+    diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
+    bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
+    for i in range(nnn):
+        idx_in = np.zeros(nele, dtype=bool)
+        idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
+        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
+                                           diagA, bdiagA,
+                                           idx_in,
+                                           n, nlx, x_ref_in, weight)
+
+    return bdiagA, diagA, r0
+
+
+def K_mf_one_batch(r0, c_i, c_n, k, dt,
+                   diagA, bdiagA,
+                   idx_in,
+                   n, nlx, x_ref_in, weight):
+    batch_in = idx_in.shape[0]
+    # change view
+    r0 = r0.view(-1, nloc)
+    c_i = c_i.view(-1, nloc)
+    diagA = diagA.view(-1, nloc)
+    bdiagA = bdiagA.view(-1, nloc, nloc)
+    # get shape function derivatives
+    nx, detwei = shape_function.get_det_nlx(nlx, x_ref_in[idx_in], weight)
     # stiffness matrix
     nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
     nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)
     del nx
     nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
-    del nx1nx1 , nx2nx2
+    del nx1nx1, nx2nx2
 
-    # print('nxnx', nxnx)
-    # mass matrix
-    # nn = torch.mul(n.unsqueeze(0).expand(batch_in, ngi, nloc), \
-    #     detwei.unsqueeze(-1).expand(batch_in, ngi, nloc))   # (batch_in, ngi, nloc)
-    # nn = torch.bmm(torch.transpose(n,0,1).unsqueeze(0).expand(batch_in, nloc, ngi), \
-    #     nn) # (batch_in, nloc, nloc)
-    nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
-    # print(nn)
-    # for ele in range(batch_in):
-    #     np.savetxt('nn'+str(ele)+'.txt',nn[ele,:,:].view(nloc,nloc)/dt,delimiter=',')
-
-    # b = torch.zeros(batch_in, nloc, 1, device=dev, dtype=torch.float64)
-    # b = b + b_bc.view(batch_in, nloc,1)
     if config.isTransient:
         print('I go to transient...')
-        nxnx = nn/dt + nxnx # this is (M/dt + K), (batch_in, nloc, nloc)
-        r0 = r0.view(batch_in, nloc, 1)
-        r0 += torch.matmul(nn/dt,torch.transpose(c_n,1,2)) # batch matrix-vector multiplication,
-                    # input1: (batch_in, nloc, nloc)
-            # input2: (batch_in, nloc, 1)
-            # broadcast over batch
-            # output: (batch_in, nloc, 1)
-    r0 = r0.view(-1)
-    r0 -= torch.matmul(nxnx, torch.transpose(c_i,1,2)).view(-1)  # batch m-v multiplication of (M/dt+K)*c_i
+        nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
+        nxnx = nn/dt + nxnx  # this is (M/dt + K), (batch_in, nloc, nloc)
+        c_n = c_n.view(-1, nloc)
+        r0[idx_in, ...] += torch.einsum('...ij,...j->...i', nn/dt, c_n[idx_in, ...])  # (batch_in, nloc)
+    # r0 -= torch.matmul(nxnx, torch.transpose(c_i,1,2)).view(-1)  # batch m-v multiplication of (M/dt+K)*c_i
+    r0[idx_in, ...] -= torch.einsum('...ij,...j->...i', nxnx, c_i[idx_in, ...])  # (batch_in, nloc)
+    # diagA = torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1).contiguous()  # use continuous thus diagonal are stored contiguously
+    #    # otherwise by default diagonal returns memory position of diagonal in originally stored tensor
+    #    # wouldn't be able to do e.g. .view
+    # bdiagA = nxnx
+    diagA[idx_in, ...] += torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1)
+    bdiagA[idx_in, ...] += nxnx
+    return r0, diagA, bdiagA
 
-    diagA = torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1).contiguous()  # use continuous thus diagonal are stored contiguously
-       # otherwise by default diagonal returns memory position of diagonal in originally stored tensor
-       # wouldn't be able to do e.g. .view
-    bdiagA = nxnx
-
-    return bdiagA, diagA, r0
 
 # mass and stifness operator on level 1 coarse grid (per element condensation)
 class mk_lv1(Module):

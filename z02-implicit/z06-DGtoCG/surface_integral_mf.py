@@ -110,7 +110,7 @@ def S_mf(r, sn, snlx, x_ref_in, sweight,
         # break the whole idx_iface list into nnn parts
         # and do S_fi for each part
         # so that we have a smaller "batch" size to solve memory issue
-        nnn = 4
+        nnn = config.no_batch
         brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*idx_iface.shape[0], dtype=int)
             # [0,
             #        int(idx_iface.shape[0] / 4.),

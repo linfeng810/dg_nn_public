@@ -24,7 +24,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine5.msh' # directory to mesh file (gmsh)
+filename='square_2M.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -72,3 +72,6 @@ print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
 # discretisation settings
 classicIP = True # boolean
 eta_e = 36.
+
+# no of batches in mf volume and surface integral
+no_batch = 16
