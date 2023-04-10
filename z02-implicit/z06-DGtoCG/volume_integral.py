@@ -54,12 +54,26 @@ def get_residual_and_smooth_once(
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
         # one smooth step
-        bdiagA = torch.inverse(bdiagA)
-        c_i = c_i.view(nele, nloc)
-        c_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
-                                                        bdiagA,
-                                                        r0.view(nele, nloc)[idx_in, :])
-        # c_i = c_i.view(-1, 1, nloc)
+        if False:
+            bdiagA = torch.inverse(bdiagA)
+            c_i = c_i.view(nele, nloc)
+            c_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
+                                                            bdiagA,
+                                                            r0.view(nele, nloc)[idx_in, :])
+            # c_i = c_i.view(-1, 1, nloc)
+        if True:
+            new_b = torch.einsum('...ij,...j->...i', bdiagA, c_i.view(nele, nloc)[idx_in, :])\
+                    + config.jac_wei * r0.view(nele, nloc)[idx_in, :]
+            new_b = new_b.view(-1)  # batch_in * nloc
+            diagA = diagA.view(-1)  # batch_in * nloc
+            c_i = c_i.view(nele, nloc)
+            c_i_partial = c_i[idx_in, :]
+            for its in range(3):
+                c_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
+                                                       bdiagA,
+                                                       c_i_partial).view(-1))
+                                   / diagA).view(-1, nloc)
+            c_i[idx_in, :] = c_i_partial.view(-1, nloc)
     r0 = r0.view(-1)
     c_i = c_i.view(-1)
 
