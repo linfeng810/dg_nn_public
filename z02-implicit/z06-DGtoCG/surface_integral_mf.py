@@ -27,7 +27,8 @@ eta_e=config.eta_e # penalty coefficient
 
 ## main function
 def S_mf(r, sn, snlx, x_ref_in, sweight,
-         nbele, nbf, c_bc, c_i):
+         nbele, nbf, c_bc, c_i,
+         diagA, bdiagA):
     '''
     This function compute the Sc contribution to residual:
         r <- r - S*c
@@ -66,75 +67,95 @@ def S_mf(r, sn, snlx, x_ref_in, sweight,
     ~~b_bc : torch tensor (nonods)~~
         ~~rhs vector accounting for Dirichlet boundary conditions~~
     '''
-    
-    c_i = c_i.view(nele,nloc)
-    r = r.view(nele,nloc)
-    c_bc = c_bc.view(nele,nloc)
-    # snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in, sweight)
-    # output declaration
-    # diagS = torch.zeros(config.nonods, device = config.dev, dtype=torch.float64)
-    # b_bc = torch.zeros(config.nonods, device=config.dev, dtype=torch.float64)
-    # put numpy array to torch tensor in expected device
-    # sn = torch.tensor(sn, dtype=torch.float64, device=dev)
+
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
+    diagA = diagA.view(nele, nloc)
+    bdiagA = bdiagA.view(nele, nloc, nloc)
+    for i in range(nnn):
+        idx_in_f = np.zeros(nele*nface, dtype=bool)
+        idx_in_f[brk_pnt[i]*3:brk_pnt[i+1]*3] = True
+        r, diagA, bdiagA = S_mf_one_batch(r, c_i, c_bc,
+                                          sn, snlx, x_ref_in, sweight,
+                                          nbele, nbf,
+                                          diagA, bdiagA,
+                                          idx_in_f)
+    r = r.view(-1).contiguous()
+    diagA = diagA.view(-1).contiguous()
+    bdiagA = bdiagA.contiguous()
+
+    return r, diagA, bdiagA
+
+
+def S_mf_one_batch(r, c_i, c_bc,
+                   sn, snlx, x_ref_in, sweight,
+                   nbele, nbf,
+                   diagA, bdiagA,
+                   idx_in_f):
+    c_i = c_i.view(nele, nloc)
+    r = r.view(nele, nloc)
+    c_bc = c_bc.view(nele, nloc)
+
     # first lets separate nbf to get two list of F_i and F_b
-    F_i = np.where(np.logical_not(np.isnan(nbf)))[0] # interior face
-    F_b = np.where(np.isnan(nbf))[0]   # boundary face
-    F_inb = -nbf[F_i] # neighbour list of interior face
+    F_i = np.where(np.logical_not(np.isnan(nbf)) & idx_in_f)[0]  # interior face
+    F_b = np.where(np.isnan(nbf) & idx_in_f)[0]  # boundary face
+    F_inb = -nbf[F_i]  # neighbour list of interior face
     F_inb = F_inb.astype(np.int64)
 
     # create two lists of which element f_i / f_b is in
-    E_F_i = np.floor_divide(F_i,3)
-    E_F_b = np.floor_divide(F_b,3)
-    E_F_inb = np.floor_divide(F_inb,3)
+    E_F_i = np.floor_divide(F_i, 3)
+    E_F_b = np.floor_divide(F_b, 3)
+    E_F_inb = np.floor_divide(F_inb, 3)
 
     # local face number
-    f_i = np.mod(F_i,3)
-    f_b = np.mod(F_b,3)
-    f_inb = np.mod(F_inb,3)
+    f_i = np.mod(F_i, 3)
+    f_b = np.mod(F_b, 3)
+    f_inb = np.mod(F_inb, 3)
 
-    diagS = torch.zeros(nonods, device=dev, dtype=torch.float64)
-    diagS = diagS.view(nele,nloc)
+    # diagS = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # diagS = diagS.view(nele, nloc)
+    #
+    # bdiagS = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
 
-    bdiagS = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
     # for interior faces, update r
     # r <- r-S*c
     # use r+= or r-= to make sure in-place assignment to avoid copy
     # update 3 local faces separately to avoid change r with multiple values
     for iface in range(nface):
-        # r, diagS, bdiagS = S_fi(r, f_i[f_i==iface], E_F_i[f_i==iface], F_i[f_i==iface],
-        #         f_inb[f_i==iface], E_F_inb[f_i==iface], F_inb[f_i==iface],
-        #         sn, snx, snormal, sdetwei, c_i, diagS, bdiagS)
+        idx_iface = f_i == iface
+        # idx_iface = idx_iface & idx_in_f
+        r, diagA, bdiagA = S_fi(
+            r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
+            f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
+            sn, snlx, x_ref_in, sweight, c_i, diagA, bdiagA)
 
-        # if split and compute separately (to save memory)
-        idx_iface = f_i==iface
-        # break the whole idx_iface list into nnn parts
-        # and do S_fi for each part
-        # so that we have a smaller "batch" size to solve memory issue
-        nnn = config.no_batch
-        brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*idx_iface.shape[0], dtype=int)
-            # [0,
-            #        int(idx_iface.shape[0] / 4.),
-            #        int(idx_iface.shape[0] / 4. * 2.),
-            #        int(idx_iface.shape[0] / 4. * 3.),
-            #        idx_iface.shape[0]]
-        for i in range(nnn):
-            idx_list = np.zeros_like(idx_iface, dtype=bool)
-            idx_list[brk_pnt[i]:brk_pnt[i+1]] += idx_iface[brk_pnt[i]:brk_pnt[i+1]]
-            r, diagS, bdiagS = S_fi(
-                r, f_i[idx_list], E_F_i[idx_list], F_i[idx_list],
-                f_inb[idx_list], E_F_inb[idx_list], F_inb[idx_list],
-                sn, snlx, x_ref_in, sweight, c_i, diagS, bdiagS)
-        
+        # # if split and compute separately (to save memory)
+        # idx_iface = f_i == iface
+        # # break the whole idx_iface list into nnn parts
+        # # and do S_fi for each part
+        # # so that we have a smaller "batch" size to solve memory issue
+        # nnn = config.no_batch
+        # brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * idx_iface.shape[0], dtype=int)
+        # # [0,
+        # #        int(idx_iface.shape[0] / 4.),
+        # #        int(idx_iface.shape[0] / 4. * 2.),
+        # #        int(idx_iface.shape[0] / 4. * 3.),
+        # #        idx_iface.shape[0]]
+        # for i in range(nnn):
+        #     idx_list = np.zeros_like(idx_iface, dtype=bool)
+        #     idx_list[brk_pnt[i]:brk_pnt[i + 1]] += idx_iface[brk_pnt[i]:brk_pnt[i + 1]]
+        #     r, diagS, bdiagS = S_fi(
+        #         r, f_i[idx_list], E_F_i[idx_list], F_i[idx_list],
+        #         f_inb[idx_list], E_F_inb[idx_list], F_inb[idx_list],
+        #         sn, snlx, x_ref_in, sweight, c_i, diagS, bdiagS)
+
     # for boundary faces, update r
     # r <= r + b_bc - S*c
     # let's hope that each element has only one boundary face.
-    r, diagS, bdiagS = S_fb(r, f_b, E_F_b, F_b,
-             sn, snlx, x_ref_in, sweight, c_i, c_bc, diagS, bdiagS)
+    r, diagA, bdiagA = S_fb(r, f_b, E_F_b, F_b,
+                            sn, snlx, x_ref_in, sweight, c_i, c_bc, diagA, bdiagA)
 
-    r = r.view(-1).contiguous()
-    diagS = diagS.view(-1).contiguous()
-    bdiagS = bdiagS.contiguous()
-    return r, diagS, bdiagS
+    return r, diagA, bdiagA
 
 
 def S_fi(r, f_i, E_F_i, F_i, 

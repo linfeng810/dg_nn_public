@@ -346,13 +346,13 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 # get diagA and residual at fine grid r0
                 with torch.no_grad():
-                    bdiagA, _, r0 = K_mf(r0, c_i, c_n,
+                    bdiagA, diagA, r0 = K_mf(r0, c_i, c_n,
                                          k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, _, bdiagS = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                                           nbele, nbf, c_bc, c_i)
-                bdiagA = bdiagA + bdiagS
+                r0, diagA, bdiagA = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
+                                           nbele, nbf, c_bc, c_i, diagA, bdiagA)
+                # bdiagA = bdiagA + bdiagS
                 bdiagA = torch.inverse(bdiagA)
                 c_i = c_i.view(nele, nloc)
                 c_i += config.jac_wei * torch.einsum('...ij,...j->...i', bdiagA, r0.view(nele, nloc))
@@ -365,12 +365,12 @@ if (config.solver=='iterative') :
             # get diagA and residual at fine grid r0
             r0 *= 0
             with torch.no_grad():
-                _, _, r0 = K_mf(r0, c_i, c_n,
+                bdiagA, diagA, r0 = K_mf(r0, c_i, c_n,
                                 k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
             # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
             r0, _, _ = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                                                         nbele, nbf, c_bc, c_i)
+                                                         nbele, nbf, c_bc, c_i, diagA, bdiagA)
             
             if False:  # PnDG to P0DG
                 # per element condensation
@@ -491,15 +491,15 @@ if (config.solver=='iterative') :
                                          k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
                 # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                                nbele, nbf, c_bc, c_i)
+                r0, diagA, bdiagA = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
+                                nbele, nbf, c_bc, c_i, diagA, bdiagA)
                 if False:  # point Jacobian iteration
                     diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
                     diagA = 1./diagA
                     c_i = c_i.view(-1)
                     c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
                 if True:  # block Jacobian iteration
-                    bdiagA = bdiagA + bdiagS
+                    # bdiagA = bdiagA + bdiagS
                     bdiagA = torch.inverse(bdiagA)
                     c_i = c_i.view(nele, nloc)
                     c_i += config.jac_wei * torch.einsum('...ij,...j->...i', bdiagA, r0.view(nele, nloc))
@@ -527,10 +527,10 @@ if (config.solver=='iterative') :
                 k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
 
         # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        r0, diagS, bdiagS = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                            nbele, nbf, c_bc, c_i)
+        r0, diagA, bdiagA = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
+                            nbele, nbf, c_bc, c_i, diagA, bdiagA)
         
-        diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
+        # diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
         diagA = 1./diagA
         
         c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)

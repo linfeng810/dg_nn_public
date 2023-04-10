@@ -421,11 +421,12 @@ def calc_RAR_mf_color(n, nlx, weight,
         Rm = torch.mv(I_fc, mask)  # (p1dg_nonods, 1)
         Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
         ARm *= 0
-        _, _, ARm = K_mf(ARm, Rm, dummy,
+        bdiagA, diagA, ARm = K_mf(ARm, Rm, dummy,
                                k=1, dt=dt, n=n, nlx=nlx, x_ref_in=x_ref_in, weight=weight)
         # del nx, detwei  # to save memmory, nx and detwei will be calculated when required and destroyed right after.
         ARm, _, _ = surface_integral_mf.S_mf(ARm, sn, snlx, x_ref_in, sweight,
-                                             nbele, nbf, dummy, Rm)
+                                             nbele, nbf, dummy, Rm,
+                                             diagA, bdiagA)
         ARm *= -1.  # (p3dg_nonods, )
         RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
         RARm = torch.mv(I_cf, RARm)  # (cg_nonods, 1)
