@@ -5,6 +5,7 @@ import numpy as np
 
 import multi_grid
 import shape_function
+from surface_integral_mf import S_mf_one_batch
 
 dev = config.dev
 nele = config.nele 
@@ -16,6 +17,91 @@ nloc = config.nloc
 dt = config.dt
 tend = config.tend 
 tstart = config.tstart
+nface = config.nface
+
+
+def get_residual_and_smooth_once(
+        r0,
+        c_i, c_n, c_bc, x_ref_in,
+        n, nlx, weight,
+        sn, snlx, sweight,
+        nbele, nbf):
+    '''
+    update residual, do block Jacobi smooth once, by batches.
+    '''
+    k = config.k
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
+    # diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
+    # bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    for i in range(nnn):
+        # volume integral
+        idx_in = np.zeros(nele, dtype=bool)
+        idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
+        batch_in = np.sum(idx_in)
+        diagA = torch.zeros(batch_in, nloc, device=dev, dtype=torch.float64)
+        bdiagA = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
+        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
+                                           diagA, bdiagA,
+                                           idx_in,
+                                           n, nlx, x_ref_in, weight)
+        # surface integral
+        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
+        r0, diagA, bdiagA = S_mf_one_batch(r0, c_i, c_bc,
+                                           sn, snlx, x_ref_in, sweight,
+                                           nbele, nbf,
+                                           diagA, bdiagA,
+                                           idx_in_f, brk_pnt[i])
+        # one smooth step
+        bdiagA = torch.inverse(bdiagA)
+        c_i = c_i.view(nele, nloc)
+        c_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
+                                                        bdiagA,
+                                                        r0.view(nele, nloc)[idx_in, :])
+        # c_i = c_i.view(-1, 1, nloc)
+    r0 = r0.view(-1)
+    c_i = c_i.view(-1)
+
+    return r0, c_i
+
+
+def get_residual_only(
+        r0,
+        c_i, c_n, c_bc, x_ref_in,
+        n, nlx, weight,
+        sn, snlx, sweight,
+        nbele, nbf):
+    '''
+    update residual, do block Jacobi smooth once, by batches.
+    '''
+    k = config.k
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
+    # diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
+    # bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    for i in range(nnn):
+        # volume integral
+        idx_in = np.zeros(nele, dtype=bool)
+        idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
+        batch_in = np.sum(idx_in)
+        # here diagA and bdiagA are dummy variables since we won't need them to update c_i.
+        diagA = torch.zeros(batch_in, nloc, device=dev, dtype=torch.float64)
+        bdiagA = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
+        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
+                                           diagA, bdiagA,
+                                           idx_in,
+                                           n, nlx, x_ref_in, weight)
+        # surface integral
+        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
+        r0, diagA, bdiagA = S_mf_one_batch(r0, c_i, c_bc,
+                                           sn, snlx, x_ref_in, sweight,
+                                           nbele, nbf,
+                                           diagA, bdiagA,
+                                           idx_in_f, brk_pnt[i])
+    r0 = r0.view(-1)
+    return r0
 
 
 def K_mf(r0, c_i, c_n, k, dt, n, nlx, x_ref_in, weight):
@@ -81,14 +167,9 @@ def K_mf_one_batch(r0, c_i, c_n, k, dt,
         nxnx = nn/dt + nxnx  # this is (M/dt + K), (batch_in, nloc, nloc)
         c_n = c_n.view(-1, nloc)
         r0[idx_in, ...] += torch.einsum('...ij,...j->...i', nn/dt, c_n[idx_in, ...])  # (batch_in, nloc)
-    # r0 -= torch.matmul(nxnx, torch.transpose(c_i,1,2)).view(-1)  # batch m-v multiplication of (M/dt+K)*c_i
     r0[idx_in, ...] -= torch.einsum('...ij,...j->...i', nxnx, c_i[idx_in, ...])  # (batch_in, nloc)
-    # diagA = torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1).contiguous()  # use continuous thus diagonal are stored contiguously
-    #    # otherwise by default diagonal returns memory position of diagonal in originally stored tensor
-    #    # wouldn't be able to do e.g. .view
-    # bdiagA = nxnx
-    diagA[idx_in, ...] += torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1)
-    bdiagA[idx_in, ...] += nxnx
+    diagA += torch.diagonal(nxnx, offset=0, dim1=-2, dim2=-1)  # (batch_in, nloc)
+    bdiagA += nxnx  # (batch_in, nloc, nloc)
     return r0, diagA, bdiagA
 
 
@@ -421,12 +502,11 @@ def calc_RAR_mf_color(n, nlx, weight,
         Rm = torch.mv(I_fc, mask)  # (p1dg_nonods, 1)
         Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
         ARm *= 0
-        bdiagA, diagA, ARm = K_mf(ARm, Rm, dummy,
-                               k=1, dt=dt, n=n, nlx=nlx, x_ref_in=x_ref_in, weight=weight)
-        # del nx, detwei  # to save memmory, nx and detwei will be calculated when required and destroyed right after.
-        ARm, _, _ = surface_integral_mf.S_mf(ARm, sn, snlx, x_ref_in, sweight,
-                                             nbele, nbf, dummy, Rm,
-                                             diagA, bdiagA)
+        ARm = get_residual_only(ARm,
+                                Rm, dummy, dummy, x_ref_in,
+                                n, nlx, weight,
+                                sn, snlx, sweight,
+                                nbele, nbf)
         ARm *= -1.  # (p3dg_nonods, )
         RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
         RARm = torch.mv(I_cf, RARm)  # (cg_nonods, 1)

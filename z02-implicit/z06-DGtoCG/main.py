@@ -24,7 +24,8 @@ from surface_integral import S_Minv_sparse, RSR_DG_to_CG, RSR_DG_to_CG_color
 import surface_integral_mf
 from volume_integral import K_mf, calc_RKR, calc_RAR, \
     RKR_DG_to_CG, RKR_DG_to_CG_color, RAR_DG_to_CG, \
-    calc_RAR_mf_color
+    calc_RAR_mf_color, get_residual_and_smooth_once, \
+    get_residual_only
 from color import color2
 import multi_grid
 
@@ -260,30 +261,8 @@ if True:  # from PnDG to P1CG
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
-    # surface integral operator restrcted by R
-    # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
-    # [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-    #     x_all, nbele, nbf, c_bc.view(-1))
-    # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
-    # if False:  # PnDG to P0DG
-    #     [diagRSR, RSR, RTbig] = RSR_matrix_color(S, R,
-    #                                              whichc, ncolor,
-    #                                              fina, cola, ncola) # matvec multiplication
-    # if True:  # P1DG to P1CG
-    #     # diagRSR, RSR = RSR_DG_to_CG(S, I_cf, I_fc)  # this is time and memory consuming. Consider use matrix-free
-    #     diagRSR, RSR = RSR_DG_to_CG_color(S, I_cf, I_fc,
-    #                                       whichc, ncolor,
-    #                                       fina, cola, ncola)
-    #     print(torch.cuda.memory_summary())
-    # print('diagRSR min max', diagRSR.min(), diagRSR.max())
-    # np.savetxt('diagRSR.txt', diagRSR.cpu().numpy(), delimiter=',')
-    # np.savetxt('S.txt', S.to_dense().cpu().numpy(), delimiter=',')
-    # np.savetxt('RSR.txt', RSR.to_dense().cpu().numpy(), delimiter=',')
-    # del S, diagS, b_bc
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
-    # print("Using quit()")
-    # quit()
     r0l2all=[]
     # time loop
     for itime in tqdm(range(1,tstep)):
@@ -294,27 +273,7 @@ if (config.solver=='iterative') :
         its=0
         r0 = torch.zeros(config.nonods, device=dev, dtype=torch.float64)
 
-        ## prepare for MG on SFC-coarse grids
-        # with torch.no_grad():
-        #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
-        # if False:  # PnDG to P0DG
-        #     RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
-        #     [RAR, diagRAR] = calc_RAR(RKR, RSR, diagRSR)
-        #     RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(), cola, fina), shape=(nele, nele))
-        # if True:  # P1DG to P1CG
-        #     print('don calculating nx', time.time()-starttime)
-        #     # diagRKR, RKR = RKR_DG_to_CG(n, nx, detwei, I_fc, I_cf, k=1, dt=1)  # matmat mul, memory hungry
-        #     diagRKR, RKR = RKR_DG_to_CG_color(n, nx, detwei, I_fc, I_cf,
-        #                                       whichc, ncolor,
-        #                                       fina, cola, ncola)
-        #     print('done RKR', time.time()-starttime)
-        #     diagRAR, RAR = RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR)
-        #     print('done RAR', time.time()-starttime)
-        #     RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
-        #                                    RAR.col_indices().cpu().numpy(),
-        #                                    RAR.crow_indices().cpu().numpy()),
-        #                                   shape=(cg_nonods, cg_nonods))
-        #     print('dong scipy sparse RAR', time.time()-starttime)
+        # prepare for MG on SFC-coarse grids
         RAR = calc_RAR_mf_color(n, nlx, weight,
                                 sn, snlx, sweight,
                                 x_ref_in,
@@ -331,7 +290,7 @@ if (config.solver=='iterative') :
         # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
-        # sawtooth iteration : sooth one time at each white dot
+        # V-cycle
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
@@ -339,38 +298,23 @@ if (config.solver=='iterative') :
             c_i = c_i.view(-1,1,nloc)
 
             for its1 in range(config.pre_smooth_its):
-                ## on fine grid
-                # calculate shape functions from element nodes coordinate
-                # with torch.no_grad():
-                #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
+                # on fine grid
                 r0 *= 0
-                # get diagA and residual at fine grid r0
-                with torch.no_grad():
-                    bdiagA, diagA, r0 = K_mf(r0, c_i, c_n,
-                                         k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
-
-                # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, diagA, bdiagA = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                                           nbele, nbf, c_bc, c_i, diagA, bdiagA)
-                # bdiagA = bdiagA + bdiagS
-                bdiagA = torch.inverse(bdiagA)
-                c_i = c_i.view(nele, nloc)
-                c_i += config.jac_wei * torch.einsum('...ij,...j->...i', bdiagA, r0.view(nele, nloc))
-                c_i = c_i.view(-1,1,nloc)
+                r0, c_i = get_residual_and_smooth_once(
+                    r0,
+                    c_i, c_n, c_bc, x_ref_in,
+                    n, nlx, weight,
+                    sn, snlx, sweight,
+                    nbele, nbf)
 
             # residual on PnDG
-            # calculate shape functions from element nodes coordinate
-            # with torch.no_grad():
-            #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
-            # get diagA and residual at fine grid r0
             r0 *= 0
-            with torch.no_grad():
-                bdiagA, diagA, r0 = K_mf(r0, c_i, c_n,
-                                k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
-
-            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            r0, _, _ = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                                                         nbele, nbf, c_bc, c_i, diagA, bdiagA)
+            r0 = get_residual_only(
+                r0,
+                c_i, c_n, c_bc, x_ref_in,
+                n, nlx, weight,
+                sn, snlx, sweight,
+                nbele, nbf)
             
             if False:  # PnDG to P0DG
                 # per element condensation
@@ -483,27 +427,13 @@ if (config.solver=='iterative') :
 
             for _ in range(config.post_smooth_its):
                 # post smooth
-                # with torch.no_grad():
-                #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
                 r0 *= 0
-                # mass matrix and rhs
-                bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n,
-                                         k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
-
-                # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-                r0, diagA, bdiagA = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                                nbele, nbf, c_bc, c_i, diagA, bdiagA)
-                if False:  # point Jacobian iteration
-                    diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-                    diagA = 1./diagA
-                    c_i = c_i.view(-1)
-                    c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
-                if True:  # block Jacobian iteration
-                    # bdiagA = bdiagA + bdiagS
-                    bdiagA = torch.inverse(bdiagA)
-                    c_i = c_i.view(nele, nloc)
-                    c_i += config.jac_wei * torch.einsum('...ij,...j->...i', bdiagA, r0.view(nele, nloc))
-                    c_i = c_i.view(-1)
+                r0, c_i = get_residual_and_smooth_once(
+                    r0,
+                    c_i, c_n, c_bc, x_ref_in,
+                    n, nlx, weight,
+                    sn, snlx, sweight,
+                    nbele, nbf)
             # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
 
@@ -514,26 +444,16 @@ if (config.solver=='iterative') :
 
             its+=1
 
-        ## smooth a final time after we get back to fine mesh
+        # get final residual after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)
         print('10. finishing cycles...', time.time()-starttime)
-        # calculate shape functions from element nodes coordinate
-        # with torch.no_grad():
-        #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
         r0 *= 0
-        # mass matrix and rhs
-        with torch.no_grad():
-            bdiagA, diagA, r0 = K_mf(r0, c_i.view(-1,1,nloc), c_n,
-                k=1,dt=dt,n=n,nlx=nlx, x_ref_in=x_ref_in, weight=weight)
-
-        # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-        r0, diagA, bdiagA = surface_integral_mf.S_mf(r0, sn, snlx, x_ref_in, sweight,
-                            nbele, nbf, c_bc, c_i, diagA, bdiagA)
-        
-        # diagA = diagA.view(nonods,1)+diagS.view(nonods,1)
-        diagA = 1./diagA
-        
-        c_i += config.jac_wei * torch.mul(diagA.view(-1), r0)
+        r0 = get_residual_only(
+            r0,
+            c_i, c_n, c_bc, x_ref_in,
+            n, nlx, weight,
+            sn, snlx, sweight,
+            nbele, nbf)
 
         r0l2 = torch.linalg.norm(r0,dim=0)
         r0l2all.append(r0l2.cpu().numpy())
@@ -541,20 +461,6 @@ if (config.solver=='iterative') :
             
         # if jacobi converges,
         c = c_i.view(nonods)
-        # # apply boundary conditions (4 Dirichlet bcs)
-        # for inod in bc1:
-        #     c.view(-1)[inod]=0.
-        # for inod in bc2:
-        #     c.view(-1)[inod]=0.
-        # for inod in bc3:
-        #     c.view(-1)[inod]=0.
-        # for inod in bc4:
-        #     x_inod = x_ref_in[inod//10, 0, inod%10]
-        #     c.view(-1)[inod]= torch.sin(torch.pi*x_inod)
-        #     # print("inod, x, c", inod, x_inod, c[inod])
-        # print(c)
-
-        # combine inner/inter element contribution
         c_all[itime,:]=c.view(-1).cpu().numpy()[:]
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
