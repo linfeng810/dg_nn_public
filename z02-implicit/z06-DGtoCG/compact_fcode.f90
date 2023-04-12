@@ -12,7 +12,8 @@
         a, b, ml,  &
         fina,cola, sfc_node_ordering, ncola, &
         nonods, max_nonods_sfc_all_grids, &
-        max_ncola_sfc_all_un, max_nlevel)  
+        max_ncola_sfc_all_un, max_nlevel, &
+        ismasswt)  
         ! It does this with a kernal size of nfilt_size_sfc. 
         ! this subroutine finds the space filling curve representation of matrix eqns A T=b 
         ! - that is it forms matrix a and vector b and the soln vector is T 
@@ -78,6 +79,7 @@
         cola_sfc_all_un(max_ncola_sfc_all_un),ncola_sfc_all_un
         integer, intent( in ) :: fina(nonods+1), cola(ncola)
         integer, intent( in ) :: sfc_node_ordering(nonods)
+        logical, intent( in ) :: ismasswt
         ! local variables...
         integer, allocatable :: sfc_node_ordering_inverse(:), in_row_count(:)
         integer, allocatable :: fina_sfc_all_un2(:)
@@ -89,6 +91,7 @@
         integer nrow, count_col, idisplace, jcourse_nod_sfc_all2
         integer jcourse_nod_sfc_all, ifinest_nod_sfc_all, count_all
         logical found
+        integer ipt_next_level
         ! 
         ! print *,'2-just inside best_sfc_mapping_to_sfc_matrix_unstructured'
         ! calculate nlevel from nonods
@@ -156,6 +159,9 @@
         ! print *,'fin_sfc_nonods(1:,nlevel+1):',fin_sfc_nonods(1:nlevel+1)
         !        a_sfc_all_un=0.0
         count_all=0
+        print *, 'mass weight flag is', ismasswt
+        if (.not. ismasswt) then 
+            print *, 'not mass weighted'
         do ilevel=1,nlevel
             ilevel2=2**(ilevel-1)
             ! print *,'--- ilevel=',ilevel
@@ -207,6 +213,98 @@
                 end do
             endif
         end do ! do ilevel=1,nlevel
+        else  ! ismasswt
+            print *, 'mass weighted sfc operators...'
+            print *, '+++++++++weighted sum...'
+            do ilevel=1,nlevel
+                ilevel2=2**(ilevel-1)
+                ! print *,'--- ilevel=',ilevel
+                idisplace = fin_sfc_nonods(ilevel) 
+                fina_sfc_all_un(idisplace) = count_all+1
+                do ifinest_nod_sfc=1,nonods
+                    !              print *,'ifinest_nod_sfc=',ifinest_nod_sfc
+                    ifinest_nod = sfc_node_ordering_inverse(ifinest_nod_sfc)
+                    icourse_nod_sfc_all = idisplace + (ifinest_nod_sfc-1)/ilevel2
+                    do count=fina(ifinest_nod),fina(ifinest_nod+1)-1
+                        jfinest_nod = cola(count)
+                        jfinest_nod_sfc = sfc_node_ordering(jfinest_nod) 
+                        jcourse_nod_sfc_all = idisplace + (jfinest_nod_sfc-1)/ilevel2
+                        ! look to see if we have included jcourse_nod_sfc_all yet
+                        found=.false.
+                        do count2=fina_sfc_all_un(icourse_nod_sfc_all),count_all
+                            jcourse_nod_sfc_all2=cola_sfc_all_un(count2)
+                            if(jcourse_nod_sfc_all==jcourse_nod_sfc_all2) then
+                                found=.true.
+                                a_sfc_all_un(count2)=a_sfc_all_un(count2)+a(count)*ml(jfinest_nod) ! map from original matrix
+                            endif
+                        end do
+                        if(.not.found) then
+                            count_all=count_all+1
+                            cola_sfc_all_un(count_all) = jcourse_nod_sfc_all
+                            !                    a_sfc_all_un(count_all)=a_sfc_all_un(count_all)+a(count) ! map from original matrix
+                            a_sfc_all_un(count_all)=a(count)*ml(jfinest_nod) ! map from original matrix
+                        endif
+                    end do ! do count=fina(ifinest_nod),fina(ifinest_nod+1)-1
+                    fina_sfc_all_un(icourse_nod_sfc_all+1) = count_all+1
+                end do ! do ifinest_nod_sfc=1,nonods
+                ! print *,'here2'
+                ! print *,'fin_sfc_nonods(ilevel),fin_sfc_nonods(ilevel+1):', &
+                ! fin_sfc_nonods(ilevel),fin_sfc_nonods(ilevel+1)
+                ! print *,'diff=',fin_sfc_nonods(ilevel+1)-fin_sfc_nonods(ilevel)
+                ! print *,'fina_sfc_all_un(fin_sfc_nonods(ilevel)):',fina_sfc_all_un(fin_sfc_nonods(ilevel))
+                ! print *,'fina_sfc_all_un(fin_sfc_nonods(ilevel+1))-1:',fina_sfc_all_un(fin_sfc_nonods(ilevel+1))-1
+                ! print *,'difference:', &
+                ! fina_sfc_all_un(fin_sfc_nonods(ilevel+1)) - fina_sfc_all_un(fin_sfc_nonods(ilevel))
+                if(.false.) then
+                    do icourse_nod_sfc_all=fin_sfc_nonods(ilevel),fin_sfc_nonods(ilevel+1)-1
+                        print *,'icourse_nod_sfc_all=',icourse_nod_sfc_all
+                        print *,'cola_sfc_all_un(count2):', &
+                        (cola_sfc_all_un(count2),count2=fina_sfc_all_un(icourse_nod_sfc_all), &
+                        fina_sfc_all_un(icourse_nod_sfc_all+1)-1) 
+                        print *,'a_sfc_all_un(count2):', &
+                        (a_sfc_all_un(count2),count2=fina_sfc_all_un(icourse_nod_sfc_all), &
+                        fina_sfc_all_un(icourse_nod_sfc_all+1)-1) 
+                    end do
+                endif
+            end do ! do ilevel=2,nlevel
+            
+            ! a_sfc_all_un / sum(weight)
+            print *, '+++++++++divide by sum(weight)...'
+            do ilevel=1,nlevel
+                ! print *,'--- ilevel=',ilevel
+                idisplace = fin_sfc_nonods(ilevel) - 1
+                do icourse_nod_sfc_all=fin_sfc_nonods(ilevel),fin_sfc_nonods(ilevel+1)-1
+                    icourse_nod_sfc = icourse_nod_sfc_all-idisplace
+                    do count2=fina_sfc_all_un(icourse_nod_sfc_all),fina_sfc_all_un(icourse_nod_sfc_all+1)-1
+                        jcourse_nod_sfc = cola_sfc_all_un(count2)
+                        a_sfc_all_un(count2) = a_sfc_all_un(count2) / ml_sfc(jcourse_nod_sfc)
+                    enddo
+                    if (.false.) then
+                        print *,'icourse_nod_sfc_all=',icourse_nod_sfc_all
+                        print *,'cola_sfc_all_un(count2):', &
+                            (cola_sfc_all_un(count2),count2=fina_sfc_all_un(icourse_nod_sfc_all), &
+                            fina_sfc_all_un(icourse_nod_sfc_all+1)-1) 
+                        print *, 'a_sfc_all_un(count2):', (a_sfc_all_un(count2), count2=fina_sfc_all_un(icourse_nod_sfc_all),&
+                            fina_sfc_all_un(icourse_nod_sfc_all+1)-1)
+                        print *, 'ml_sfc(count):', (ml_sfc(cola_sfc_all_un(count2)),&
+                            count2=fina_sfc_all_un(icourse_nod_sfc_all),fina_sfc_all_un(icourse_nod_sfc_all+1)-1)
+                    endif
+                enddo
+            enddo
+            
+            ! get mass-weighted weights
+            do ilevel=1,nlevel-1
+                ! print *,'--- ilevel=',ilevel
+                idisplace = fin_sfc_nonods(ilevel) 
+                do ipt=fin_sfc_nonods(ilevel),fin_sfc_nonods(ilevel+1)-1
+                    ipt_next_level=(ipt-idisplace)/2+fin_sfc_nonods(ilevel+1)
+                    ml_sfc(ipt) = ml_sfc(ipt)/ml_sfc(ipt_next_level)
+                    ! print *, 'ml_sfc this level, next level', ml_sfc(ipt), ml_sfc(ipt_next_level)
+                enddo
+                ! print *,'ml_sfc',ml_sfc(fin_sfc_nonods(ilevel):fin_sfc_nonods(ilevel+1)-1)
+            enddo
+
+        endif ! ismasswt
         
         ncola_sfc_all_un = fina_sfc_all_un(nonods_sfc_all_grids+1)-1
         if( max_ncola_sfc_all_un < ncola_sfc_all_un ) then

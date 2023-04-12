@@ -8,6 +8,10 @@ import torch.nn as nn
 import config
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
+
+import shape_function
+
+
 # import space_filling_decomp as sfc
 
 def get_a_ml_b(level, \
@@ -99,7 +103,13 @@ def get_a_ml_b(level, \
         #     b_sfc_level = b_sfc_level/ml_sfc_level
         #  ml_sfc_level_sparse, ml_sfc_level_sparse_inv,
         np.savetxt('a_sfc_'+str(level)+'.txt', a_sfc_level_sparse.to_dense().cpu().numpy(), delimiter=',')
-    return a_sfc_level_sparse, 1, diagonal, nonods
+    if type(ml_sfc) == int:
+        ml_sfc_level = 1
+    else:
+        ml_sfc_level = torch.tensor(ml_sfc[start_index:end_index],
+                                    device=config.dev,
+                                    dtype=torch.float64)
+    return a_sfc_level_sparse, ml_sfc_level, diagonal, nonods
 
 
 def mg_smooth(level, e_i, b, variables_sfc):
@@ -147,7 +157,7 @@ def mg_smooth(level, e_i, b, variables_sfc):
     # print('e_i ', e_i)
     return e_i, res_this_level
 
-def mg_on_P0DG_prep(RAR):
+def mg_on_P0DG_prep(RAR, x_ref_in):
     '''
     # Prepare for Multi-grid cycle on P0DG mesh
 
@@ -218,26 +228,33 @@ def mg_on_P0DG_prep(RAR):
     max_nonods_sfc_all_grids = 5*nonods
     max_ncola_sfc_all_un = 10*ncola
 
+    if config.is_mass_weighted:
+        ml = get_p1cg_lumped_mass(x_ref_in)
+        ml = ml.cpu().numpy()
+    else:
+        ml = dummy_vec
     a_sfc, fina_sfc_all_un, cola_sfc_all_un, ncola_sfc_all_un, b_sfc, \
         ml_sfc, fin_sfc_nonods, nonods_sfc_all_grids, nlevel = \
         map_sfc.best_sfc_mapping_to_sfc_matrix_unstructured(\
-            a=vals,b=dummy_vec, ml=dummy_vec,\
+            a=vals,b=dummy_vec, ml=ml,\
             fina=fina+1,cola=cola+1, \
             sfc_node_ordering=sfc[:,0], \
             max_nonods_sfc_all_grids=max_nonods_sfc_all_grids, \
             max_ncola_sfc_all_un=max_ncola_sfc_all_un, \
-            max_nlevel=max_nlevel)
+            max_nlevel=max_nlevel, \
+            ismasswt=config.is_mass_weighted)
     print('back from sfc operator fortran subroutine,', time.time()-start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     a_sfc = torch.from_numpy(a_sfc[:ncola_sfc_all_un]).to(device=config.dev)
-    del b_sfc, ml_sfc
+
     variables_sfc = []
     for level in range(nlevel):
         variables_sfc.append(get_a_ml_b(level,
-            fin_sfc_nonods,
-            fina_sfc_all_un,
-            cola_sfc_all_un,
-            a_sfc))
+                                        fin_sfc_nonods,
+                                        fina_sfc_all_un,
+                                        cola_sfc_all_un,
+                                        a_sfc,
+                                        ml_sfc=ml_sfc))
     print('after forming sfc operator torch csr tensors', time.time()-start_time)
     # choose a level to directly solve on. then we'll iterate from there and levels up
     if config.smooth_start_level < 0:
@@ -282,6 +299,10 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
     e_s = [e_i.view(-1)]  # collec. of e, all stored as 1D tensor
     rr = rr0
     for i in range(1,smooth_start_level):
+        # restriction
+        if config.is_mass_weighted:
+            rr = torch.mul(rr, variables_sfc[i-1][1].view(1,1,-1))
+            e_s[i-1] = torch.mul(e_s[i-1], variables_sfc[i-1][1].view(1,1,-1))
         # pad one node with same value as final node so that odd nodes won't be joined
         rr = F.pad(rr, (0,1), "constant", 0)
         e_i = F.pad(e_s[i-1].view(1,1,-1), (0,1), "constant", 0)
@@ -290,7 +311,8 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
             r_s.append(rr)
             e_i = sfc_restrictor(e_i)
             e_s.append(e_i.view(-1))
-        # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
+
+        # pre-smooth
         for its in range(config.pre_smooth_its):
             e_s[i], _ = mg_smooth(
                 level=i,
@@ -305,6 +327,8 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
             variables_sfc=variables_sfc)
         rr = rr.view(1, 1, nodes_per_level[i])
     if smooth_start_level > 0:
+        if config.is_mass_weighted:
+            rr = torch.mul(rr, variables_sfc[smooth_start_level-1][1].view(1,1,-1))
         # restrict residual to smooth_start_level
         rr = F.pad(rr, (0, 1), "constant", 0)
         with torch.no_grad():
@@ -331,7 +355,11 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
                 e_s[level] = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64)
             else:  # smooth
                 CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level] / nodes_per_level[level+1])
-                e_s[level] += CNN1D_prol_odd(e_s[level+1].view(1,1,-1)).view(-1)
+                if config.is_mass_weighted:
+                    e_s[level] += torch.mul(CNN1D_prol_odd(e_s[level + 1].view(1, 1, -1)).view(-1),
+                                            variables_sfc[level][1].view(-1))
+                else:
+                    e_s[level] += CNN1D_prol_odd(e_s[level+1].view(1,1,-1)).view(-1)
                 for its in range(config.post_smooth_its):  # sfc level is the level+1 overall level.
                     # (since we have a level0 = PnDG)
                     e_s[level], _ = mg_smooth(
@@ -351,6 +379,8 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
         rr = rr.view(1, 1, nodes_per_level[level1])
         r_s[level1] = rr
         for i in range(level1, smooth_start_level):
+            if config.is_mass_weighted:
+                rr = torch.mul(rr, variables_sfc[i - 1][1].view(1, 1, -1))
             # pad one node with same value as final node so that odd nodes won't be joined
             rr = F.pad(rr, (0, 1), "constant", 0)
             # r[0,0,r.shape[2]-1] = r[0,0,r.shape[2]-2]
@@ -405,3 +435,30 @@ def p1dg_to_p3dg_prolongator(x):
     ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
     y = torch.einsum('ij,kj->ki', I_31, x.view(config.nele, 3)).contiguous().view(-1)
     return y
+
+
+def get_p1cg_lumped_mass(x_ref_in):
+    '''
+    this function spiltes out lumped mass matrix on P1CG.
+    the lumped mass is used for mass-weighting SFC coarsened
+    grid operators.
+    '''
+    x_ref_in = x_ref_in.view(-1, config.ndim, config.nloc)
+    cg_n, cg_nlx, cg_wt, cg_sn, cg_snlx, cg_swt = \
+        shape_function.SHATRInew(nloc=3, ngi=3, ndim=2, snloc=2, sngi=2)
+    cg_n = torch.tensor(cg_n, device=config.dev, dtype=torch.float64)
+    cg_nlx = torch.tensor(cg_nlx, device=config.dev, dtype=torch.float64)
+    cg_wt = torch.tensor(cg_wt, device=config.dev, dtype=torch.float64)
+    ml = torch.zeros(config.cg_nonods, device=config.dev, dtype=torch.float64)
+    for ele in range(config.nele):
+        nx, detwei = shape_function.get_det_nlx(cg_nlx,
+                                                x_ref_in[ele,:,0:3].view(-1,config.ndim,3),
+                                                cg_wt,
+                                                nloc=3, ngi=3)
+        for iloc in range(3):
+            glb_iloc = config.cg_ndglno[ele*3+iloc]
+            for jloc in range(3):
+                # glb_jloc = config.cg_ndglno[ele*3+jloc]
+                ninj = torch.sum(cg_n[iloc,:] * cg_n[jloc,:] * detwei[0,:])
+                ml[glb_iloc] += ninj
+    return ml

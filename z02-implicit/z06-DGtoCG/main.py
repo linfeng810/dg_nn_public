@@ -286,7 +286,7 @@ if (config.solver=='iterative') :
         print('finishing getting RAR: ', time.time()-starttime)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-            multi_grid.mg_on_P0DG_prep(RAR)
+            multi_grid.mg_on_P0DG_prep(RAR, x_ref_in)
         # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)

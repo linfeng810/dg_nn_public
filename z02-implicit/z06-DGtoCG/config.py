@@ -24,7 +24,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine5.msh' # directory to mesh file (gmsh)
+filename='square.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -67,6 +67,7 @@ if len(sys.argv) > 3:
     pre_smooth_its = int(sys.argv[3])
     post_smooth_its = int(sys.argv[3])
 print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
+is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 
 ####################
 # discretisation settings
@@ -74,7 +75,7 @@ classicIP = True # boolean
 eta_e = 36.
 
 # no of batches in mf volume and surface integral
-no_batch = 5
+no_batch = 1
 
 # material property (data)
 k = 1.  # diffusion coefficient
