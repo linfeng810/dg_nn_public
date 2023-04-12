@@ -8,15 +8,9 @@ from torch.nn import Conv1d,Sequential,Module
 
 nele = config.nele 
 mesh = config.mesh 
-nonods = config.nonods 
-ngi = config.ngi
+nonods = config.nonods
 ndim = config.ndim
-nloc = config.nloc 
-dt = config.dt 
-tend = config.tend 
-tstart = config.tstart
 dev = config.dev
-sngi = config.sngi
 
 def SHATRInew(nloc,ngi,ndim, snloc, sngi):
     '''
@@ -343,7 +337,7 @@ class det_nlx(Module):
     :detwei, weights * determinant |J|, 
             torch tensor (batch_in, ngi) on dev
     """
-    def __init__(self, nlx):
+    def __init__(self, nlx, nloc=config.nloc, ngi=config.ngi):
         super(det_nlx, self).__init__()
 
         # calculate jacobian
@@ -391,7 +385,7 @@ class det_nlx(Module):
         
         self.nlx = nlx
         
-    def forward(self, x_loc, weight):
+    def forward(self, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
         '''
         
         # input 
@@ -502,7 +496,7 @@ class det_nlx(Module):
 # local shape function at surface(s)
 # can pass in multiple elements in a batch
 # 
-def sdet_snlx(snlx, x_loc, sweight):
+def sdet_snlx(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
     """
     # local shape function on element face
     can pass in multiple elements in a batch
@@ -659,7 +653,7 @@ def sdet_snlx(snlx, x_loc, sweight):
     return snx, sdetwei, snormal
 
 
-def get_det_nlx(nlx, x_loc, weight):
+def get_det_nlx(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
     '''
     take in element nodes coordinates, spit out
     detwei and local shape function derivative
