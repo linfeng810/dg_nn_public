@@ -68,6 +68,8 @@ if len(sys.argv) > 3:
     post_smooth_its = int(sys.argv[3])
 print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
+blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
+# 'jacobi' do 3 jacobi iteration (approx. inverse)
 
 ####################
 # discretisation settings

@@ -54,14 +54,14 @@ def get_residual_and_smooth_once(
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
         # one smooth step
-        if False:
+        if config.blk_solver == 'direct':
             bdiagA = torch.inverse(bdiagA)
             c_i = c_i.view(nele, nloc)
             c_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
                                                             bdiagA,
                                                             r0.view(nele, nloc)[idx_in, :])
             # c_i = c_i.view(-1, 1, nloc)
-        if True:
+        if config.blk_solver == 'jacobi':
             new_b = torch.einsum('...ij,...j->...i', bdiagA, c_i.view(nele, nloc)[idx_in, :])\
                     + config.jac_wei * r0.view(nele, nloc)[idx_in, :]
             new_b = new_b.view(-1)  # batch_in * nloc
