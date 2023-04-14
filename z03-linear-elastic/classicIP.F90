@@ -1,6 +1,6 @@
 subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
   nloc, nele, nface, sngi, ndim, nonods, glbnface, &
-  mx_nidx, values, indices, nidx, b_bc)
+  mx_nidx, values, indices, nidx, b_bc, eta_e)
   ! this subroutine takes in face shape functions and calculate 
   ! surface integral matrix using classical interior penalty 
   ! method (c.f. Arnold 2001).
@@ -24,8 +24,8 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
   integer, dimension(mx_nidx,2), intent(out) :: indices
   integer, intent(out) :: nidx
   real(kind=8), dimension(nonods), intent(out) :: b_bc
+  real(8), intent(in) :: eta_e ! penalty coeeff
   ! local variable
-  real(8) :: eta_e = 36. ! penalty coeeff
   real(8) :: mu_e , ele2f
   integer :: ele, ele2, iface, iface2, glb_iface, inod, glb_inod
   integer :: glb_jnod, sgi, sgi2, idim, jnod , glb_iface2
@@ -104,7 +104,7 @@ subroutine classicIP(sn, snx, sdetwei, snormal, nbele, nbf, c_bc, &
           nxn = 0.
           nn = 0.
           do sgi = 1,sngi 
-            sgi2 = 5- sgi ! sgi on the other side
+            sgi2 = sngi+1 - sgi ! sgi on the other side
             do idim = 1,ndim 
               nnx = nnx + sn(iface2,jnod2,sgi2)*snx(ele,iface,idim,inod,sgi)*sdetwei(ele,iface,sgi) &
                 * snormal(ele2,iface2,idim)

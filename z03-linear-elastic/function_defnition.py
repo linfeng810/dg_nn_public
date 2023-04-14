@@ -90,10 +90,7 @@ midele : rank-1 array('i') with bounds (totele)
 """
 
 """
-values,indices,nidx,b_bc = 
-    classicip(sn,snx,sdetwei,snormal,nbele,
-    nbf,c_bc,mx_nidx,
-    [nloc,nele,nface,sngi,ndim,nonods,glbnface])
+values,indices,nidx,b_bc = classicip(sn,snx,sdetwei,snormal,nbele,nbf,c_bc,mx_nidx,eta_e,[nloc,nele,nface,sngi,ndim,nonods,glbnface])
 
 Wrapper for ``classicip``.
 
@@ -107,6 +104,7 @@ nbele : input rank-1 array('d') with bounds (glbnface)
 nbf : input rank-1 array('d') with bounds (glbnface)
 c_bc : input rank-1 array('d') with bounds (nonods)
 mx_nidx : input int
+eta_e : input float
 
 Other Parameters
 ----------------
