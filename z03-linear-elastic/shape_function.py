@@ -8,17 +8,11 @@ from torch.nn import Conv1d,Sequential,Module
 
 nele = config.nele 
 mesh = config.mesh 
-nonods = config.nonods 
-ngi = config.ngi
+nonods = config.nonods
 ndim = config.ndim
-nloc = config.nloc 
-dt = config.dt 
-tend = config.tend 
-tstart = config.tstart
 dev = config.dev
-sngi = config.sngi
 
-def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
+def SHATRInew(nloc,ngi,ndim, snloc, sngi):
     '''
     shape functions on a reference element
 
@@ -60,7 +54,7 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
     if (ndim!=2) :
         raise Exception('Input dimension should be 2')
         
-    if (ngi==13):
+    if nloc==10:  # cubic elements
         alpha = -0.149570044467682
         beta = 0.333333333333333
         alpha1 = 0.175615257433208
@@ -88,10 +82,15 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
         weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3 
         weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
         # print('sum of weights', np.sum(weight))
+    elif nloc==3:  # linear elements
+        weight[:] = 1./3.
+        l1[0] = 0.5;    l2[0] = 0.5;    l3[0] = 0
+        l1[1] = 0;      l2[1] = 0.5;    l3[1] = 0.5
+        l1[2] = 0.5;    l2[2] = 0;      l3[2] = 0.5
 
     weight = weight*0.5
 
-    if (sngi==4):
+    if snloc == 4:  # cubic element
         ## 4pnt gaussian quadrature in 1D
         a = 0.339981043584856
         b = 0.861136311594053
@@ -119,6 +118,23 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
         sl2[2,:] = 0.
         sl3[2,:] = np.asarray([b2,a2,a1,b1])
         sl1[2,:] = 1-sl3[2,:]
+    elif snloc == 2:  # linear element
+        # 2 pnt gaussian quadrature in 1D
+        a = 0.5 + 0.5/np.sqrt(3.)
+        b = 0.5 - 0.5/np.sqrt(3.)
+        sweight = 1.
+        # face 1
+        sl1[0, :] = np.asarray([b, a])
+        sl2[0, :] = 1 - sl1[0, :]
+        sl3[0, :] = 0.
+        # face 2
+        sl1[1, :] = 0.
+        sl2[1, :] = np.asarray([b, a])
+        sl3[1, :] = 1 - sl2[1, :]
+        # face 3
+        sl2[2, :] = 0.
+        sl3[2, :] = np.asarray([b, a])
+        sl1[2, :] = 1 - sl3[2, :]
     
     sweight = sweight/2.
 
@@ -176,7 +192,20 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
             nly[ 8, gi ] = -(9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
             # central node...
             nly[ 9, gi ] = 27.*l1[ gi ]*( 1. - 2.*l2[gi]  - l1[ gi ] )
-        
+    elif nloc == 3:  # linear element
+        for gi in range(ngi):
+            n[0, gi] = l1[gi]
+            n[1, gi] = l2[gi]
+            n[2, gi] = l3[gi]
+            # x derivative
+            nlx[0, gi] = 1.0
+            nlx[1, gi] = 0.0
+            nlx[2, gi] = -1.0
+            # y derivative
+            nly[0, gi] = 0.0
+            nly[1, gi] = 1.0
+            nly[2, gi] = -1.0
+
     nlx_all=np.stack([nlx,nly],axis=0)
 
     ## shape function at surface gaussian quadrature points
@@ -235,7 +264,21 @@ def SHATRInew(nloc,ngi,ndim, snloc=4, sngi=4):
                 snly[iface, 8, gi ] = -(9./2.)*sl1[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
                 # central node...
                 snly[iface, 9, gi ] = 27.*sl1[iface, gi ]*( 1. - 2.*sl2[iface,gi]  - sl1[iface, gi ] )
-        
+    elif nloc == 3:  # linear element
+        for iface in range(nface):
+            for gi in range(sngi):
+                sn[iface, 0, gi] = sl1[iface, gi]
+                sn[iface, 1, gi] = sl2[iface, gi]
+                sn[iface, 2, gi] = sl3[iface, gi]
+                # x-derivative
+                snlx[iface, 0, gi] = 1.0
+                snlx[iface, 1, gi] = 0.0
+                snlx[iface, 2, gi] = -1.0
+                # y-derivative
+                snly[iface, 0, gi] = 0.0
+                snly[iface, 1, gi] = 1.0
+                snly[iface, 2, gi] = -1.0
+
     snlx_all=np.stack([snlx,snly],axis=1)
 
     return n, nlx_all, weight, sn, snlx_all, sweight
@@ -294,25 +337,25 @@ class det_nlx(Module):
     :detwei, weights * determinant |J|, 
             torch tensor (batch_in, ngi) on dev
     """
-    def __init__(self, nlx):
+    def __init__(self, nlx, nloc=config.nloc, ngi=config.ngi):
         super(det_nlx, self).__init__()
 
         # calculate jacobian
         self.calc_j11 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
         self.calc_j12 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
         self.calc_j21 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
         self.calc_j22 = Conv1d(in_channels=1, \
             out_channels=ngi, \
-            kernel_size=10, \
+            kernel_size=nloc, \
             bias=False)
 
         # stack jacobian to ngi* (ndim*ndim)
@@ -342,7 +385,7 @@ class det_nlx(Module):
         
         self.nlx = nlx
         
-    def forward(self, x_loc, weight):
+    def forward(self, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
         '''
         
         # input 
@@ -453,7 +496,7 @@ class det_nlx(Module):
 # local shape function at surface(s)
 # can pass in multiple elements in a batch
 # 
-def sdet_snlx(snlx, x_loc, sweight):
+def sdet_snlx(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
     """
     # local shape function on element face
     can pass in multiple elements in a batch
@@ -608,3 +651,90 @@ def sdet_snlx(snlx, x_loc, sweight):
     # print(snx.shape, sdetwei.shape)
 
     return snx, sdetwei, snormal
+
+
+def get_det_nlx(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
+    '''
+    take in element nodes coordinates, spit out
+    detwei and local shape function derivative
+
+    # Input
+    nlx : torch tensor (ndim, nloc, ngi)
+        shape function derivative on reference element
+    x_loc : torch tensor (batch_in, ndim, nloc)
+        nodes coordinates
+    weight : torch tensor (ngi,)
+        quadrature points weight
+
+    # Output
+    nx : torch tensor (batch_in, ndim, nloc, ngi)
+        local shpae function derivatives
+    detwei : torch tensor (batch_in, ngi)
+        determinant x quadrature weight
+    '''
+    batch_in = x_loc.shape[0]
+    # print(x_loc.is_cuda)
+    x = x_loc[:, 0, :].view(batch_in, nloc)
+    y = x_loc[:, 1, :].view(batch_in, nloc)
+    # print('x',x,'\ny',y)
+    # print(torch.cuda.memory_summary())
+    # first we calculate jacobian matrix (J^T) = [j11,j12;
+    #                                             j21,j22]
+    # [ d x/d xi,   dy/d xi ;
+    #   d x/d eta,  dy/d eta]
+    # output: each component of jacobi
+    # (batch_size , ngi)
+    j11 = torch.einsum('ij,ki->kj', nlx[0, :, :], x).view(batch_in, ngi)
+    j12 = torch.einsum('ij,ki->kj', nlx[0, :, :], y).view(batch_in, ngi)
+    j21 = torch.einsum('ij,ki->kj', nlx[1, :, :], x).view(batch_in, ngi)
+    j22 = torch.einsum('ij,ki->kj', nlx[1, :, :], y).view(batch_in, ngi)
+    # j11 = torch.tensordot(nlx[0,:,:], x, dims=([0],[2])).view(ngi, batch_in)
+    # j12 = torch.tensordot(nlx[0,:,:], y, dims=([0],[2])).view(ngi, batch_in)
+    # j21 = torch.tensordot(nlx[1,:,:], x, dims=([0],[2])).view(ngi, batch_in)
+    # j22 = torch.tensordot(nlx[1,:,:], y, dims=([0],[2])).view(ngi, batch_in)
+    # calculate determinant of jacobian
+    det = torch.mul(j11, j22) - torch.mul(j21, j12)
+    det = det.view(batch_in, ngi)
+    invdet = torch.div(1.0, det)
+    det = abs(det)
+    # print('det', det)
+    # print('invdet', invdet)
+    detwei = torch.mul(det, torch.tensor(weight, device=dev).unsqueeze(0).expand(det.shape[0], ngi))  # detwei
+    del det
+    #######
+    # calculate and store inv jacobian...
+    # inverse of jacobian
+    # print(torch.cuda.memory_summary())
+    # calculate nx
+    nlx1 = nlx[0, :, :].expand(batch_in, -1, -1)
+    nlx2 = nlx[1, :, :].expand(batch_in, -1, -1)
+    invj11 = torch.mul(j22, invdet).view(batch_in, -1)
+    invj12 = torch.mul(j12, invdet).view(batch_in, -1) * (-1.0)
+    del j22
+    del j12
+    invj11 = invj11.unsqueeze(1).expand(-1, nloc, -1)
+    invj12 = invj12.unsqueeze(1).expand(-1, nloc, -1)
+    # print('invj11', invj11)
+    # print('invj12', invj12)
+    nx1 = torch.mul(invj11, nlx1) + torch.mul(invj12, nlx2)
+    del invj11
+    del invj12
+
+    invj21 = torch.mul(j21, invdet).view(batch_in, -1) * (-1.0)
+    invj22 = torch.mul(j11, invdet).view(batch_in, -1)
+    del j21
+    del j11
+    invj21 = invj21.unsqueeze(1).expand(-1, nloc, -1)
+    invj22 = invj22.unsqueeze(1).expand(-1, nloc, -1)
+    del invdet
+    # print('invj21', invj21)
+    # print('invj22', invj22)
+    # print('invj11expand', invj22)
+    # print(invj11.shape, nlx1.shape)
+    nx2 = torch.mul(invj21, nlx1) + torch.mul(invj22, nlx2)
+    del invj21
+    del invj22
+
+    nx = torch.stack((nx1, nx2), dim=1)
+
+    return nx, detwei

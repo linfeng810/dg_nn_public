@@ -7,7 +7,9 @@ Hence the name "volume_mf_linear_elastic".
 '''
 import torch 
 import config 
-import numpy as np 
+import numpy as np
+
+import shape_function
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -285,3 +287,530 @@ def RAR_smooth(r1, e1, RARvalues, fina, cola, diagRAR):
     e1 += config.jac_wei * rr1 / diagRAR
 
     return e1
+
+
+def calc_RAR_mf_color(n, nlx, weight,
+                      sn, snlx, sweight,
+                      x_ref_in,
+                      nbele, nbf,
+                      I_fc, I_cf,
+                      whichc, ncolor,
+                      fina, cola, ncola):
+    """
+    get operator on P1CG grid, i.e. RAR
+    where R is prolongator/restrictor,
+    via coloring method.
+    *ONLY* values of csr format RAR is returned.
+    shape (ncola, ndim, ndim)
+    """
+    import time
+    start_time = time.time()
+    cg_nonods = config.cg_nonods
+    p1dg_nonods = config.p1dg_nonods
+    value = torch.zeros(ncola, ndim, ndim, device=dev, dtype=torch.float64)  # NNZ entry values
+    dummy = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
+    Rm = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+    ARm = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+    RARm = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+    mask = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)  # color vec
+    for color in range(1, ncolor + 1):
+        print('color: ', color)
+        for jdim in range(ndim):
+            mask *= 0
+            mask[:, jdim] += torch.tensor((whichc == color),
+                                         device=dev,
+                                         dtype=torch.float64)  # 1 if true; 0 if false
+            Rm *= 0
+            for idim in range(ndim):
+                Rm[:, idim] += torch.mv(I_fc, mask[:, idim].view(-1))  # (p3dg_nonods, ndim)
+            # Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
+            ARm *= 0
+            ARm = get_residual_only(ARm,
+                                    Rm, dummy, dummy, x_ref_in, dummy,
+                                    n, nlx, weight,
+                                    sn, snlx, sweight,
+                                    nbele, nbf)
+            ARm *= -1.  # (p3dg_nonods, ndim)
+            # RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
+            RARm *= 0
+            for idim in range(ndim):
+                RARm[:,idim] += torch.mv(I_cf, ARm[:,idim])  # (cg_nonods, ndim)
+            for idim in range(ndim):
+                # add to value
+                for i in range(RARm.shape[0]):
+                    for count in range(fina[i], fina[i + 1]):
+                        j = cola[count]
+                        value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
+        print('finishing (another) one color, time comsumed: ', time.time()-start_time)
+
+    # RAR = torch.sparse_csr_tensor(crow_indices=fina,
+    #                               col_indices=cola,
+    #                               values=value,
+    #                               size=(cg_nonods, cg_nonods),
+    #                               device=dev)
+    return value
+
+
+
+def get_residual_and_smooth_once(
+        r0,
+        u_i, u_n, u_bc, x_ref_in, f,
+        n, nlx, weight,
+        sn, snlx, sweight,
+        nbele, nbf):
+    """
+    update residual
+    r0 = b(boundary) + f(body force) - (K+S)*u_i
+        + M/dt*u_n (transient last timestep)
+    """
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
+    for i in range(nnn):
+        # volume integral
+        idx_in = np.zeros(nele, dtype=bool)
+        idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
+        batch_in = np.sum(idx_in)
+        # dummy diagA and bdiagA
+        diagA = torch.zeros(batch_in, nloc, ndim, device=dev, dtype=torch.float64)
+        bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
+        r0, diagA, bdiagA = k_mf_one_batch(r0, u_i, u_n, f,
+                                           diagA, bdiagA,
+                                           idx_in,
+                                           n, nlx, x_ref_in, weight)
+        # surface integral
+        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
+        r0, diagA, bdiagA = s_mf_one_batch(r0, u_i, u_bc,
+                                           sn, snlx, x_ref_in, sweight,
+                                           nbele, nbf,
+                                           diagA, bdiagA,
+                                           idx_in_f, brk_pnt[i])
+        # smooth once
+        if config.blk_solver == 'direct':
+            bdiagA = torch.inverse(bdiagA.view(batch_in, nloc*ndim, nloc*ndim))
+            u_i = u_i.view(nele, nloc*ndim)
+            u_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
+                                                            bdiagA,
+                                                            r0.view(nele, nloc*ndim)[idx_in, :])
+        if config.blk_solver == 'jacobi':
+            new_b = torch.einsum('...ij,...j->...i', bdiagA, u_i.view(nele, nloc*ndim)[idx_in, :])\
+                    + config.jac_wei * r0.view(nele, nloc*ndim)[idx_in, :]
+            new_b = new_b.view(-1)
+            diagA = diagA.view(-1)
+            u_i = u_i.view(nele, nloc*ndim)
+            u_i_partial = u_i[idx_in, :]
+            for its in range(3):
+                u_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
+                                                      bdiagA,
+                                                      u_i_partial).view(-1))
+                                / diagA).view(-1, nloc*ndim)
+    r0 = r0.view(nele*nloc, ndim)
+    u_i = u_i.view(nele*nloc, ndim)
+    return r0, u_i
+
+
+def get_residual_only(
+        r0,
+        u_i, u_n, u_bc, x_ref_in, f,
+        n, nlx, weight,
+        sn, snlx, sweight,
+        nbele, nbf):
+    """
+    update residual
+    r0 = b(boundary) + f(body force) - (K+S)*u_i
+        + M/dt*u_n (transient last timestep)
+    """
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
+    for i in range(nnn):
+        # volume integral
+        idx_in = np.zeros(nele, dtype=bool)
+        idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
+        batch_in = np.sum(idx_in)
+        # dummy diagA and bdiagA
+        diagA = torch.zeros(batch_in, nloc, ndim, device=dev, dtype=torch.float64)
+        bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
+        r0, diagA, bdiagA = k_mf_one_batch(r0, u_i, u_n, f,
+                                           diagA, bdiagA,
+                                           idx_in,
+                                           n, nlx, x_ref_in, weight)
+        # surface integral
+        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
+        r0, diagA, bdiagA = s_mf_one_batch(r0, u_i, u_bc,
+                                           sn, snlx, x_ref_in, sweight,
+                                           nbele, nbf,
+                                           diagA, bdiagA,
+                                           idx_in_f, brk_pnt[i])
+    r0 = r0.view(nele*nloc, ndim)
+    return r0
+
+
+def k_mf_one_batch(r0, u_i, u_n, f,
+                   diagA, bdiagA,
+                   idx_in,
+                   n, nlx, x_ref_in, weight):
+    '''
+    update residual's volume integral parts
+    r0 <- r0 - K*u_i + M*f
+    if transient, also:
+          r0 + M/dt*u_n - M/dt*u_i
+    '''
+    batch_in = idx_in.shape[0]
+    # change view
+    r0 = r0.view(-1, nloc, ndim)
+    u_i = u_i.view(-1, nloc, ndim)
+    diagA = diagA.view(-1, nloc, ndim)
+    bdiagA = bdiagA.view(-1, nloc, ndim, nloc, ndim)
+    # get shape function derivatives
+    nx, detwei = shape_function.get_det_nlx(nlx, x_ref_in[idx_in], weight)
+    # make all sf tensors in shape (batch_in, ndim, nloc(i), nloc(j), sngi)
+    ni = n.unsqueeze(0).unsqueeze(2).expand(batch_in, -1, nloc, -1)
+    nj = n.unsqueeze(0).unsqueeze(1).expand(batch_in, nloc, -1, -1)
+    nxi = nx.unsqueeze(3).expand(-1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    nxj = nx.unsqueeze(2).expand(-1, -1, nloc, -1, -1)  # expand on nloc(inod)
+    detweiv = detwei.unsqueeze(1).unsqueeze(2).expand(-1, nloc, nloc, -1)
+
+    # declare K
+    K = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
+
+    # ni nj
+    for idim in range(ndim):
+        K[:, :, idim, :, idim] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
+    f = f.view(nele, nloc, ndim)
+    r0[idx_in, ...] += torch.einsum('...ijkl,...kl->...ij', K, f[idx_in, ...])
+    if config.isTransient:
+        K *= rho / dt
+        u_n = u_n.view(nele, nloc, ndim)
+        r0[idx_in, ...] += torch.einsum('...ijkl,...kl->...ij', K,
+                                        u_n[idx_in,...]-u_i[idx_in,...])
+    else:
+        K *= 0
+
+    # epsilon_kl C_ijkl epsilon_ij
+    K[:, :, 0, :, 0] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * (lam + 2 * mu)
+    K[:, :, 0, :, 0] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
+    K[:, :, 0, :, 1] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * lam
+    K[:, :, 0, :, 1] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
+    K[:, :, 1, :, 0] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * mu
+    K[:, :, 1, :, 0] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * lam
+    K[:, :, 1, :, 1] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 0, :, :, :], nxj[:, 0, :, :, :]), detweiv), -1) * mu
+    K[:, :, 1, :, 1] += torch.sum(torch.mul(torch.mul(
+        nxi[:, 1, :, :, :], nxj[:, 1, :, :, :]), detweiv), -1) * (lam + 2 * mu)
+
+    # update residual -K*u_i
+    r0[idx_in,...] -= torch.einsum('...ijkl,...kl->...ij', K, u_i[idx_in, ...])
+
+    # get diagonal
+    diagA += torch.diagonal(K.view(batch_in,nloc*ndim, nloc*ndim), dim1=1, dim2=2).view(batch_in, nloc, ndim)
+    bdiagA += K
+    return r0, diagA, bdiagA
+
+
+def s_mf_one_batch(r, u_i, u_bc,
+                   sn, snlx, x_ref_in, sweight,
+                   nbele, nbf,
+                   diagA, bdiagA,
+                   idx_in_f, batch_start_idx):
+    """
+    update residual's surface integral part for one batch of elements
+    r0 <- r0 - S*u_i + S*u_bc
+    """
+    u_i = u_i.view(nele, nloc, ndim)
+    r = r.view(nele, nloc, ndim)
+    u_bc = u_bc.view(nele, nloc, ndim)
+
+    # first lets separate nbf to get two list of F_i and F_b
+    F_i = np.where(np.logical_not(np.isnan(nbf)) & idx_in_f)[0]  # interior face
+    F_b = np.where(np.isnan(nbf) & idx_in_f)[0]  # boundary face
+    F_inb = -nbf[F_i]  # neighbour list of interior face
+    F_inb = F_inb.astype(np.int64)
+
+    # create two lists of which element f_i / f_b is in
+    E_F_i = np.floor_divide(F_i, 3)
+    E_F_b = np.floor_divide(F_b, 3)
+    E_F_inb = np.floor_divide(F_inb, 3)
+
+    # local face number
+    f_i = np.mod(F_i, 3)
+    f_b = np.mod(F_b, 3)
+    f_inb = np.mod(F_inb, 3)
+
+    # for interior faces, update residual
+    # r <= r - S*u_i
+    # let's hope that each element has only one boundary face.
+    for iface in range(nface):
+        idx_iface = f_i == iface
+        r, diagA, bdiagA = _S_fi(
+            r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
+            f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
+            sn, snlx, x_ref_in, sweight, u_i,
+            diagA, bdiagA, batch_start_idx)
+
+    # update residual for boundary faces
+    # r <= r + S*u_bc - S*u_i
+    r, diagA, bdiagA = _S_fb(
+        r, f_b, E_F_b, F_b,
+        sn, snlx, x_ref_in, sweight, u_i, u_bc,
+        diagA, bdiagA, batch_start_idx)
+    return r, diagA, bdiagA
+
+
+def _S_fi(r, f_i, E_F_i, F_i,
+          f_inb, E_F_inb, F_inb,
+          sn, snlx, x_ref_in, sweight, u_i,
+          diagS, diagS20, batch_start_idx):
+    """
+    this function add interior face S*c contribution
+    to r
+    """
+
+    # faces can be passed in by batches to fit memory/GPU cores
+    batch_in = f_i.shape[0]
+    dummy_idx = np.arange(0, batch_in)
+
+    # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
+    # all these expansion are views of original tensor,
+    # i.e. they point to same memory as sn/snx
+    sni = sn.unsqueeze(0).expand(batch_in, -1, -1, -1) \
+        .unsqueeze(3).expand(-1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    snj = sn.unsqueeze(0).expand(batch_in, -1, -1, -1) \
+        .unsqueeze(2).expand(-1, -1, nloc, -1, -1)  # expand on nloc(inod)
+
+    # get shape function derivatives
+    # this side
+    snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in[E_F_i], sweight)
+    # now tensor shape are:
+    # snx | snx_nb         (batch_in, nface, ndim, nloc, sngi)
+    # sdetwei | sdetwei_nb (batch_in, nface, sngi)
+    # snormal | snormal_nb (batch_in, nface, ndim)
+    mu_e = config.eta_e / torch.sum(sdetwei[dummy_idx, f_i, :], -1)  # mu_e for each face (batch_in)
+    snxi = snx.unsqueeze(4) \
+        .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    snxj = snx.unsqueeze(3) \
+        .expand(-1, -1, -1, nloc, -1, -1)  # expand on nloc(inod)
+    # make all tensors in shape (nele, nface, nloc(inod), nloc(jnod), sngi)
+    # are views of snormal/sdetwei, taken same memory
+    snormalv = snormal.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) \
+        .expand(-1, -1, -1, nloc, nloc, sngi)
+    sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3) \
+        .expand(-1, -1, nloc, nloc, -1)
+
+    # other side.
+    snx_nb, sdetwei_nb, snormal_nb = shape_function.sdet_snlx(snlx, x_ref_in[E_F_inb], sweight)
+    # snxi_nb = snx_nb.unsqueeze(4) \
+    #     .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    snxj_nb = snx_nb.unsqueeze(3) \
+        .expand(-1, -1, -1, nloc, -1, -1)  # expand on nloc(inod)
+    snormalv_nb = snormal_nb.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) \
+        .expand(-1, -1, -1, nloc, nloc, sngi)
+    # sdetweiv_nb = sdetwei_nb.unsqueeze(2).unsqueeze(3) \
+    #     .expand(-1, -1, nloc, nloc, -1)
+    # make mu_e in shape (batch_in, nloc, nloc)
+    mu_ev = mu_e.unsqueeze(-1).unsqueeze(-1).expand(-1, nloc, nloc)
+
+    # this side
+    S = torch.zeros(batch_in, nloc, ndim, nloc, ndim,
+                    device=dev, dtype=torch.float64)  # local S matrix
+
+    for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
+        # epsilon(u)_ij * 0.5 * C_ijkl v_i n_j
+        S[..., idim, :, kdim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                sni[dummy_idx, f_i, :, :, :], # v_i
+                0.5*snxj[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*du_k/dx_l of epsilon_kl
+                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1) \
+            * cijkl[idim, jdim, kdim, ldim] * (-0.5)
+        S[..., idim, :, ldim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                sni[dummy_idx, f_i, :, :, :], # v_i
+                0.5*snxj[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*du_l/dx_k of epsilon_kl
+                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1) \
+            * cijkl[idim, jdim, kdim, ldim] * (-0.5)
+        # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
+        S[...,kdim,:,idim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                snj[dummy_idx, f_i, :, :, :], # u_i
+                0.5*snxi[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
+                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1)\
+            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        S[..., ldim,:,idim] +=\
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                snj[dummy_idx, f_i, :, :, :], # u_i
+                0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
+                snormalv[dummy_idx,f_i, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx,f_i, :,:,:]),
+                -1)\
+            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+    # mu * u_i v_i
+    for idim in range(ndim):
+        S[...,idim,:,idim] += torch.mul(torch.sum(torch.mul(torch.mul(
+            sni[dummy_idx, f_i, :,:,:],
+            snj[dummy_idx, f_i, :,:,:]),
+            sdetweiv[dummy_idx, f_i, :,:,:]),
+            -1), mu_ev)
+    # multiply S and c_i and add to (subtract from) r
+    r[E_F_i, :, :] -= torch.einsum('...ijkl,...kl->...ij', S, u_i[E_F_i, :, :])
+    # put diagonal of S into diagS
+    diagS[E_F_i-batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc*ndim, nloc*ndim),
+                                                         dim1=1, dim2=2).view(batch_in, nloc, ndim)
+    diagS20[E_F_i-batch_start_idx, ...] += S
+
+    # other side
+    S *= 0.  # local S matrix
+    for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
+        # 0.5 C_ijkl epsilon(u)_kl v_i n_j
+        S[..., idim, :, kdim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                sni[dummy_idx, f_i, :, :, :],  # v_i
+                0.5*torch.flip(snxj_nb[dummy_idx, f_inb, ldim, :,:,:],[-1]) ), # 0.5*du_k/dx_l of epsilon_kl
+                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1)\
+            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        S[..., idim, :, ldim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                sni[dummy_idx, f_i, :, :, :], # v_i
+                0.5*torch.flip(snxj_nb[dummy_idx, f_inb, kdim, :,:,:],[-1]) ), # 0.5*du_l/dx_k of epsilon_kl
+                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1)\
+            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
+        S[..., kdim, :, idim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                torch.flip(snj[dummy_idx, f_inb, :, :, :],[-1]), # u_i
+                0.5*snxi[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
+                snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1)\
+            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        S[..., ldim, :, idim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                torch.flip(snj[dummy_idx, f_inb, :, :, :],[-1]), # u_i
+                0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
+                snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
+                sdetweiv[dummy_idx, f_i, :,:,:]),
+                -1)\
+            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+    # mu * u_i v_i
+    for idim in range(ndim):
+        S[..., idim, :, idim] += torch.mul(torch.sum(torch.mul(torch.mul(
+            sni[dummy_idx, f_i, :,:,:],
+            torch.flip(snj[dummy_idx, f_inb, :,:,:],[-1])),
+            sdetweiv[dummy_idx, f_i, :,:,:]),
+            -1), -mu_ev)
+    # this S is off-diagonal contribution, therefore no need to put in diagS
+    # multiply S and c_i and add to (subtract from) r
+    r[E_F_i, :, :] -= torch.einsum('...ijkl,...kl->...ij', S, u_i[E_F_inb, :, :])
+
+    return r, diagS, diagS20
+
+
+def _S_fb(
+        r, f_b, E_F_b, F_b,
+        sn, snlx, x_ref_in, sweight, u_i, u_bc,
+        diagS, diagS20, batch_start_idx):
+    """
+    update residual for boundary faces
+    """
+    # faces can be passed in by batches to fit memory/GPU cores
+    batch_in = f_b.shape[0]
+    dummy_idx = np.arange(0, batch_in)
+
+    # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
+    # all these expansion are views of original tensor,
+    # i.e. they point to same memory as sn/snx
+    sni = sn.unsqueeze(0).expand(nele, -1, -1, -1) \
+        .unsqueeze(3).expand(-1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    snj = sn.unsqueeze(0).expand(nele, -1, -1, -1) \
+        .unsqueeze(2).expand(-1, -1, nloc, -1, -1)  # expand on nloc(inod)
+
+    # get shape function derivatives
+    snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in[E_F_b], sweight)
+    mu_e = config.eta_e / torch.sum(sdetwei[dummy_idx, f_b, :], -1)
+    snxi = snx.unsqueeze(4) \
+        .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
+    snxj = snx.unsqueeze(3) \
+        .expand(-1, -1, -1, nloc, -1, -1)  # expand on nloc(inod)
+    # make all tensors in shape (nele, nface, nloc(inod), nloc(jnod), sngi)
+    # are views of snormal/sdetwei, taken same memory
+    snormalv = snormal.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) \
+        .expand(-1, -1, -1, nloc, nloc, sngi)
+    sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3) \
+        .expand(-1, -1, nloc, nloc, -1)
+    # make mu_e in shape (batch_in, nloc, nloc)
+    mu_e = mu_e.unsqueeze(-1).unsqueeze(-1) \
+        .expand(-1, nloc, nloc)
+
+    # only one side
+    S = torch.zeros(batch_in, nloc, ndim, nloc, ndim,
+                    device=dev, dtype=torch.float64)  # local S matrix
+    # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
+    for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
+        S[..., kdim, :, idim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                snj[dummy_idx, f_b, :, :, :],  # u_i
+                0.5 * snxi[dummy_idx, f_b, ldim, :, :, :]),  # 0.5*dv_k/dx_l of epsilon_kl
+                snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
+                sdetweiv[dummy_idx, f_b, :, :, :]),
+                -1) \
+            * cijkl[idim, jdim, kdim, ldim] * (-1.0)
+        S[..., ldim, :, idim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                snj[dummy_idx, f_b, :, :, :],  # u_i
+                0.5 * snxi[dummy_idx, f_b, kdim, :, :, :]),  # 0.5*dv_l/dx_k of epsilon_kl
+                snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
+                sdetweiv[dummy_idx, f_b, :, :, :]),
+                -1) \
+            * cijkl[idim, jdim, kdim, ldim] * (-1.0)
+    # mu * u_i v_i
+    for idim in range(ndim):
+        S[..., idim, :, idim] += torch.mul(
+            torch.sum(torch.mul(torch.mul(
+                sni[dummy_idx, f_b, :, :, :],
+                snj[dummy_idx, f_b, :, :, :]),
+                sdetweiv[dummy_idx, f_b, :, :, :]),
+                -1), mu_e)
+    # calculate b_bc and add to r:
+    # r <- r + b_bc
+    r[E_F_b, :, :] += torch.einsum('...ijkl,...kl->...ij', S, u_bc[E_F_b, :, :])
+
+    # 0.5 C_ijkl epsilon(u)_kl v_i n_j
+    for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
+        S[..., idim, :, kdim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                sni[dummy_idx, f_b, :, :, :],  # v_i
+                0.5 * snxj[dummy_idx, f_b, ldim, :, :, :]),  # 0.5*du_k/dx_l of epsilon_kl
+                snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
+                sdetweiv[dummy_idx, f_b, :, :, :]),
+                -1) \
+            * cijkl[idim, jdim, kdim, ldim] * (-1.0)
+        S[..., idim, :, ldim] += \
+            torch.sum(torch.mul(torch.mul(torch.mul(
+                sni[dummy_idx, f_b, :, :, :],  # v_i
+                0.5 * snxj[dummy_idx, f_b, kdim, :, :, :]),  # 0.5*du_l/dx_k of epsilon_kl
+                snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
+                sdetweiv[dummy_idx, f_b, :, :, :]),
+                -1) \
+            * cijkl[idim, jdim, kdim, ldim] * (-1.0)
+    # multiply S and u_i and add to (subtract from) r
+    r[E_F_b, :, :] -= torch.einsum('...ijkl,...kl->...ij', S, u_i[E_F_b, :, :])
+    diagS[E_F_b - batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc*ndim, nloc*ndim),
+                                                           dim1=-2, dim2=-1).view(batch_in, nloc, ndim)
+    diagS20[E_F_b - batch_start_idx, ...] += S
+
+    return r, diagS, diagS20

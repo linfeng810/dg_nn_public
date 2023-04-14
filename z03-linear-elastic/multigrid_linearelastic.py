@@ -222,7 +222,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
         number of nodes (DOFs) on each level
     '''
 
-    dummy = np.zeros((config.ndim,config.nele))
+    dummy = np.zeros((config.ndim,config.cg_nonods))
 
     starting_node = 1 # setting according to BY
     graph_trim = -10  # ''
@@ -251,7 +251,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
             max_nonods_sfc_all_grids=max_nonods_sfc_all_grids, \
             max_ncola_sfc_all_un=max_ncola_sfc_all_un, \
             max_nlevel=max_nlevel,
-            ndim=config.ndim, ncola=ncola,nonods=nele)
+            ndim=config.ndim, ncola=ncola,nonods=config.cg_nonods)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     # print(fin_sfc_nonods.shape)
     a_sfc = a_sfc[:,:,:ncola_sfc_all_un]

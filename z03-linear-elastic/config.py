@@ -2,6 +2,7 @@
 import toughio
 import numpy as np
 import torch
+import sys
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -23,28 +24,54 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square_refine5.msh' # directory to mesh file (gmsh)
+filename='square.msh' # directory to mesh file (gmsh)
+if len(sys.argv) > 1:
+    filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
 
 # mesh info
 nele = mesh.n_cells # number of elements
-cubic = True # elemnet type (cubic)
-if cubic:
+ele_type = 'cubic'  # 'linear' or 'cubic'
+if ele_type=='cubic':
     nloc = 10  # number of nodes in an element
     ngi = 13 # number of quadrature points
     sngi = 4 # number of surface quadrature
+    snloc = 4  # number of nodes per face
+elif ele_type=='linear':
+    nloc = 3
+    ngi = 3
+    sngi = 2
+    snloc = 2
+else:
+    raise Exception("Element type is not acceptable.")
 nonods = nloc*nele # number of nodes
+p1dg_nonods = 3*nele  # number of nodes on P1DG grid
 ndim = 2 # dimesnion of the problem
 nface = 3 # number of element faces
 ndglno=np.arange(0,nonods) # local to global
+cg_ndglno=[]
+cg_nonods=[]
 
 
 ######################
-jac_its = 1e1  # max jacobi iteration steps
-jac_wei = 2./3.  # jacobi weight
-mg_its = 1          # mg cycle
-mg_smooth_its = 1 # smooth step
-jac_resThres = 1e-9  # iterative converge threshold
+jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
+jac_resThres = 1.e-9  # convergence criteria
+jac_wei = 2./3. # jacobi weight
+mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...
+mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)
+mg_smooth_its = 1
+pre_smooth_its = 3
+post_smooth_its = 3  # thus we have a V(pre,post)-cycle
+smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
+if len(sys.argv) > 2:
+    smooth_start_level = int(sys.argv[2])
+if len(sys.argv) > 3:
+    pre_smooth_its = int(sys.argv[3])
+    post_smooth_its = int(sys.argv[3])
+print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
+is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
+blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
+# 'jacobi' do 3 jacobi iteration (approx. inverse)
 
 ####################
 # material property
@@ -62,7 +89,7 @@ a = torch.eye(2)
 kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
-    +mu*torch.einsum('il,jk->ijkl',a,a) # c_ijkl elasticity tensor
+    +mu*torch.einsum('il,jk->ijkl',a,a)  # c_ijkl elasticity tensor
 
 ijkldim_nz = [[0,0,0,0], [0,0,1,1], [0,1,0,1], [0,1,1,0],
               [1,0,0,1], [1,0,1,0], [1,1,0,0], [1,1,1,1]]  # non-zero indices of cijkl
@@ -93,3 +120,7 @@ def rhs_f(x_all):
 classicIP = True  # boolean
 eta_e = 36.*E  # penalty coefficient
 print('Surface jump penalty coefficient eta_e: ', eta_e)
+
+# no of batches in mf volume and surface integral
+no_batch = 1
+print('No of batch: ', no_batch)

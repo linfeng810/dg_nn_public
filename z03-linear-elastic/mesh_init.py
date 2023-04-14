@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 import config , time
-from get_nb import getfinele 
+from get_nb import getfinele, getfin_p1cg
 
 def init():
     # initiate mesh ...
@@ -43,7 +43,8 @@ def init():
     for ele in range(nele):
         for iloc in range(3):
             cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
-    
+    config.cg_ndglno = cg_ndglno
+    # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele,finele,colele,_ = getfinele(
@@ -140,43 +141,69 @@ def init():
     for iface in range(len(nbf)):
         nbele[iface] = np.sign(nbf[iface])*(np.abs(nbf[iface])//3)
 
-    
-    # generate cubic nodes from element vertices
-    x_all = []
-    for ele in range(nele):
-        # vertex nodes global index
-        idx = mesh.cells[0][1][ele]
-        # vertex nodes coordinate 
-        x_loc=[]
-        for id in idx:
-            x_loc.append(mesh.points[id])
-        # print(x_loc)
-        # ! a reference cubic element looks like this:
-        # !  y
-        # !  | 
-        # !  2
-        # !  | \
-        # !  6  5
-        # !  |   \
-        # !  7 10 4
-        # !  |     \
-        # !  3-8-9--1--x
-        # nodes 1-3
-        x_all.append([x_loc[0][0], x_loc[0][1]])
-        x_all.append([x_loc[1][0], x_loc[1][1]])
-        x_all.append([x_loc[2][0], x_loc[2][1]])
-        # nodes 4,5
-        x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
-        x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
-        # nodes 6,7
-        x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
-        x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
-        # nodes 8,9
-        x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
-        x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
-        # node 10
-        x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
-
+    if nloc == 10:
+        # generate cubic nodes from element vertices
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[0][1][ele]
+            # vertex nodes coordinate
+            x_loc=[]
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # print(x_loc)
+            # ! a reference cubic element looks like this:
+            # !  y
+            # !  |
+            # !  2
+            # !  | \
+            # !  6  5
+            # !  |   \
+            # !  7 10 4
+            # !  |     \
+            # !  3-8-9--1--x
+            # nodes 1-3
+            x_all.append([x_loc[0][0], x_loc[0][1]])
+            x_all.append([x_loc[1][0], x_loc[1][1]])
+            x_all.append([x_loc[2][0], x_loc[2][1]])
+            # nodes 4,5
+            x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
+            x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
+            # nodes 6,7
+            x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
+            x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
+            # nodes 8,9
+            x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
+            x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
+            # node 10
+            x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+    elif nloc == 3:  # linear element
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[0][1][ele]
+            # vertex nodes coordinate
+            x_loc=[]
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # print(x_loc)
+            # ! a reference linear element looks like this:
+            # !  y
+            # !  |
+            # !  2
+            # !  | \
+            # !  |  \
+            # !  |   \
+            # !  |    \
+            # !  |     \
+            # !  3------1--x
+            # nodes 1-3
+            x_all.append([x_loc[0][0], x_loc[0][1]])
+            x_all.append([x_loc[1][0], x_loc[1][1]])
+            x_all.append([x_loc[2][0], x_loc[2][1]])
+    cg_nonods = mesh.points.shape[0]
+    np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
+    config.cg_nonods = cg_nonods
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
 
@@ -209,17 +236,28 @@ def init():
         if x_all[inod,1]>1.-1e-8 :
             bc4.append(inod)
 
-    # mark boundary nodes for one-element triangle
-    # bc1 = [0,1,3,4]
-    # bc2 = [1,5,6,2]
-    # bc3 = [0,2,8,7]
-    # bc4 = []
-    # print(bc1)
-    # print(bc2)
-    # print(bc3)
-    # print(bc4)
-
-    return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 
+    # cg bc
+    cg_bc1 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 0] < 1e-8:
+            cg_bc1.append(inod)
+    # bc2: y=0
+    cg_bc2 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 1] < 1e-8:
+            cg_bc2.append(inod)
+    # bc3: x=1
+    cg_bc3 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 0] > 1. - 1e-8:
+            cg_bc3.append(inod)
+    # bc4: y=1
+    cg_bc4 = []
+    for inod in range(cg_nonods):
+        if mesh.points[inod, 1] > 1. - 1e-8:
+            cg_bc4.append(inod)
+    cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
+    return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
 
 def connectivity(nbele):
     '''
@@ -288,6 +326,43 @@ def face_iloc2(iface):
     return iloc_list
 
 def sgi2(sgi):
-    # return gaussian pnts index on the other side 
-    order_on_other_side = [3,2,1,0]
+    # return gaussian pnts index on the other side
+    if config.sngi == 4:  # cubic element
+        order_on_other_side = [3,2,1,0]
+    elif config.sngi == 2:  # linear element
+        order_on_other_side = [1,0]
+    else:
+        raise Exception(f"config.sngi is not accepted in sgi2 (find gaussian "
+                        f"points on the other side)")
     return order_on_other_side[sgi]
+
+
+def p1cg_sparsity(cg_ndglbno):
+    '''
+    get P1CG sparsity from node-global-number list
+    '''
+    import time
+    start_time = time.time()
+    print('im in get p1cg sparsity, time:', time.time()-start_time)
+    nele = config.nele
+    cg_nonods = config.cg_nonods
+    p1dg_nonods = config.p1dg_nonods
+    nloc = 3
+    idx = []
+    val = []
+    import scipy.sparse as sp
+    # for ele in range(nele):
+    #     for inod in range(nloc):
+    #         glbi = cg_ndglbno[ele*nloc+inod]
+    #         for jnod in range(nloc):
+    #             glbj = cg_ndglbno[ele*nloc+jnod]
+    #             idx.append([glbi,glbj])
+    #             val.append(0)
+    idx, n_idx = getfin_p1cg(cg_ndglbno+1, nele, nloc, p1dg_nonods)
+    print('im back from fortran, time:', time.time()-start_time)
+    idx = np.asarray(idx)-1
+    val = np.ones(n_idx)
+    spmat = sp.coo_matrix((val,(idx[0,:],idx[1,:])), shape=(cg_nonods, cg_nonods))
+    spmat = spmat.tocsr()
+    print('ive finished, time:', time.time()-start_time)
+    return spmat.indptr, spmat.indices, spmat.nnz

@@ -391,7 +391,7 @@ def RSR_matrix_color(S,R,whichc,ncolor, fina, cola, ncola):
     return diagRSR, RSR, RTbig
 
 
-def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola, 
+def RSR_mf_color(I_fc, I_cf, whichc, ncolor, fina, cola, ncola,
                  sn, snx, sdetwei, snormal, nbele, nbf):
     '''
     This function use matrix-free S*c function to 
@@ -421,29 +421,38 @@ def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
     RSRvalues : torch tensor (ncola, ndim, ndim)
         operator on P0DG mesh sparse tensor RSR's values
     '''
-    RSRvalues = torch.zeros(ncola,ndim,ndim, device=dev, dtype=torch.float64) # NNZ entry values
+    cg_nonods = config.cg_nonods
+    RSRvalues = torch.zeros(ncola, ndim, ndim, device=dev, dtype=torch.float64) # NNZ entry values
     for color in range(1,ncolor+1):
-        mask = torch.zeros(ndim,1,nele, device=dev, dtype=torch.float64) # length=(nele)
+        mask = torch.zeros(ndim, 1, cg_nonods, device=dev, dtype=torch.float64)  # color vec
         print('color: ', color)
         for jdim in range(ndim):
-            mask *=0
-            mask[jdim,:,:] += torch.tensor((whichc == color), device=dev, dtype=torch.float64)  # 1 if true; 0 if false
-            RSRm = torch.matmul(R.unsqueeze(0).unsqueeze(-1).expand(ndim,nloc,1), mask)  # (ndim,nloc,nele) Rm
-            RSRm = torch.permute(RSRm, (2,1,0)).contiguous()
-            [RSRm, _, _] = surface_mf_linear_elastic.S_mf(
+            mask *= 0
+            mask[jdim, :, :] += torch.tensor((whichc == color),
+                                             device=dev,
+                                             dtype=torch.float64)  # 1 if true; 0 if false
+            # RSRm = torch.matmul(I_fc.unsqueeze(0).unsqueeze(2).expand(ndim,nonods,ndim,cg_nonods)\
+            #                     .view(ndim*nonods,ndim*cg_nonods),
+            #                     mask)  # (ndim*nonods,)
+            Rm = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+            for idim in range(ndim):
+                Rm[:,idim] += torch.mv(I_fc, mask[idim,:,:].view(-1))
+            Rm = Rm.view(nele,nloc,ndim)
+            [SRm, _, _] = surface_mf_linear_elastic.S_mf(
                 r=torch.zeros(nonods, ndim, device=dev, dtype=torch.float64),
                 sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal, nbele=nbele, nbf=nbf, 
                 u_bc=torch.zeros(nonods, ndim, device=dev, dtype=torch.float64),
-                u_i=RSRm)  # output RSRm is SRm (nele*nloc=nonods, ndim)
-            # print('diagS', diagS)
-            RSRm *= (-1.)  # need change sign because surface_mf_linear_elastic gives us 0 - S*Rm
-            RSRm = torch.einsum('i,...ij->...j', R, RSRm.view(nele, nloc, ndim))  # output RSRm (nele, ndim)
-            # add to value 
+                u_i=Rm)  # output RSRm is SRm (nele*nloc=nonods, ndim)
+            SRm *= (-1.)  # need change sign because surface_mf_linear_elastic gives us 0 - S*Rm
+            RSRm = torch.zeros(ndim, cg_nonods, device=dev, dtype=torch.float64)
             for idim in range(ndim):
-                for i in range(RSRm.shape[0]):
+                RSRm[idim,:] += torch.mv(I_cf, SRm[:,idim])
+            for idim in range(ndim):
+                # add to value
+                for i in range(RSRm.shape[1]):
                     for count in range(fina[i], fina[i+1]):
                         j = cola[count]
-                        RSRvalues[count,idim,jdim] += RSRm[i, idim]*mask[jdim, 0, j]
+                        RSRvalues[count,idim,jdim] += RSRm[idim, i]*mask[jdim, 0, j]
 
     '''
     # I don't think there is a need to form RSR.
@@ -460,12 +469,12 @@ def RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
     # for ele in range(nele):
     #     diagRSR[ele,0] = RSR[ele,ele]
 
-    diagRSR = torch.zeros(ndim,nele, device=dev, dtype=torch.float64)
+    diagRSR = torch.zeros(ndim, cg_nonods, device=dev, dtype=torch.float64)
     for idim in range(ndim):
-        for i in range(nele):
+        for i in range(cg_nonods):
             for count in range(fina[i], fina[i+1]):
                 j = cola[count]
-                if (i==j) :
+                if i == j:
                     diagRSR[idim,i] += RSRvalues[count,idim,idim]
                     continue
 

@@ -10,7 +10,7 @@ import torch
 from torch.nn import Conv1d,Sequential,Module
 import scipy as sp
 # import time
-# from scipy.sparse import coo_matrix 
+from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
 import mesh_init 
@@ -34,7 +34,8 @@ np.set_printoptions(precision=16)
 dev = config.dev
 nele = config.nele 
 mesh = config.mesh 
-nonods = config.nonods 
+nonods = config.nonods
+p1dg_nonods = config.p1dg_nonods
 ngi = config.ngi
 ndim = config.ndim
 nloc = config.nloc 
@@ -45,50 +46,38 @@ tstart = config.tstart
 print('computation on ',dev)
 print('nele=', nele)
 
-[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4 ] =mesh_init.init()
-# [fina, cola, ncola] = mesh_init.connectivity(nbele)
-# coloring and get probing vector
-[whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
+x_all, nbf, nbele, fina, cola, ncola, \
+    bc1, bc2, bc3, bc4, \
+    cg_ndglno, cg_nonods, cg_bc = mesh_init.init()
+np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
+if False:  # P0DG connectivity and coloring
+    # coloring and get probing vector
+    [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
+if True:# P1CG connectivity and coloring
+    fina, cola, ncola = mesh_init.p1cg_sparsity(cg_ndglno)
+    whichc, ncolor = color2(fina=fina, cola=cola, nnode=cg_nonods)
 # np.savetxt('whichc.txt', whichc, delimiter=',')
 print('ncolor', ncolor, 'whichc type', whichc.dtype)
+print('cg_nonods', cg_nonods, 'ncola (p1cg sparsity)', ncola)
 print('1. time elapsed, ',time.time()-starttime)
 #####################################################
 # shape functions
 #####################################################
 # get shape functions on reference element
-[n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc, \
-    config.ngi, config.ndim)
+[n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc,
+                                           config.ngi, config.ndim, config.snloc, config.sngi)
+# put numpy array to torch tensor in expected device
+n = torch.tensor(n, device=config.dev, dtype=torch.float64)
 nlx = torch.tensor(nlx, device=dev, dtype=torch.float64)
-## set weights in det_nlx
-Det_nlx = det_nlx(nlx)
-Det_nlx.to(dev)
-print('2. time elapsed, ',time.time()-starttime)
-# filter for calc jacobian
-calc_j11_j12_filter = torch.transpose(nlx[0,:,:],0,1) # dN/dx
-calc_j11_j12_filter = calc_j11_j12_filter.unsqueeze(1) # (ngi, 1, nloc)
-calc_j21_j22_filter = torch.transpose(nlx[1,:,:],0,1) # dN/dy
-calc_j21_j22_filter = calc_j21_j22_filter.unsqueeze(1) # (ngi, 1, nloc)
-# print(Det_nlx.calc_j11.weight.shape)
-# print(nlx.shape)
-# print(calc_j21_j22_filter.shape)
-Det_nlx.calc_j11.weight.data = calc_j11_j12_filter
-Det_nlx.calc_j12.weight.data = calc_j11_j12_filter
-Det_nlx.calc_j21.weight.data = calc_j21_j22_filter
-Det_nlx.calc_j22.weight.data = calc_j21_j22_filter
-# print(Det_nlx.calc_j11.weight.shape)
-# print(Det_nlx.calc_j11.weight.data)
+sn = torch.tensor(sn, dtype=torch.float64, device=dev)
 print('3. time elapsed, ',time.time()-starttime)
 #######################################################
 # assemble local mass matrix and stiffness matrix
 #######################################################
 
 
-Mk = mk()
-Mk.to(device=dev)
-n = torch.tensor(n, device=dev, dtype=torch.float64)
-
-Mk1 = mk_lv1() # level 1 mass/stiffness operator 
-Mk.to(device=dev)
+# Mk = mk()
+# Mk.to(device=dev)
 print('4. time elapsed, ',time.time()-starttime)
 
 ####################################################
@@ -123,40 +112,107 @@ u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zer
 
 f, fNorm = config.rhs_f(x_all) # rhs force
 
-u = torch.rand_like(u) # initial guess
+u = torch.rand_like(u)*0  # initial guess
 # u = torch.ones_like(u)
 u_all=np.empty([tstep, nele, nloc, ndim])
 u_all[0, :, :, :]=u.view(nele, nloc, ndim).cpu().numpy()
 print('5. time elapsed, ',time.time()-starttime)
-
-# surface shape functions 
-# output :
-# snx: (nele, nface, ndim, nloc, sngi)
-# sdetwei: (nele, nface, sgni)
-[snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
-# put numpy array to torch tensor in expected device
-sn = torch.tensor(sn, dtype=torch.float64, device=dev)
 print('6. time elapsed, ',time.time()-starttime)
 
-# per element condensation Rotation matrix (diagonal)
-R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40.,
-                 3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
-# R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10.,
-#         1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+if False:  # per element condensation Rotation matrix (diagonal)
+    R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40.,
+                     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
+    # R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10.,
+    #         1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+if True:  # from PnDG to P1CG
+    I_fc_colx = np.arange(0, p1dg_nonods)
+    I_fc_coly = cg_ndglno
+    I_fc_val = np.ones(p1dg_nonods)
+    I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
+                      shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
+    I_cf = I_cf.tocsr()
+    print('don assemble I_cf I_fc', time.time()-starttime)
+    no_dgnodes = I_cf.sum(axis=1)
+    print('done suming', time.time()-starttime)
+    # weight by 1 / overlapping dg nodes number
+    for i in range(p1dg_nonods):
+        I_fc_val[i] /= no_dgnodes[I_fc_coly[i]]
+    print('done weighting', time.time()-starttime)
+    # for i in tqdm(range(cg_nonods)):
+    #     # no_dgnodes = np.sum(I_cf[i,:])
+    #     I_cf[i,:] /= no_dgnodes[i]
+    #     I_fc[:,i] /= no_dgnodes[i]
+    # print('done weighting', time.time()-starttime)
+    I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
+                      shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
+    I_cf = I_cf.tocsr()
+    I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
+                      shape=(p1dg_nonods, cg_nonods))  # coarse to fine == CG to DG
+    I_fc = I_fc.tocsr()
+    print('done transform to csr', time.time()-starttime)
+    # transfer to torch device
+    I_fc = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_fc.indptr),
+                                   col_indices=torch.tensor(I_fc.indices),
+                                   values=I_fc.data,
+                                   size=(p1dg_nonods, cg_nonods),
+                                   device=dev)
+    I_cf = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_cf.indptr),
+                                   col_indices=torch.tensor(I_cf.indices),
+                                   values=I_cf.data,
+                                   size=(cg_nonods, p1dg_nonods),
+                                   device=dev)
+    # PnDG to P1DG
+    # if config.ele_type == 'cubic':
+    if True:
+        # I_13 = np.asarray([
+        #     [1./ 10, 0, 0, 27./ 40, -9./ 40, -9./ 40, -9./ 40, -9./ 40, 27./ 40, 9./ 20],
+        #     [0, 1./ 10, 0, -9./ 40, 27./ 40, 27./ 40, -9./ 40, -9./ 40, -9./ 40, 9./ 20],
+        #     [0, 0, 1./ 10, -9./ 40, -9./ 40, -9./ 40, 27./ 40, 27./ 40, -9./ 40, 9./ 20],
+        # ], dtype=np.float64)  # from P3DG to P1DG, restrictor
+        I_31 = np.asarray([
+            [1., 0, 0],
+            [0, 1., 0],
+            [0, 0, 1.],
+            [2./ 3, 1./ 3, 0],
+            [1./ 3, 2./ 3, 0],
+            [0, 2./ 3, 1./ 3],
+            [0, 1./ 3, 2./ 3],
+            [1./ 3, 0, 2./ 3],
+            [2./ 3, 0, 1./ 3],
+            [1./ 3, 1./ 3, 1./ 3]
+        ], dtype=np.float64)  # P1DG to P3DG, element-wise prolongation operator
+        I_13 = np.transpose(I_31).copy()
+        I_31_big = bsr_matrix((I_31.repeat(nele, axis=0).reshape(10, nele, 3).transpose((1, 0, 2)),
+                               np.arange(0,nele), np.arange(0,nele+1)),
+                              shape=(nonods, p1dg_nonods))
+        I_31_big = I_31_big.tocsr()
+        I_13_big = bsr_matrix((I_13.repeat(nele, axis=0).reshape(3, nele, 10).transpose((1, 0, 2)),
+                               np.arange(0,nele), np.arange(0,nele+1)),
+                              shape=(p1dg_nonods, nonods))
+        I_13_big = I_13_big.tocsr()
+        I_31_big = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_31_big.indptr),
+                                           col_indices=torch.tensor(I_31_big.indices),
+                                           values=I_31_big.data,
+                                           size=(nonods, p1dg_nonods),
+                                           device=dev)
+        I_13_big = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_13_big.indptr),
+                                           col_indices=torch.tensor(I_13_big.indices),
+                                           values=I_13_big.data,
+                                           size=(p1dg_nonods, nonods),
+                                           device=dev)
+        # np.savetxt('I_dc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('I_cd.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
+        I_fc = torch.sparse.mm(I_31_big, I_fc)
+        del I_31_big
+        I_cf = torch.sparse.mm(I_cf, I_13_big)
+        del I_13_big
+        # np.savetxt('I_31_big.txt', I_31_big.to_dense().cpu().numpy(), delimiter=',')
+        # np.savetxt('I_13_big.txt', I_13_big.to_dense().cpu().numpy(), delimiter=',')
+#         np.savetxt('I_fc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
+#         np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
 print('7. time elapsed, ',time.time()-starttime)
 
 if (config.solver=='iterative') :
-    # # surface integral operator restrcted by R
-    # # [diagRSR, RSR, RTbig] = RSR_matrix(S,R) # matmat multiplication
-    # [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-    #     x_all, nbele, nbf, u_bc.view(-1))
-    # [diagRSR, RSR, RTbig] = RSR_matrix_color(S,R, whichc, ncolor, fina, cola, ncola) # matvec multiplication
-    # del S, diagS, b_bc
-
-    # go matrix free RSR calculation
-    [diagRSR, RSRvalues] = RSR_mf_color(R, whichc, ncolor, fina, cola, ncola,
-                                  sn, snx, sdetwei, snormal, nbele, nbf)
-    # print('diagRSR',diagRSR)
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
     # print("Using quit()")
@@ -173,118 +229,148 @@ if (config.solver=='iterative') :
         r0 *= 0
 
         # prepare for MG on SFC-coarse grids
-        with torch.no_grad():
-            nx, detwei = Det_nlx.forward(x_ref_in, weight)
-        # RKR = calc_RKR(n=n, nx=nx, detwei=detwei, R=R, k=1,dt=1)
-        [diagRKR, RKRvalues] = volume_mf_linear_elastic.RKR_mf(n, nx, detwei, R)
-        [diagRAR, RARvalues] = volume_mf_linear_elastic.calc_RAR(
-                diagRSR, diagRKR, RSRvalues, RKRvalues, fina, cola)
-        del diagRKR, diagRSR, RKRvalues, RSRvalues # we will only use diagRAR and RARvalues
-        # from scipy.sparse import bsr_matrix
-        # RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim*nele, ndim*nele))
+        RARvalues = volume_mf_linear_elastic.calc_RAR_mf_color(
+            n, nlx, weight,
+            sn, snlx, sweight,
+            x_ref_in,
+            nbele, nbf,
+            I_fc, I_cf,
+            whichc, ncolor,
+            fina, cola, ncola)
+        from scipy.sparse import bsr_matrix
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim*cg_nonods, ndim*cg_nonods))
         # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-        RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous() # (ndim,ndim,ncola)
+        RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous()  # (ndim,ndim,ncola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             mg.mg_on_P0DG_prep(fina, cola, RARvalues)
         print('9. time elapsed, ', time.time()-starttime)
-        # calculate shape functions from element nodes coordinate
-        with torch.no_grad():
-            nx, detwei = Det_nlx.forward(x_ref_in, weight)
+
         # sawtooth iteration : sooth one time at each white dot
-        # fine grid    o   o - o   o - o   o  
+        # fine grid    o   o - o   o - o   o
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
         while (r0l2>config.jac_resThres and its<config.jac_its):
             u_i = u_i.view(nonods, ndim)
-            
             ## on fine grid
             # get diagA and residual at fine grid r0
-            with torch.no_grad():
-                r0, _, _ = volume_mf_linear_elastic.K_mf(
-                    r0, n, nx, detwei, u_i, f )
-            # r0 *= 0.
-            # r0 = r0.view(nonods,1) - torch.sparse.mm(S, c_i.view(nonods,1))
-            r0, _, _ = surface_mf_linear_elastic.S_mf(r0,
-                            sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+            for its1 in range(1):
+                r0 *= 0
+                r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
+                    r0, u_i, u_n, u_bc, x_ref_in, f,
+                    n, nlx, weight,
+                    sn, snlx, sweight,
+                    nbele, nbf)
+            # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
+            # np.savetxt('u_i.txt', u_i.cpu().numpy(), delimiter=',')
+            # get residual on PnDG
+            r0 *= 0
+            r0 = volume_mf_linear_elastic.get_residual_only(
+                r0,
+                u_i, u_n, u_bc, x_ref_in, f,
+                n, nlx, weight,
+                sn, snlx, sweight,
+                nbele, nbf)
 
-            # per element condensation
-            # passing r0 to next level coarse grid and solve Ae=r0
-            r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
-            # (nele, ndim)
-            r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
-            # for its1 in range(config.mg_its):
-
-            e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
-            # smooth on SFC coarse grid (V-cycle saw-tooth fasion)
-            # then return an error on level-1 grid (P0DG)
-            e1 += mg.mg_smooth(
-                r1,  # input r1 shape (ndim, nele) to fit restrictor
-                space_filling_curve_numbering,
-                variables_sfc,
-                nlevel,
-                nodes_per_level)
-            # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
-                                                     RARvalues,
-                                                     fina, cola,
-                                                     diagRAR)
-            # # what if we direc solve R^T A R e = r1?
-            # e_direct = sp.sparse.linalg.spsolve(RAR.tocsr(), r1.contiguous().view(-1).cpu().numpy())
-            # e_direct = np.reshape(e_direct, (ndim, nele))
-            # e1 += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-            # pass e_1 back to fine mesh and correct u_i
-            u_i += torch.permute(
-                torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
-                .contiguous().view(nele*nloc,ndim)
-            # finally give residual
-            # get diagA and residual at fine grid r0
-            r0 *=0
-            with torch.no_grad():
-                r0, diagK, diagK20 = volume_mf_linear_elastic.K_mf(
-                        r0, n, nx, detwei, u_i, f)
-            r0, diagS, diagS20 = surface_mf_linear_elastic.S_mf(
-                        r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+            if False:  # PnDG to P0DG
+                # per element condensation
+                # passing r0 to next level coarse grid and solve Ae=r0
+                r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
+                # (nele, ndim)
+                r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
+            if True:  # PnDG to P1CG
+                r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+                for idim in range(ndim):
+                    r1[:, idim] += torch.mv(I_cf, r0[:, idim])
+            e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+            if True:  # two-grid method
+                e_direct = sp.sparse.linalg.spsolve(
+                    RAR.tocsr(),
+                    r1.contiguous().view(-1).cpu().numpy())
+                e_direct = np.reshape(e_direct, (cg_nonods, ndim))
+                e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+            # prolongate error to fine grid
+            e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+            for idim in range(ndim):
+                e_i0[:,idim] += torch.mv(I_fc, e_i[:,idim])
+            # correct fine grid solution
+            u_i += e_i0
+            # post smooth
+            for its1 in range(config.post_smooth_its):
+                r0 *= 0
+                r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
+                    r0, u_i, u_n, u_bc, x_ref_in, f,
+                    n, nlx, weight,
+                    sn, snlx, sweight,
+                    nbele, nbf)
             r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/fNorm
-            # I think we need to smooth one time at finest grid as well.
-            if False:  # point Jacobi iteration
-                # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
-                # np.savetxt('r0.txt', r0.view(-1).cpu().numpy(), delimiter=',')
-                max = torch.max(diagS+diagK)
-                maxD = torch.ones_like(diagS)*max
-                u_i += config.jac_wei * r0 / (diagS+diagK)
-            if True:  # block Jacobi iteration (20x20 block)
-                # for i in range(nele):
-                #     np.savetxt('diagSK20_'+str(i)+'.txt', (diagS20+diagK20)[i,...].cpu().numpy(),
-                #                delimiter=',')
-                invDiagSK = torch.inverse(diagS20+diagK20)
-                # for i in range(nele):
-                #     np.savetxt('invDiagSK20_'+str(i)+'.txt', invDiagSK[i,...].cpu().numpy(),
-                #                delimiter=',')
-                # print(invDiagSK.shape)
-                r0 = torch.matmul(invDiagSK, r0.view(nele,-1,1)).view(nele*nloc, ndim)
-                u_i += config.jac_wei * r0
-                # print(r0.shape)
-            # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
+
+
+            # e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
+            # # smooth on SFC coarse grid (V-cycle saw-tooth fasion)
+            # # then return an error on level-1 grid (P0DG)
+            # e1 += mg.mg_smooth(
+            #     r1,  # input r1 shape (ndim, nele) to fit restrictor
+            #     space_filling_curve_numbering,
+            #     variables_sfc,
+            #     nlevel,
+            #     nodes_per_level)
+            # # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
+            # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
+            #                                          RARvalues,
+            #                                          fina, cola,
+            #                                          diagRAR)
+            # # # what if we direc solve R^T A R e = r1?
+            # # e_direct = sp.sparse.linalg.spsolve(RAR.tocsr(), r1.contiguous().view(-1).cpu().numpy())
+            # # e_direct = np.reshape(e_direct, (ndim, nele))
+            # # e1 += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+            # # pass e_1 back to fine mesh and correct u_i
+            # u_i += torch.permute(
+            #     torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
+            #     .contiguous().view(nele*nloc,ndim)
+            # # finally give residual
+            # # get diagA and residual at fine grid r0
+            # r0 *=0
+            # with torch.no_grad():
+            #     r0, diagK, diagK20 = volume_mf_linear_elastic.K_mf(
+            #             r0, n, nx, detwei, u_i, f)
+            # r0, diagS, diagS20 = surface_mf_linear_elastic.S_mf(
+            #             r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
+            # r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/fNorm
+            # # I think we need to smooth one time at finest grid as well.
+            # if False:  # point Jacobi iteration
+            #     # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
+            #     # np.savetxt('r0.txt', r0.view(-1).cpu().numpy(), delimiter=',')
+            #     max = torch.max(diagS+diagK)
+            #     maxD = torch.ones_like(diagS)*max
+            #     u_i += config.jac_wei * r0 / (diagS+diagK)
+            # if True:  # block Jacobi iteration (20x20 block)
+            #     # for i in range(nele):
+            #     #     np.savetxt('diagSK20_'+str(i)+'.txt', (diagS20+diagK20)[i,...].cpu().numpy(),
+            #     #                delimiter=',')
+            #     invDiagSK = torch.inverse(diagS20+diagK20)
+            #     # for i in range(nele):
+            #     #     np.savetxt('invDiagSK20_'+str(i)+'.txt', invDiagSK[i,...].cpu().numpy(),
+            #     #                delimiter=',')
+            #     # print(invDiagSK.shape)
+            #     r0 = torch.matmul(invDiagSK, r0.view(nele,-1,1)).view(nele*nloc, ndim)
+            #     u_i += config.jac_wei * r0
+            #     # print(r0.shape)
+            # # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
 
             its+=1
 
-        ## smooth a final time after we get back to fine mesh
-        # c_i = c_i.view(-1,1,nloc)
-        
-        # # calculate shape functions from element nodes coordinate
-        # with torch.no_grad():
-        #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
-
+        # get final residual after we're back to fine grid
         r0 *= 0
-        with torch.no_grad():
-            r0, _, _ = volume_mf_linear_elastic.K_mf(
-                r0, n, nx, detwei, u_i, f)
-        r0, _, _ = surface_mf_linear_elastic.S_mf(r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-        # # I think we need to smooth one time at finest grid as well.
-        # u_i += config.jac_wei * r0 / (diagS + diagK)
+        r0 = volume_mf_linear_elastic.get_residual_only(
+            r0,
+            u_i, u_n, u_bc, x_ref_in, f,
+            n, nlx, weight,
+            sn, snlx, sweight,
+            nbele, nbf)
+
         r0l2 = torch.linalg.norm(r0.view(-1), dim=0)/fNorm
         r0l2all.append(r0l2.cpu().numpy())
         print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
