@@ -12,6 +12,7 @@ import torch.nn as nn
 import config
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
+import shape_function
 
 ndim = config.ndim
 
@@ -267,3 +268,73 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
         ))
 
     return sfc, variables_sfc, nlevel, nodes_per_level
+
+
+def p3dg_to_p1dg_restrictor(x):
+    '''
+    takes in a scaler field on p3dg, do restriction and spit out
+    its projection on p1dg.
+    '''
+    I_31 = torch.tensor([
+        [1., 0, 0],
+        [0, 1., 0],
+        [0, 0, 1.],
+        [2. / 3, 1. / 3, 0],
+        [1. / 3, 2. / 3, 0],
+        [0, 2. / 3, 1. / 3],
+        [0, 1. / 3, 2. / 3],
+        [1. / 3, 0, 2. / 3],
+        [2. / 3, 0, 1. / 3],
+        [1. / 3, 1. / 3, 1. / 3]
+    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
+    I_13 = torch.transpose(I_31, dim0=0, dim1=1)
+    y = torch.einsum('ij,kj->ki', I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
+    return y
+
+
+def p1dg_to_p3dg_prolongator(x):
+    '''
+    takes in a scaler field on p1dg, do prolongation and spit out
+    its projection on p3dg
+    '''
+    I_31 = torch.tensor([
+        [1., 0, 0],
+        [0, 1., 0],
+        [0, 0, 1.],
+        [2. / 3, 1. / 3, 0],
+        [1. / 3, 2. / 3, 0],
+        [0, 2. / 3, 1. / 3],
+        [0, 1. / 3, 2. / 3],
+        [1. / 3, 0, 2. / 3],
+        [2. / 3, 0, 1. / 3],
+        [1. / 3, 1. / 3, 1. / 3]
+    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
+    y = torch.einsum('ij,kj->ki', I_31, x.view(config.nele, 3)).contiguous().view(-1)
+    return y
+
+
+def get_p1cg_lumped_mass(x_ref_in):
+    '''
+    this function spiltes out lumped mass matrix on P1CG.
+    the lumped mass is used for mass-weighting SFC coarsened
+    grid operators.
+    '''
+    x_ref_in = x_ref_in.view(-1, config.ndim, config.nloc)
+    cg_n, cg_nlx, cg_wt, cg_sn, cg_snlx, cg_swt = \
+        shape_function.SHATRInew(nloc=3, ngi=3, ndim=2, snloc=2, sngi=2)
+    cg_n = torch.tensor(cg_n, device=config.dev, dtype=torch.float64)
+    cg_nlx = torch.tensor(cg_nlx, device=config.dev, dtype=torch.float64)
+    cg_wt = torch.tensor(cg_wt, device=config.dev, dtype=torch.float64)
+    ml = torch.zeros(config.cg_nonods, device=config.dev, dtype=torch.float64)
+    for ele in range(config.nele):
+        nx, detwei = shape_function.get_det_nlx(cg_nlx,
+                                                x_ref_in[ele,:,0:3].view(-1,config.ndim,3),
+                                                cg_wt,
+                                                nloc=3, ngi=3)
+        for iloc in range(3):
+            glb_iloc = config.cg_ndglno[ele*3+iloc]
+            for jloc in range(3):
+                # glb_jloc = config.cg_ndglno[ele*3+jloc]
+                ninj = torch.sum(cg_n[iloc,:] * cg_n[jloc,:] * detwei[0,:])
+                ml[glb_iloc] += ninj
+    return ml

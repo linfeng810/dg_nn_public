@@ -8,7 +8,7 @@ Hence the name "volume_mf_linear_elastic".
 import torch 
 import config 
 import numpy as np
-
+import multigrid_linearelastic as mg_le
 import shape_function
 
 torch.set_printoptions(precision=16)
@@ -322,8 +322,10 @@ def calc_RAR_mf_color(n, nlx, weight,
                                          dtype=torch.float64)  # 1 if true; 0 if false
             Rm *= 0
             for idim in range(ndim):
-                Rm[:, idim] += torch.mv(I_fc, mask[:, idim].view(-1))  # (p3dg_nonods, ndim)
-            # Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
+                # Rm[:, idim] += torch.mv(I_fc, mask[:, idim].view(-1))  # (p1dg_nonods, ndim)
+                Rm[:, idim] += mg_le.p1dg_to_p3dg_prolongator(
+                    torch.mv(I_fc, mask[:, idim].view(-1))
+                )  # (p3dg_nonods, ndim)
             ARm *= 0
             ARm = get_residual_only(ARm,
                                     Rm, dummy, dummy, x_ref_in, dummy,
@@ -334,7 +336,7 @@ def calc_RAR_mf_color(n, nlx, weight,
             # RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
             RARm *= 0
             for idim in range(ndim):
-                RARm[:,idim] += torch.mv(I_cf, ARm[:,idim])  # (cg_nonods, ndim)
+                RARm[:,idim] += torch.mv(I_cf, mg_le.p3dg_to_p1dg_restrictor(ARm[:,idim]))  # (cg_nonods, ndim)
             for idim in range(ndim):
                 # add to value
                 for i in range(RARm.shape[0]):

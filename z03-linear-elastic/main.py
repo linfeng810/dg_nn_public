@@ -163,7 +163,7 @@ if True:  # from PnDG to P1CG
                                    device=dev)
     # PnDG to P1DG
     # if config.ele_type == 'cubic':
-    if True:
+    if False:
         # I_13 = np.asarray([
         #     [1./ 10, 0, 0, 27./ 40, -9./ 40, -9./ 40, -9./ 40, -9./ 40, 27./ 40, 9./ 20],
         #     [0, 1./ 10, 0, -9./ 40, 27./ 40, 27./ 40, -9./ 40, -9./ 40, -9./ 40, 9./ 20],
@@ -290,7 +290,7 @@ if (config.solver=='iterative') :
             if True:  # PnDG to P1CG
                 r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 for idim in range(ndim):
-                    r1[:, idim] += torch.mv(I_cf, r0[:, idim])
+                    r1[:, idim] += torch.mv(I_cf, mg.p3dg_to_p1dg_restrictor(r0[:, idim]))
             e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
             if True:  # two-grid method
                 e_direct = sp.sparse.linalg.spsolve(
@@ -301,7 +301,7 @@ if (config.solver=='iterative') :
             # prolongate error to fine grid
             e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
             for idim in range(ndim):
-                e_i0[:,idim] += torch.mv(I_fc, e_i[:,idim])
+                e_i0[:,idim] += mg.p1dg_to_p3dg_prolongator(torch.mv(I_fc, e_i[:,idim]))
             # correct fine grid solution
             u_i += e_i0
             # post smooth
