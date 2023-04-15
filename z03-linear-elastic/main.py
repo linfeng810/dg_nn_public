@@ -246,6 +246,15 @@ if (config.solver=='iterative') :
             mg.mg_on_P0DG_prep(fina, cola, RARvalues)
         print('9. time elapsed, ', time.time()-starttime)
 
+        # get initial residual on PnDG
+        r0 *= 0
+        r0 = volume_mf_linear_elastic.get_residual_only(
+            r0,
+            u_i, u_n, u_bc, x_ref_in, f,
+            n, nlx, weight,
+            sn, snlx, sweight,
+            nbele, nbf)
+        r0_init = torch.linalg.norm(r0.view(-1), dim=0)
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o
         #               \ /     \ /     \ /  ...
@@ -303,7 +312,7 @@ if (config.solver=='iterative') :
                     n, nlx, weight,
                     sn, snlx, sweight,
                     nbele, nbf)
-            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/fNorm
+            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/r0_init  #fNorm
 
 
             # e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
@@ -357,7 +366,9 @@ if (config.solver=='iterative') :
             #     u_i += config.jac_wei * r0
             #     # print(r0.shape)
             # # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
-            print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
+            print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy(),
+                  'abs res=',torch.linalg.norm(r0.view(-1),dim=0).cpu().numpy(),
+                  'r0_init', r0_init.cpu().numpy())
             r0l2all.append(r0l2.cpu().numpy())
 
             its+=1
@@ -373,7 +384,9 @@ if (config.solver=='iterative') :
 
         r0l2 = torch.linalg.norm(r0.view(-1), dim=0)/fNorm
         r0l2all.append(r0l2.cpu().numpy())
-        print('its=',its,'residual l2 norm=',r0l2.cpu().numpy())
+        print('its=',its,'residual l2 norm=',r0l2.cpu().numpy(),
+              'abs res=',torch.linalg.norm(r0.view(-1),dim=0).cpu().numpy(),
+              'fNorm', fNorm.cpu().numpy())
             
         # if jacobi converges,
         u = u_i.view(nele, nloc, ndim)

@@ -54,8 +54,8 @@ cg_nonods=[]
 
 
 ######################
-jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
-jac_resThres = 1.e-9  # convergence criteria
+jac_its = 1000  # max jacobi iteration steps on PnDG (overall MG cycles)
+jac_resThres = 1.e-10  # convergence criteria
 jac_wei = 2./3. # jacobi weight
 mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...
 mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)
