@@ -291,13 +291,34 @@ if (config.solver=='iterative') :
                 r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 for idim in range(ndim):
                     r1[:, idim] += torch.mv(I_cf, mg.p3dg_to_p1dg_restrictor(r0[:, idim]))
-            e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
-            if True:  # two-grid method
+            if False:  # two-grid method
+                e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 e_direct = sp.sparse.linalg.spsolve(
                     RAR.tocsr(),
                     r1.contiguous().view(-1).cpu().numpy())
                 e_direct = np.reshape(e_direct, (cg_nonods, ndim))
                 e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+            else:  # multi-grid method
+                ncurve = 1  # always use 1 sfc
+                N = len(space_filling_curve_numbering)
+                inverse_numbering = np.zeros((N, ncurve), dtype=int)
+                inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
+                r1_sfc = r1[inverse_numbering[:, 0], :].view(cg_nonods, ndim)
+
+                # # if we do the presmooth steps inside mg_on_P1CG, there's no need to pass in rr1 and e_i
+                # e_i = torch.zeros((cg_nonods,1), device=dev, dtype=torch.float64)
+                # rr1 = r1_sfc.detach().clone()
+                # rr1_l2_0 = torch.linalg.norm(rr1.view(-1),dim=0)
+                # rr1_l2 = 10.
+                # go to SFC coarse grid levels and do 1 mg cycles there
+                e_i = mg.mg_on_P1CG(
+                    r1_sfc.view(cg_nonods, ndim),
+                    variables_sfc,
+                    nlevel,
+                    nodes_per_level
+                )
+                # reverse to original order
+                e_i = e_i[space_filling_curve_numbering[:, 0] - 1, :].view(cg_nonods, ndim)
             # prolongate error to fine grid
             e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
             for idim in range(ndim):

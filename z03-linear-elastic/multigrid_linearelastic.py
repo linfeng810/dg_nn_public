@@ -13,6 +13,8 @@ import config
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
 import shape_function
+import time, os.path
+from scipy.sparse import bsr_matrix, linalg
 
 ndim = config.ndim
 
@@ -109,6 +111,25 @@ def mg_smooth(r1, sfc, variables_sfc, nlevel, nodes_per_level):
 
     return e_i
 
+
+def mg_smooth_one_level(level, e_i, b, variables_sfc):
+    """
+    do one smooth step on mg level = level
+    """
+    e_i = e_i.view(ndim,variables_sfc[level][2])
+    rr_i = torch.zeros_like(e_i, device=config.dev, dtype=torch.float64)
+    a_sfc_sparse, diagA, _ = variables_sfc[level]
+    for idim in range(ndim):
+        for jdim in range(ndim):
+            rr_i[idim,:] += torch.mv(a_sfc_sparse[idim][jdim], e_i[jdim,:])
+    rr_i *= -1
+    rr_i += b.view(ndim, -1)
+    e_i += rr_i / diagA.view(ndim,-1) * config.jac_wei
+    e_i = e_i.view(ndim,1,-1)
+    rr_i = rr_i.view(ndim,1,-1)
+    return e_i, rr_i
+
+
 # get a and diag a from best_sfc_map
 def get_a_diaga(level,
             fin_sfc_nonods,
@@ -174,8 +195,7 @@ def get_a_diaga(level,
                 a_values[:,idim,jdim],
                 (nonods, nonods),
                 dtype=torch.float64,
-                device=config.dev) )
-    
+                device=config.dev).to_sparse_csr() )
     # find diagonal
     for i in range(nonods):
         i += start_index
@@ -185,6 +205,71 @@ def get_a_diaga(level,
                     diagonal[idim,i-start_index] = a_sfc[idim,idim,j]
     
     return a_sfc_level_sparse, diagonal, nonods 
+
+
+def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
+    """
+    Multi-grid cycle on P1CG mesh.
+    Takes in residaul on P1CG mesh (restricted from residual on PnDG mesh),
+    do 1 mg cycle on the SFC levels, then spit out an error correction on
+    P1CG mesh (add it to the input e_i0).
+    """
+
+    # get residual on each level
+    sfc_restrictor = torch.nn.Conv1d(in_channels=1,
+                                     out_channels=1, kernel_size=2,
+                                     stride=2, padding='valid', bias=False)
+    sfc_restrictor.weight.data = torch.tensor([[1., 1.]],
+                                              dtype=torch.float64,
+                                              device=config.dev).view(1, 1, 2)
+
+    smooth_start_level = config.smooth_start_level
+    r0 = r0.view(config.cg_nonods, ndim).transpose(dim0=0, dim1=1).view(ndim, 1, config.cg_nonods)
+    # r = r0.view(ndim, 1, config.cg_nonods)  # residual r in error equation, Ae=r
+    r_s = [r0]  # collection of r
+    e_s = [torch.zeros(ndim, 1, config.cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
+    for level in range(0,smooth_start_level):
+        # pre-smooth
+        for its1 in range(config.pre_smooth_its):
+            e_s[level], _ = mg_smooth_one_level(
+                level=level,
+                e_i=e_s[level],
+                b=r_s[level],
+                variables_sfc=variables_sfc)
+        # get residual on this level
+        _, rr = mg_smooth_one_level(
+            level=level,
+            e_i=e_s[level],
+            b=r_s[level],
+            variables_sfc=variables_sfc)
+        # restriction
+        rr = F.pad(rr.view(ndim,1,-1), (0,1), "constant", 0)
+        e_i = F.pad(e_s[level].view(ndim,1,-1), (0,1), "constant", 0)
+        with torch.no_grad():
+            rr = sfc_restrictor(rr)
+            r_s.append(rr.view(ndim,1,-1))
+            e_i = sfc_restrictor(e_i)
+            e_s.append(e_i.view(ndim,1,-1))
+    for level in range(smooth_start_level, -1, -1):
+        if level == smooth_start_level:
+            # direct solve on smooth_start_level
+            a_on_l = variables_sfc[level][0]
+            e_i_direct = linalg.spsolve(a_on_l.tocsr(),
+                                        r_s[level].view(ndim,-1).transpose(0,1).view(-1).cpu().numpy())
+            e_s[level] = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64)
+        else:  # smooth
+            # prolongation
+            CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level]/nodes_per_level[level+1])
+            e_s[level] += CNN1D_prol_odd(e_s[level+1].view(ndim,1,-1))
+            # post smooth
+            for its1 in range(config.post_smooth_its):
+                e_s[level], _ = mg_smooth_one_level(
+                    level=level,
+                    e_i=e_s[level],
+                    b=r_s[level],
+                    variables_sfc=variables_sfc)
+    return e_s[0].view(ndim, config.cg_nonods).transpose(0,1).contiguous()
+
 
 # mg on sfc - prep
 def mg_on_P0DG_prep(fina, cola, RARvalues):
@@ -230,43 +315,72 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
     ncurve = 1        # '' 
     nele = config.nele # this is the shape of RAR # or should we use RAR.shape[0] for clarity? 
     ncola = cola.shape[0]
-
-    whichd, sfc = \
-        sf.ncurve_python_subdomain_space_filling_curve( \
-        cola+1, fina+1, starting_node, graph_trim, ncurve, \
-        ) # note that fortran array index start from 1, so cola and fina should +1.
+    start_time = time.time()
+    print('to get space filling curve...', time.time()-start_time)
+    if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
+        print('pre-calculated sfc exists. readin from file...')
+        sfc = np.load(config.filename[:-4] + '_sfc.npy')
+    else:
+        _, sfc = \
+            sf.ncurve_python_subdomain_space_filling_curve( \
+            cola+1, fina+1, starting_node, graph_trim, ncurve, \
+            ) # note that fortran array index start from 1, so cola and fina should +1.
+        np.save(config.filename[:-4] + '_sfc.npy', sfc)
+    print('to get sfc operators...', time.time()-start_time)
     
-    ## get coarse grid info
+    # get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(nele) + 1
     max_nonods_sfc_all_grids = 5*config.nele 
     max_ncola_sfc_all_un = 10*ncola
     a_sfc, fina_sfc_all_un, cola_sfc_all_un, ncola_sfc_all_un, b_sfc, \
         ml_sfc, fin_sfc_nonods, nonods_sfc_all_grids, nlevel = \
-        map_sfc.vector_best_sfc_mapping_to_sfc_matrix_unstructured(\
-            vec_a=RARvalues.cpu().numpy(),\
-            vec_b=dummy, \
-            ml=dummy[0,:],\
-            fina=fina+1, \
-            cola=cola+1, \
-            sfc_node_ordering=sfc[:,0], \
-            max_nonods_sfc_all_grids=max_nonods_sfc_all_grids, \
-            max_ncola_sfc_all_un=max_ncola_sfc_all_un, \
+        map_sfc.vector_best_sfc_mapping_to_sfc_matrix_unstructured(
+            vec_a=RARvalues.cpu().numpy(),
+            vec_b=dummy,
+            ml=dummy[0,:],
+            fina=fina+1,
+            cola=cola+1,
+            sfc_node_ordering=sfc[:,0],
+            max_nonods_sfc_all_grids=max_nonods_sfc_all_grids,
+            max_ncola_sfc_all_un=max_ncola_sfc_all_un,
             max_nlevel=max_nlevel,
             ndim=config.ndim, ncola=ncola,nonods=config.cg_nonods)
+    print('back from sfc operator fortran subroutine,', time.time() - start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     # print(fin_sfc_nonods.shape)
     a_sfc = a_sfc[:,:,:ncola_sfc_all_un]
     del b_sfc, ml_sfc 
+    # choose a level to directly solve on. then we'll iterate from there and levels up
+    if config.smooth_start_level < 0:
+        # for level in range(1,nlevel):
+        #     if nodes_per_level[level] < 2:
+        #         config.smooth_start_level = level
+        #         break
+        config.smooth_start_level += nlevel
+    print('start_level: ', config.smooth_start_level)
     variables_sfc = []
-    for level in range(nlevel):
+    for level in range(config.smooth_start_level+1):
         variables_sfc.append(get_a_diaga(
-            level, 
+            level,
             fin_sfc_nonods,
             fina_sfc_all_un,
             cola_sfc_all_un,
             a_sfc
         ))
-
+    # build A on smooth_start_level. all levels before this are smooth levels,
+    # on smooth_start_level, we use direct solve. Therefore, A is replaced with a
+    # scipy bsr_matrix.
+    level = config.smooth_start_level
+    a_sfc_l = variables_sfc[level][0]  # this is a ndim x ndim list of torch csr tensors.
+    cola = a_sfc_l[0][0].col_indices().detach().clone().cpu().numpy()
+    fina = a_sfc_l[0][0].crow_indices().detach().clone().cpu().numpy()
+    vals = np.zeros((cola.shape[0], ndim, ndim), dtype=np.float64)
+    for idim in range(ndim):
+        for jdim in range(ndim):
+            vals[:, idim, jdim] += a_sfc_l[idim][jdim].values().detach().clone().cpu().numpy()
+    a_on_l = bsr_matrix((vals, cola, fina),
+                        shape=(nodes_per_level[level] * ndim, nodes_per_level[level] * ndim))
+    variables_sfc[level] = (a_on_l, 0, nodes_per_level[level])
     return sfc, variables_sfc, nlevel, nodes_per_level
 
 
