@@ -3,6 +3,7 @@ import toughio
 import numpy as np
 import torch
 import sys
+import cmmn_data
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -28,6 +29,7 @@ filename='square.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
+sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
@@ -49,8 +51,6 @@ p1dg_nonods = 3*nele  # number of nodes on P1DG grid
 ndim = 2 # dimesnion of the problem
 nface = 3 # number of element faces
 ndglno=np.arange(0,nonods) # local to global
-cg_ndglno=[]
-cg_nonods=[]
 
 
 ######################

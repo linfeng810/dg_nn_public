@@ -1,7 +1,8 @@
 # mesh manipulation
 import numpy as np
 import torch
-import config , time
+import config, time
+from config import sf_nd_nb
 from get_nb import getfinele, getfin_p1cg
 
 def init():
@@ -43,7 +44,7 @@ def init():
     for ele in range(nele):
         for iloc in range(3):
             cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
-    config.cg_ndglno = cg_ndglno
+    config.sf_nd_nb.set_data(cg_ndglno = cg_ndglno)
     # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
@@ -203,7 +204,7 @@ def init():
             x_all.append([x_loc[2][0], x_loc[2][1]])
     cg_nonods = mesh.points.shape[0]
     np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
-    config.cg_nonods = cg_nonods
+    config.sf_nd_nb.set_data(cg_nonods = cg_nonods)
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
 
@@ -345,7 +346,7 @@ def p1cg_sparsity(cg_ndglbno):
     start_time = time.time()
     print('im in get p1cg sparsity, time:', time.time()-start_time)
     nele = config.nele
-    cg_nonods = config.cg_nonods
+    cg_nonods = sf_nd_nb.cg_nonods
     p1dg_nonods = config.p1dg_nonods
     nloc = 3
     idx = []
@@ -362,7 +363,8 @@ def p1cg_sparsity(cg_ndglbno):
     print('im back from fortran, time:', time.time()-start_time)
     idx = np.asarray(idx)-1
     val = np.ones(n_idx)
-    spmat = sp.coo_matrix((val,(idx[0,:],idx[1,:])), shape=(cg_nonods, cg_nonods))
+    spmat = sp.coo_matrix((val,(idx[0,:],idx[1,:])),
+                          shape=(cg_nonods, cg_nonods))
     spmat = spmat.tocsr()
     print('ive finished, time:', time.time()-start_time)
     return spmat.indptr, spmat.indices, spmat.nnz

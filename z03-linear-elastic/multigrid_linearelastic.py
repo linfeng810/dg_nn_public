@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import config
+from config import sf_nd_nb
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
 import shape_function
@@ -224,10 +225,10 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
                                               device=config.dev).view(1, 1, 2)
 
     smooth_start_level = config.smooth_start_level
-    r0 = r0.view(config.cg_nonods, ndim).transpose(dim0=0, dim1=1).view(ndim, 1, config.cg_nonods)
-    # r = r0.view(ndim, 1, config.cg_nonods)  # residual r in error equation, Ae=r
+    r0 = r0.view(sf_nd_nb.cg_nonods, ndim).transpose(dim0=0, dim1=1).view(ndim, 1, sf_nd_nb.cg_nonods)
+    # r = r0.view(ndim, 1, sf_nd_nb.cg_nonods)  # residual r in error equation, Ae=r
     r_s = [r0]  # collection of r
-    e_s = [torch.zeros(ndim, 1, config.cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
+    e_s = [torch.zeros(ndim, 1, sf_nd_nb.cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
     for level in range(0,smooth_start_level):
         # pre-smooth
         for its1 in range(config.pre_smooth_its):
@@ -268,7 +269,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
                     e_i=e_s[level],
                     b=r_s[level],
                     variables_sfc=variables_sfc)
-    return e_s[0].view(ndim, config.cg_nonods).transpose(0,1).contiguous()
+    return e_s[0].view(ndim, sf_nd_nb.cg_nonods).transpose(0,1).contiguous()
 
 
 # mg on sfc - prep
@@ -308,7 +309,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
         number of nodes (DOFs) on each level
     '''
 
-    dummy = np.zeros((config.ndim,config.cg_nonods))
+    dummy = np.zeros((config.ndim, sf_nd_nb.cg_nonods))
 
     starting_node = 1 # setting according to BY
     graph_trim = -10  # ''
@@ -344,7 +345,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
             max_nonods_sfc_all_grids=max_nonods_sfc_all_grids,
             max_ncola_sfc_all_un=max_ncola_sfc_all_un,
             max_nlevel=max_nlevel,
-            ndim=config.ndim, ncola=ncola,nonods=config.cg_nonods)
+            ndim=config.ndim, ncola=ncola,nonods=sf_nd_nb.cg_nonods)
     print('back from sfc operator fortran subroutine,', time.time() - start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     # print(fin_sfc_nonods.shape)
@@ -439,7 +440,7 @@ def get_p1cg_lumped_mass(x_ref_in):
     cg_n = torch.tensor(cg_n, device=config.dev, dtype=torch.float64)
     cg_nlx = torch.tensor(cg_nlx, device=config.dev, dtype=torch.float64)
     cg_wt = torch.tensor(cg_wt, device=config.dev, dtype=torch.float64)
-    ml = torch.zeros(config.cg_nonods, device=config.dev, dtype=torch.float64)
+    ml = torch.zeros(sf_nd_nb.cg_nonods, device=config.dev, dtype=torch.float64)
     for ele in range(config.nele):
         nx, detwei = shape_function.get_det_nlx(cg_nlx,
                                                 x_ref_in[ele,:,0:3].view(-1,config.ndim,3),

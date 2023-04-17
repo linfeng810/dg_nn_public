@@ -13,6 +13,7 @@ import scipy as sp
 from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
+from config import sf_nd_nb
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
@@ -49,6 +50,7 @@ print('nele=', nele)
 x_all, nbf, nbele, fina, cola, ncola, \
     bc1, bc2, bc3, bc4, \
     cg_ndglno, cg_nonods, cg_bc = mesh_init.init()
+config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf)
 np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
 if False:  # P0DG connectivity and coloring
     # coloring and get probing vector
@@ -67,9 +69,13 @@ print('1. time elapsed, ',time.time()-starttime)
 [n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc,
                                            config.ngi, config.ndim, config.snloc, config.sngi)
 # put numpy array to torch tensor in expected device
-n = torch.tensor(n, device=config.dev, dtype=torch.float64)
-nlx = torch.tensor(nlx, device=dev, dtype=torch.float64)
-sn = torch.tensor(sn, dtype=torch.float64, device=dev)
+sf_nd_nb.set_data(n = torch.tensor(n, device=config.dev, dtype=torch.float64))
+sf_nd_nb.set_data(nlx = torch.tensor(nlx, device=dev, dtype=torch.float64))
+sf_nd_nb.set_data(weight = weight)
+sf_nd_nb.set_data(sn = torch.tensor(sn, dtype=torch.float64, device=dev))
+sf_nd_nb.set_data(snlx = snlx)
+sf_nd_nb.set_data(sweight = sweight)
+del n, nlx, weight, sn, snlx, sweight
 print('3. time elapsed, ',time.time()-starttime)
 #######################################################
 # assemble local mass matrix and stiffness matrix
@@ -89,7 +95,11 @@ for ele in range(nele):
         glb_iloc = ele*nloc+iloc
         x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
         x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
-x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
+sf_nd_nb.set_data(x_ref_in = torch.tensor(x_ref_in,
+                                          device=dev,
+                                          dtype=torch.float64,
+                                          requires_grad=False))
+del x_ref_in
 
 # initical condition
 u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
@@ -230,10 +240,6 @@ if (config.solver=='iterative') :
 
         # prepare for MG on SFC-coarse grids
         RARvalues = volume_mf_linear_elastic.calc_RAR_mf_color(
-            n, nlx, weight,
-            sn, snlx, sweight,
-            x_ref_in,
-            nbele, nbf,
             I_fc, I_cf,
             whichc, ncolor,
             fina, cola, ncola)
@@ -250,10 +256,7 @@ if (config.solver=='iterative') :
         r0 *= 0
         r0 = volume_mf_linear_elastic.get_residual_only(
             r0,
-            u_i, u_n, u_bc, x_ref_in, f,
-            n, nlx, weight,
-            sn, snlx, sweight,
-            nbele, nbf)
+            u_i, u_n, u_bc, f)
         r0_init = torch.linalg.norm(r0.view(-1), dim=0)
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o
@@ -266,20 +269,14 @@ if (config.solver=='iterative') :
             for its1 in range(1):
                 r0 *= 0
                 r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
-                    r0, u_i, u_n, u_bc, x_ref_in, f,
-                    n, nlx, weight,
-                    sn, snlx, sweight,
-                    nbele, nbf)
+                    r0, u_i, u_n, u_bc, f)
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
             # np.savetxt('u_i.txt', u_i.cpu().numpy(), delimiter=',')
             # get residual on PnDG
             r0 *= 0
             r0 = volume_mf_linear_elastic.get_residual_only(
                 r0,
-                u_i, u_n, u_bc, x_ref_in, f,
-                n, nlx, weight,
-                sn, snlx, sweight,
-                nbele, nbf)
+                u_i, u_n, u_bc, f)
 
             if False:  # PnDG to P0DG
                 # per element condensation
@@ -329,10 +326,7 @@ if (config.solver=='iterative') :
             for its1 in range(config.post_smooth_its):
                 r0 *= 0
                 r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
-                    r0, u_i, u_n, u_bc, x_ref_in, f,
-                    n, nlx, weight,
-                    sn, snlx, sweight,
-                    nbele, nbf)
+                    r0, u_i, u_n, u_bc, f)
             r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/r0_init  #fNorm
 
 
@@ -398,10 +392,7 @@ if (config.solver=='iterative') :
         r0 *= 0
         r0 = volume_mf_linear_elastic.get_residual_only(
             r0,
-            u_i, u_n, u_bc, x_ref_in, f,
-            n, nlx, weight,
-            sn, snlx, sweight,
-            nbele, nbf)
+            u_i, u_n, u_bc, f)
 
         r0l2 = torch.linalg.norm(r0.view(-1), dim=0)/fNorm
         r0l2all.append(r0l2.cpu().numpy())

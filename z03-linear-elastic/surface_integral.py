@@ -421,7 +421,7 @@ def RSR_mf_color(I_fc, I_cf, whichc, ncolor, fina, cola, ncola,
     RSRvalues : torch tensor (ncola, ndim, ndim)
         operator on P0DG mesh sparse tensor RSR's values
     '''
-    cg_nonods = config.cg_nonods
+    cg_nonods = sf_nd_nb.cg_nonods
     RSRvalues = torch.zeros(ncola, ndim, ndim, device=dev, dtype=torch.float64) # NNZ entry values
     for color in range(1,ncolor+1):
         mask = torch.zeros(ndim, 1, cg_nonods, device=dev, dtype=torch.float64)  # color vec

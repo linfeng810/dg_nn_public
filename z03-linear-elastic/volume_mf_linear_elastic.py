@@ -6,7 +6,8 @@ in finest grid and P0DG grid matrix-free-ly.
 Hence the name "volume_mf_linear_elastic".
 '''
 import torch 
-import config 
+import config
+from config import sf_nd_nb
 import numpy as np
 import multigrid_linearelastic as mg_le
 import shape_function
@@ -289,13 +290,14 @@ def RAR_smooth(r1, e1, RARvalues, fina, cola, diagRAR):
     return e1
 
 
-def calc_RAR_mf_color(n, nlx, weight,
-                      sn, snlx, sweight,
-                      x_ref_in,
-                      nbele, nbf,
-                      I_fc, I_cf,
+def calc_RAR_mf_color(I_fc, I_cf,
                       whichc, ncolor,
-                      fina, cola, ncola):
+                      fina, cola, ncola,
+                      n=sf_nd_nb.n, nlx=sf_nd_nb.nlx, weight=sf_nd_nb.weight,
+                      sn=sf_nd_nb.sn, snlx=sf_nd_nb.snlx, sweight=sf_nd_nb.sweight,
+                      x_ref_in=sf_nd_nb.x_ref_in,
+                      nbele=sf_nd_nb.nbele, nbf=sf_nd_nb.nbf,
+                      ):
     """
     get operator on P1CG grid, i.e. RAR
     where R is prolongator/restrictor,
@@ -305,7 +307,7 @@ def calc_RAR_mf_color(n, nlx, weight,
     """
     import time
     start_time = time.time()
-    cg_nonods = config.cg_nonods
+    cg_nonods = sf_nd_nb.cg_nonods
     p1dg_nonods = config.p1dg_nonods
     value = torch.zeros(ncola, ndim, ndim, device=dev, dtype=torch.float64)  # NNZ entry values
     dummy = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
@@ -328,10 +330,7 @@ def calc_RAR_mf_color(n, nlx, weight,
                 )  # (p3dg_nonods, ndim)
             ARm *= 0
             ARm = get_residual_only(ARm,
-                                    Rm, dummy, dummy, x_ref_in, dummy,
-                                    n, nlx, weight,
-                                    sn, snlx, sweight,
-                                    nbele, nbf)
+                                    Rm, dummy, dummy, dummy)
             ARm *= -1.  # (p3dg_nonods, ndim)
             # RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
             RARm *= 0
@@ -353,13 +352,9 @@ def calc_RAR_mf_color(n, nlx, weight,
     return value
 
 
-
 def get_residual_and_smooth_once(
         r0,
-        u_i, u_n, u_bc, x_ref_in, f,
-        n, nlx, weight,
-        sn, snlx, sweight,
-        nbele, nbf):
+        u_i, u_n, u_bc, f):
     """
     update residual
     r0 = b(boundary) + f(body force) - (K+S)*u_i
@@ -377,14 +372,11 @@ def get_residual_and_smooth_once(
         bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
         r0, diagA, bdiagA = k_mf_one_batch(r0, u_i, u_n, f,
                                            diagA, bdiagA,
-                                           idx_in,
-                                           n, nlx, x_ref_in, weight)
+                                           idx_in)
         # surface integral
         idx_in_f = np.zeros(nele * nface, dtype=bool)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = s_mf_one_batch(r0, u_i, u_bc,
-                                           sn, snlx, x_ref_in, sweight,
-                                           nbele, nbf,
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
         # smooth once
@@ -413,10 +405,7 @@ def get_residual_and_smooth_once(
 
 def get_residual_only(
         r0,
-        u_i, u_n, u_bc, x_ref_in, f,
-        n, nlx, weight,
-        sn, snlx, sweight,
-        nbele, nbf):
+        u_i, u_n, u_bc, f):
     """
     update residual
     r0 = b(boundary) + f(body force) - (K+S)*u_i
@@ -434,14 +423,11 @@ def get_residual_only(
         bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
         r0, diagA, bdiagA = k_mf_one_batch(r0, u_i, u_n, f,
                                            diagA, bdiagA,
-                                           idx_in,
-                                           n, nlx, x_ref_in, weight)
+                                           idx_in)
         # surface integral
         idx_in_f = np.zeros(nele * nface, dtype=bool)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = s_mf_one_batch(r0, u_i, u_bc,
-                                           sn, snlx, x_ref_in, sweight,
-                                           nbele, nbf,
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
     r0 = r0.view(nele*nloc, ndim)
@@ -450,14 +436,19 @@ def get_residual_only(
 
 def k_mf_one_batch(r0, u_i, u_n, f,
                    diagA, bdiagA,
-                   idx_in,
-                   n, nlx, x_ref_in, weight):
+                   idx_in):
     '''
     update residual's volume integral parts
     r0 <- r0 - K*u_i + M*f
     if transient, also:
           r0 + M/dt*u_n - M/dt*u_i
     '''
+
+    # get essential data
+    n = sf_nd_nb.n; nlx = sf_nd_nb.nlx
+    x_ref_in = sf_nd_nb.x_ref_in
+    weight = sf_nd_nb.weight
+
     batch_in = idx_in.shape[0]
     # change view
     r0 = r0.view(-1, nloc, ndim)
@@ -517,14 +508,16 @@ def k_mf_one_batch(r0, u_i, u_n, f,
 
 
 def s_mf_one_batch(r, u_i, u_bc,
-                   sn, snlx, x_ref_in, sweight,
-                   nbele, nbf,
                    diagA, bdiagA,
                    idx_in_f, batch_start_idx):
     """
     update residual's surface integral part for one batch of elements
     r0 <- r0 - S*u_i + S*u_bc
     """
+
+    # get essential data
+    nbf = sf_nd_nb.nbf
+
     u_i = u_i.view(nele, nloc, ndim)
     r = r.view(nele, nloc, ndim)
     u_bc = u_bc.view(nele, nloc, ndim)
@@ -553,26 +546,32 @@ def s_mf_one_batch(r, u_i, u_bc,
         r, diagA, bdiagA = _S_fi(
             r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
             f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
-            sn, snlx, x_ref_in, sweight, u_i,
+            u_i,
             diagA, bdiagA, batch_start_idx)
 
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
     r, diagA, bdiagA = _S_fb(
         r, f_b, E_F_b, F_b,
-        sn, snlx, x_ref_in, sweight, u_i, u_bc,
+        u_i, u_bc,
         diagA, bdiagA, batch_start_idx)
     return r, diagA, bdiagA
 
 
 def _S_fi(r, f_i, E_F_i, F_i,
           f_inb, E_F_inb, F_inb,
-          sn, snlx, x_ref_in, sweight, u_i,
+          u_i,
           diagS, diagS20, batch_start_idx):
     """
     this function add interior face S*c contribution
     to r
     """
+
+    # get essential data
+    sn = sf_nd_nb.sn
+    snlx = sf_nd_nb.snlx
+    x_ref_in = sf_nd_nb.x_ref_in
+    sweight = sf_nd_nb.sweight
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_i.shape[0]
@@ -724,11 +723,18 @@ def _S_fi(r, f_i, E_F_i, F_i,
 
 def _S_fb(
         r, f_b, E_F_b, F_b,
-        sn, snlx, x_ref_in, sweight, u_i, u_bc,
+        u_i, u_bc,
         diagS, diagS20, batch_start_idx):
     """
     update residual for boundary faces
     """
+
+    # get essential data
+    sn = sf_nd_nb.sn
+    snlx = sf_nd_nb.snlx
+    x_ref_in = sf_nd_nb.x_ref_in
+    sweight = sf_nd_nb.sweight
+
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_b.shape[0]
     dummy_idx = np.arange(0, batch_in)
