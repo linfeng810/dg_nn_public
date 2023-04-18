@@ -284,10 +284,16 @@ if (config.solver=='iterative') :
                 r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
                 # (nele, ndim)
                 r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
-            if True:  # PnDG to P1CG
+            if False:  # PnDG to P1CG
                 r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 for idim in range(ndim):
                     r1[:, idim] += torch.mv(I_cf, mg.p3dg_to_p1dg_restrictor(r0[:, idim]))
+            else:  # PnDG down one order each time, eventually go to P1CG
+                r_p, e_p = mg.p_mg_pre(r0)
+                r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+                ilevel = 3 - 1
+                for idim in range(ndim):
+                    r1[:, idim] += torch.mv(I_cf, r_p[ilevel][:, idim])
             if False:  # two-grid method
                 e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 e_direct = sp.sparse.linalg.spsolve(
@@ -316,10 +322,18 @@ if (config.solver=='iterative') :
                 )
                 # reverse to original order
                 e_i = e_i[space_filling_curve_numbering[:, 0] - 1, :].view(cg_nonods, ndim)
-            # prolongate error to fine grid
-            e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
-            for idim in range(ndim):
-                e_i0[:,idim] += mg.p1dg_to_p3dg_prolongator(torch.mv(I_fc, e_i[:,idim]))
+            if False:  # from P1CG to P3DG
+                # prolongate error to fine grid
+                e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+                for idim in range(ndim):
+                    e_i0[:,idim] += mg.p1dg_to_p3dg_prolongator(torch.mv(I_fc, e_i[:,idim]))
+            else:  # from P1CG to P1DG, then go one order up each time while also do post smoothing
+                # prolongate error to P1DG
+                ilevel = 3-1
+                for idim in range(ndim):
+                    e_p[ilevel][:, idim] += torch.mv(I_fc, e_i[:, idim])
+                r_p, e_p = mg.p_mg_post(e_p, r_p)
+                e_i0 = e_p[0]
             # correct fine grid solution
             u_i += e_i0
             # post smooth
@@ -327,60 +341,8 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
                     r0, u_i, u_n, u_bc, f)
-            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/r0_init  #fNorm
+            r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/r0_init  # fNorm
 
-
-            # e1 = torch.zeros(ndim, nele, device=dev, dtype=torch.float64)
-            # # smooth on SFC coarse grid (V-cycle saw-tooth fasion)
-            # # then return an error on level-1 grid (P0DG)
-            # e1 += mg.mg_smooth(
-            #     r1,  # input r1 shape (ndim, nele) to fit restrictor
-            #     space_filling_curve_numbering,
-            #     variables_sfc,
-            #     nlevel,
-            #     nodes_per_level)
-            # # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            # e1 = volume_mf_linear_elastic.RAR_smooth(r1, e1,
-            #                                          RARvalues,
-            #                                          fina, cola,
-            #                                          diagRAR)
-            # # # what if we direc solve R^T A R e = r1?
-            # # e_direct = sp.sparse.linalg.spsolve(RAR.tocsr(), r1.contiguous().view(-1).cpu().numpy())
-            # # e_direct = np.reshape(e_direct, (ndim, nele))
-            # # e1 += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-            # # pass e_1 back to fine mesh and correct u_i
-            # u_i += torch.permute(
-            #     torch.matmul(R.view(nloc,1), e1.view(ndim,1,nele)), (2,1,0))\
-            #     .contiguous().view(nele*nloc,ndim)
-            # # finally give residual
-            # # get diagA and residual at fine grid r0
-            # r0 *=0
-            # with torch.no_grad():
-            #     r0, diagK, diagK20 = volume_mf_linear_elastic.K_mf(
-            #             r0, n, nx, detwei, u_i, f)
-            # r0, diagS, diagS20 = surface_mf_linear_elastic.S_mf(
-            #             r0, sn, snx, sdetwei, snormal, nbele, nbf, u_bc, u_i)
-            # r0l2 = torch.linalg.norm(r0.view(-1),dim=0)/fNorm
-            # # I think we need to smooth one time at finest grid as well.
-            # if False:  # point Jacobi iteration
-            #     # np.savetxt('diagSK.txt', (diagS+diagK).cpu().numpy(), delimiter=',')
-            #     # np.savetxt('r0.txt', r0.view(-1).cpu().numpy(), delimiter=',')
-            #     max = torch.max(diagS+diagK)
-            #     maxD = torch.ones_like(diagS)*max
-            #     u_i += config.jac_wei * r0 / (diagS+diagK)
-            # if True:  # block Jacobi iteration (20x20 block)
-            #     # for i in range(nele):
-            #     #     np.savetxt('diagSK20_'+str(i)+'.txt', (diagS20+diagK20)[i,...].cpu().numpy(),
-            #     #                delimiter=',')
-            #     invDiagSK = torch.inverse(diagS20+diagK20)
-            #     # for i in range(nele):
-            #     #     np.savetxt('invDiagSK20_'+str(i)+'.txt', invDiagSK[i,...].cpu().numpy(),
-            #     #                delimiter=',')
-            #     # print(invDiagSK.shape)
-            #     r0 = torch.matmul(invDiagSK, r0.view(nele,-1,1)).view(nele*nloc, ndim)
-            #     u_i += config.jac_wei * r0
-            #     # print(r0.shape)
-            # # np.savetxt('u_i.txt', u_i.view(-1).cpu().numpy(), delimiter=',')
             print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy(),
                   'abs res=',torch.linalg.norm(r0.view(-1),dim=0).cpu().numpy(),
                   'r0_init', r0_init.cpu().numpy())
