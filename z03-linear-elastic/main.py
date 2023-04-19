@@ -268,7 +268,7 @@ if (config.solver=='iterative') :
             u_i = u_i.view(nonods, ndim)
             ## on fine grid
             # get diagA and residual at fine grid r0
-            for its1 in range(1):
+            for its1 in range(config.pre_smooth_its):
                 r0 *= 0
                 # from torch.profiler import profile, record_function, ProfilerActivity
                 # with profile(activities=[
@@ -285,13 +285,13 @@ if (config.solver=='iterative') :
                 r0,
                 u_i, u_n, u_bc, f)
 
-            if False:  # PnDG to P0DG
+            if False:  # PnDG to P0DG - TODO: this should be permanantly disabled...
                 # per element condensation
                 # passing r0 to next level coarse grid and solve Ae=r0
                 r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
                 # (nele, ndim)
                 r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
-            if False:  # PnDG to P1CG
+            if not config.is_pmg:  # PnDG to P1CG
                 r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 for idim in range(ndim):
                     r1[:, idim] += torch.mv(I_cf, mg.p3dg_to_p1dg_restrictor(r0[:, idim]))
@@ -301,7 +301,7 @@ if (config.solver=='iterative') :
                 ilevel = 3 - 1
                 for idim in range(ndim):
                     r1[:, idim] += torch.mv(I_cf, r_p[ilevel][:, idim])
-            if False:  # two-grid method
+            if not config.is_sfc:  # two-grid method
                 e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
                 e_direct = sp.sparse.linalg.spsolve(
                     RAR.tocsr(),
@@ -329,7 +329,7 @@ if (config.solver=='iterative') :
                 )
                 # reverse to original order
                 e_i = e_i[space_filling_curve_numbering[:, 0] - 1, :].view(cg_nonods, ndim)
-            if False:  # from P1CG to P3DG
+            if not config.is_pmg:  # from P1CG to P3DG
                 # prolongate error to fine grid
                 e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
                 for idim in range(ndim):

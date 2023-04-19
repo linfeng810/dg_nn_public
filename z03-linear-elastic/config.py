@@ -68,10 +68,12 @@ if len(sys.argv) > 2:
 if len(sys.argv) > 3:
     pre_smooth_its = int(sys.argv[3])
     post_smooth_its = int(sys.argv[3])
-print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
+is_pmg = False  # whether visiting each order DG grid (p-multigrid)
+is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its), 'with PMG?', is_pmg, 'with SFC?', is_sfc)
 
 ####################
 # material property
