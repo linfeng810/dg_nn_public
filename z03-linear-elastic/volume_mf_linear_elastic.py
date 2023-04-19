@@ -5,7 +5,8 @@ for the linear elastic problem
 in finest grid and P0DG grid matrix-free-ly.
 Hence the name "volume_mf_linear_elastic".
 '''
-import torch 
+import torch
+from torch import Tensor
 import config
 from config import sf_nd_nb
 import numpy as np
@@ -364,9 +365,9 @@ def get_residual_and_smooth_once(
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     for i in range(nnn):
         # volume integral
-        idx_in = np.zeros(nele, dtype=bool)
+        idx_in = torch.zeros(nele, dtype=bool, device=dev)
         idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
-        batch_in = np.sum(idx_in)
+        batch_in = torch.sum(idx_in)
         # dummy diagA and bdiagA
         diagA = torch.zeros(batch_in, nloc, ndim, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
@@ -374,7 +375,7 @@ def get_residual_and_smooth_once(
                                            diagA, bdiagA,
                                            idx_in)
         # surface integral
-        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = s_mf_one_batch(r0, u_i, u_bc,
                                            diagA, bdiagA,
@@ -415,9 +416,9 @@ def get_residual_only(
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     for i in range(nnn):
         # volume integral
-        idx_in = np.zeros(nele, dtype=bool)
+        idx_in = torch.zeros(nele, dtype=torch.bool)
         idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
-        batch_in = np.sum(idx_in)
+        batch_in = torch.sum(idx_in)
         # dummy diagA and bdiagA
         diagA = torch.zeros(batch_in, nloc, ndim, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
@@ -425,7 +426,7 @@ def get_residual_only(
                                            diagA, bdiagA,
                                            idx_in)
         # surface integral
-        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = s_mf_one_batch(r0, u_i, u_bc,
                                            diagA, bdiagA,
@@ -436,7 +437,8 @@ def get_residual_only(
 
 def k_mf_one_batch(r0, u_i, u_n, f,
                    diagA, bdiagA,
-                   idx_in):
+                   idx_in: Tensor):  # pls make sure idx_in is passed in as a torch Tensor on dev. Otherwise moving
+    # it across devices will be very time-consuming!
     '''
     update residual's volume integral parts
     r0 <- r0 - K*u_i + M*f
@@ -509,7 +511,9 @@ def k_mf_one_batch(r0, u_i, u_n, f,
 
 def s_mf_one_batch(r, u_i, u_bc,
                    diagA, bdiagA,
-                   idx_in_f, batch_start_idx):
+                   idx_in_f: Tensor,  # make sure idx_in_f is passed in as Tensor on designated dev.
+                   # Moving it across devices is time-consuming.
+                   batch_start_idx):
     """
     update residual's surface integral part for one batch of elements
     r0 <- r0 - S*u_i + S*u_bc
@@ -523,20 +527,20 @@ def s_mf_one_batch(r, u_i, u_bc,
     u_bc = u_bc.view(nele, nloc, ndim)
 
     # first lets separate nbf to get two list of F_i and F_b
-    F_i = np.where(np.logical_not(np.isnan(nbf)) & idx_in_f)[0]  # interior face
-    F_b = np.where(np.isnan(nbf) & idx_in_f)[0]  # boundary face
+    F_i = torch.where(torch.logical_not(torch.isnan(nbf)) & idx_in_f)[0]  # interior face
+    F_b = torch.where(torch.isnan(nbf) & idx_in_f)[0]  # boundary face
     F_inb = -nbf[F_i]  # neighbour list of interior face
-    F_inb = F_inb.astype(np.int64)
+    F_inb = F_inb.type(torch.int64)
 
     # create two lists of which element f_i / f_b is in
-    E_F_i = np.floor_divide(F_i, 3)
-    E_F_b = np.floor_divide(F_b, 3)
-    E_F_inb = np.floor_divide(F_inb, 3)
+    E_F_i = torch.floor_divide(F_i, 3)
+    E_F_b = torch.floor_divide(F_b, 3)
+    E_F_inb = torch.floor_divide(F_inb, 3)
 
     # local face number
-    f_i = np.mod(F_i, 3)
-    f_b = np.mod(F_b, 3)
-    f_inb = np.mod(F_inb, 3)
+    f_i = torch.remainder(F_i, 3)
+    f_b = torch.remainder(F_b, 3)
+    f_inb = torch.remainder(F_inb, 3)
 
     # for interior faces, update residual
     # r <= r - S*u_i
@@ -544,22 +548,22 @@ def s_mf_one_batch(r, u_i, u_bc,
     for iface in range(nface):
         idx_iface = f_i == iface
         r, diagA, bdiagA = _S_fi(
-            r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
-            f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
+            r, f_i[idx_iface], E_F_i[idx_iface],
+            f_inb[idx_iface], E_F_inb[idx_iface],
             u_i,
             diagA, bdiagA, batch_start_idx)
 
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
     r, diagA, bdiagA = _S_fb(
-        r, f_b, E_F_b, F_b,
+        r, f_b, E_F_b,
         u_i, u_bc,
         diagA, bdiagA, batch_start_idx)
     return r, diagA, bdiagA
 
 
-def _S_fi(r, f_i, E_F_i, F_i,
-          f_inb, E_F_inb, F_inb,
+def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
+          f_inb: Tensor, E_F_inb: Tensor,
           u_i,
           diagS, diagS20, batch_start_idx):
     """
@@ -575,7 +579,7 @@ def _S_fi(r, f_i, E_F_i, F_i,
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_i.shape[0]
-    dummy_idx = np.arange(0, batch_in)
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor,
@@ -722,7 +726,7 @@ def _S_fi(r, f_i, E_F_i, F_i,
 
 
 def _S_fb(
-        r, f_b, E_F_b, F_b,
+        r, f_b: Tensor, E_F_b: Tensor,
         u_i, u_bc,
         diagS, diagS20, batch_start_idx):
     """
@@ -737,7 +741,7 @@ def _S_fb(
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_b.shape[0]
-    dummy_idx = np.arange(0, batch_in)
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor,
@@ -836,9 +840,9 @@ def pmg_get_residual_and_smooth_once(r0, u_i, po: int):
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     for i in range(nnn):
         # volume integral
-        idx_in = np.zeros(nele, dtype=bool)
+        idx_in = torch.zeros(nele, dtype=bool, device=dev)
         idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
-        batch_in = np.sum(idx_in)
+        batch_in = torch.sum(idx_in)
         # dummy diagA and bdiagA
         diagA = torch.zeros(batch_in, mg_le.p_nloc(po), ndim,
                             device=dev, dtype=torch.float64)
@@ -848,7 +852,7 @@ def pmg_get_residual_and_smooth_once(r0, u_i, po: int):
                                                 diagA, bdiagA,
                                                 idx_in, po)
         # surface integral
-        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = _pmg_s_mf_one_batch(r0, u_i,
                                                 diagA, bdiagA,
@@ -893,9 +897,9 @@ def pmg_get_residual_only(r0, u_i, po: int):
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     for i in range(nnn):
         # volume integral
-        idx_in = np.zeros(nele, dtype=bool)
+        idx_in = torch.zeros(nele, dtype=bool, device=dev)
         idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
-        batch_in = np.sum(idx_in)
+        batch_in = torch.sum(idx_in)
         # dummy diagA and bdiagA
         diagA = torch.zeros(batch_in, mg_le.p_nloc(po), ndim, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, mg_le.p_nloc(po), ndim, mg_le.p_nloc(po), ndim,
@@ -904,7 +908,7 @@ def pmg_get_residual_only(r0, u_i, po: int):
                                                 diagA, bdiagA,
                                                 idx_in, po)
         # surface integral
-        idx_in_f = np.zeros(nele * nface, dtype=bool)
+        idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = _pmg_s_mf_one_batch(r0, u_i,
                                                 diagA, bdiagA,
@@ -917,7 +921,7 @@ def pmg_get_residual_only(r0, u_i, po: int):
 def _pmg_k_mf_one_batch(
         r0, u_i,
         diagA, bdiagA,
-        idx_in, po):
+        idx_in: Tensor, po: int):
     '''
     update residual's volume integral parts
     r0 <- r0 - K*u_i
@@ -982,7 +986,7 @@ def _pmg_k_mf_one_batch(
 
 def _pmg_s_mf_one_batch(r, u_i,
                         diagA, bdiagA,
-                        idx_in_f, batch_start_idx,
+                        idx_in_f: Tensor, batch_start_idx,
                         po):
     """
     update residual's surface integral part for one batch of elements
@@ -996,20 +1000,20 @@ def _pmg_s_mf_one_batch(r, u_i,
     r = r.view(nele, mg_le.p_nloc(po), ndim)
 
     # first lets separate nbf to get two list of F_i and F_b
-    F_i = np.where(np.logical_not(np.isnan(nbf)) & idx_in_f)[0]  # interior face
-    F_b = np.where(np.isnan(nbf) & idx_in_f)[0]  # boundary face
+    F_i = torch.where(torch.logical_not(torch.isnan(nbf)) & idx_in_f)[0]  # interior face
+    F_b = torch.where(torch.isnan(nbf) & idx_in_f)[0]  # boundary face
     F_inb = -nbf[F_i]  # neighbour list of interior face
-    F_inb = F_inb.astype(np.int64)
+    F_inb = F_inb.type(torch.int64)
 
     # create two lists of which element f_i / f_b is in
-    E_F_i = np.floor_divide(F_i, 3)
-    E_F_b = np.floor_divide(F_b, 3)
-    E_F_inb = np.floor_divide(F_inb, 3)
+    E_F_i = torch.floor_divide(F_i, 3)
+    E_F_b = torch.floor_divide(F_b, 3)
+    E_F_inb = torch.floor_divide(F_inb, 3)
 
     # local face number
-    f_i = np.mod(F_i, 3)
-    f_b = np.mod(F_b, 3)
-    f_inb = np.mod(F_inb, 3)
+    f_i = torch.remainder(F_i, 3)
+    f_b = torch.remainder(F_b, 3)
+    f_inb = torch.remainder(F_inb, 3)
 
     # for interior faces, update residual
     # r <= r - S*u_i
@@ -1017,23 +1021,23 @@ def _pmg_s_mf_one_batch(r, u_i,
     for iface in range(nface):
         idx_iface = f_i == iface
         r, diagA, bdiagA = _pmg_S_fi(
-            r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
-            f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
+            r, f_i[idx_iface], E_F_i[idx_iface],
+            f_inb[idx_iface], E_F_inb[idx_iface],
             u_i,
             diagA, bdiagA, batch_start_idx, po)
 
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
     r, diagA, bdiagA = _pmg_S_fb(
-        r, f_b, E_F_b, F_b,
+        r, f_b, E_F_b,
         u_i,
         diagA, bdiagA, batch_start_idx, po)
     return r, diagA, bdiagA
 
 
 def _pmg_S_fi(
-        r, f_i, E_F_i, F_i,
-        f_inb, E_F_inb, F_inb,
+        r, f_i: Tensor, E_F_i: Tensor,
+        f_inb: Tensor, E_F_inb: Tensor,
         u_i,
         diagS, diagS20, batch_start_idx, po):
     """
@@ -1049,7 +1053,7 @@ def _pmg_S_fi(
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_i.shape[0]
-    dummy_idx = np.arange(0, batch_in)
+    dummy_idx = torch.arange(0, batch_in, dtype=torch.int64, device=dev)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor,
@@ -1208,7 +1212,7 @@ def _pmg_S_fi(
 
 
 def _pmg_S_fb(
-        r, f_b, E_F_b, F_b,
+        r, f_b: Tensor, E_F_b: Tensor,
         u_i,
         diagS, diagS20, batch_start_idx, po):
     """
@@ -1223,7 +1227,7 @@ def _pmg_S_fb(
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_b.shape[0]
-    dummy_idx = np.arange(0, batch_in)
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor,

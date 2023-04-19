@@ -50,6 +50,8 @@ print('nele=', nele)
 x_all, nbf, nbele, fina, cola, ncola, \
     bc1, bc2, bc3, bc4, \
     cg_ndglno, cg_nonods, cg_bc = mesh_init.init()
+nbele = torch.tensor(nbele, device=dev)
+nbf = torch.tensor(nbf, device=dev)
 config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf)
 np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
 if False:  # P0DG connectivity and coloring
@@ -120,7 +122,7 @@ tstep=int(np.ceil((tend-tstart)/dt))+1
 u = u.reshape(nele, nloc, ndim) # reshape doesn't change memory allocation.
 u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
-f, fNorm = config.rhs_f(x_all) # rhs force
+f, fNorm = config.rhs_f(x_all, config.mu) # rhs force
 
 u = torch.rand_like(u)*0  # initial guess
 # u = torch.ones_like(u)
@@ -268,8 +270,13 @@ if (config.solver=='iterative') :
             # get diagA and residual at fine grid r0
             for its1 in range(1):
                 r0 *= 0
+                # from torch.profiler import profile, record_function, ProfilerActivity
+                # with profile(activities=[
+                #         ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
                 r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
                     r0, u_i, u_n, u_bc, f)
+
+                # print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=100))
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
             # np.savetxt('u_i.txt', u_i.cpu().numpy(), delimiter=',')
             # get residual on PnDG

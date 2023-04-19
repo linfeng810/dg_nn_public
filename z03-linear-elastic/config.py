@@ -80,12 +80,14 @@ E = 2.5
 nu = 0.25  # or 0.49, or 0.4999
 lam = E*nu/(1.+nu)/(1.-2.*nu)
 mu = E/2.0/(1.+nu)
+lam = torch.tensor(lam, device=dev, dtype=torch.float64)
+mu = torch.tensor(mu, device=dev, dtype=torch.float64)
 print('Lame coefficient: lamda, mu', lam, mu)
 # lam = 1.0; mu = 1.0
 kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
-a = torch.eye(2)
+a = torch.eye(2, device=dev)
 kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
@@ -97,9 +99,10 @@ ijkldim_nz = [[0,0,0,0], [0,0,1,1], [0,1,0,1], [0,1,1,0],
 
 #####################
 # rhs body force 
-def rhs_f(x_all):
+def rhs_f(x_all, mu):
     # takes in coordinates numpy array (nonods, ndim)
     # output body force: torch tensor (nele*nloc, ndim)
+    mu = mu.cpu().numpy()
     f = np.zeros((nonods, ndim), dtype=np.float64)
     f[:, 0] += -2.0*mu*np.power(np.pi,3)*\
         np.cos(np.pi*x_all[:,1]) * np.sin(np.pi*x_all[:,1])\
