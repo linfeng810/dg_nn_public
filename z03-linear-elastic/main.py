@@ -266,19 +266,21 @@ if (config.solver=='iterative') :
         # coarse grid    o       o       o
         while (r0l2>config.jac_resThres and its<config.jac_its):
             u_i = u_i.view(nonods, ndim)
+            # from torch.profiler import profile, record_function, ProfilerActivity
+            # with profile(activities=[
+            #         ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+            #     print('time1', time.time()-starttime)
+            #     r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
+            #         r0, u_i, u_n, u_bc, f)
+            #     print('time2', time.time()-starttime)
+            #
+            # print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=100))
             ## on fine grid
             # get diagA and residual at fine grid r0
             for its1 in range(config.pre_smooth_its):
                 r0 *= 0
-                # from torch.profiler import profile, record_function, ProfilerActivity
-                # with profile(activities=[
-                #         ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
                 r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
                     r0, u_i, u_n, u_bc, f)
-
-                # print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=100))
-            # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
-            # np.savetxt('u_i.txt', u_i.cpu().numpy(), delimiter=',')
             # get residual on PnDG
             r0 *= 0
             r0 = volume_mf_linear_elastic.get_residual_only(

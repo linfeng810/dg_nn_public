@@ -12,6 +12,7 @@ from config import sf_nd_nb
 import numpy as np
 import multigrid_linearelastic as mg_le
 import shape_function
+import mesh_init
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -673,7 +674,12 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
     diagS[E_F_i-batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc*ndim, nloc*ndim),
                                                          dim1=1, dim2=2).view(batch_in, nloc, ndim)
     diagS20[E_F_i-batch_start_idx, ...] += S
-
+    # print('torch.flip')
+    # print(torch.flip(snxj_nb[dummy_idx, f_inb, ldim, :,:,:],[-1]) )
+    # print('torch inx')
+    # print(snxj_nb[dummy_idx, f_inb, ldim, :,:,:][...,mesh_init.sgi_order_on_other_side(sngi)] )
+    # print(torch.allclose(torch.flip(snxj_nb[dummy_idx, f_inb, ldim, :,:,:],[-1]),
+    #                     snxj_nb[dummy_idx, f_inb, ldim, :,:,:][...,mesh_init.sgi_order_on_other_side(sngi)] ))
     # other side
     S *= 0.  # local S matrix
     for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
@@ -681,7 +687,7 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
         S[..., idim, :, kdim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_i, :, :, :],  # v_i
-                0.5*torch.flip(snxj_nb[dummy_idx, f_inb, ldim, :,:,:],[-1]) ), # 0.5*du_k/dx_l of epsilon_kl
+                0.5*snxj_nb[dummy_idx, f_inb, ldim, :,:,:][..., mesh_init.sgi_order_on_other_side(sngi)]), # 0.5*du_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
@@ -689,7 +695,7 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
         S[..., idim, :, ldim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_i, :, :, :], # v_i
-                0.5*torch.flip(snxj_nb[dummy_idx, f_inb, kdim, :,:,:],[-1]) ), # 0.5*du_l/dx_k of epsilon_kl
+                0.5*snxj_nb[dummy_idx, f_inb, kdim, :,:,:][..., mesh_init.sgi_order_on_other_side(sngi)]), # 0.5*du_l/dx_k of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
@@ -697,7 +703,7 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
         # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
         S[..., kdim, :, idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
-                torch.flip(snj[dummy_idx, f_inb, :, :, :],[-1]), # u_i
+                snj[dummy_idx, f_inb, :, :, :][..., mesh_init.sgi_order_on_other_side(sngi)], # u_i
                 0.5*snxi[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
                 snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
@@ -705,7 +711,7 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
             * cijkl[idim,jdim,kdim,ldim]*(-0.5)
         S[..., ldim, :, idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
-                torch.flip(snj[dummy_idx, f_inb, :, :, :],[-1]), # u_i
+                snj[dummy_idx, f_inb, :, :, :][..., mesh_init.sgi_order_on_other_side(sngi)], # u_i
                 0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
                 snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
@@ -715,7 +721,7 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
     for idim in range(ndim):
         S[..., idim, :, idim] += torch.mul(torch.sum(torch.mul(torch.mul(
             sni[dummy_idx, f_i, :,:,:],
-            torch.flip(snj[dummy_idx, f_inb, :,:,:],[-1])),
+            snj[dummy_idx, f_inb, :,:,:][..., mesh_init.sgi_order_on_other_side(sngi)]),
             sdetweiv[dummy_idx, f_i, :,:,:]),
             -1), -mu_ev)
     # this S is off-diagonal contribution, therefore no need to put in diagS
@@ -1162,7 +1168,7 @@ def _pmg_S_fi(
         S[..., idim, :, kdim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_i, :, :, :],  # v_i
-                0.5*torch.flip(snxj_nb[dummy_idx, f_inb, ldim, :,:,:],[-1]) ), # 0.5*du_k/dx_l of epsilon_kl
+                0.5*snxj_nb[dummy_idx, f_inb, ldim, :,:,:][..., mesh_init.sgi_order_on_other_side(sngi)]), # 0.5*du_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
@@ -1170,7 +1176,7 @@ def _pmg_S_fi(
         S[..., idim, :, ldim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_i, :, :, :], # v_i
-                0.5*torch.flip(snxj_nb[dummy_idx, f_inb, kdim, :,:,:],[-1]) ), # 0.5*du_l/dx_k of epsilon_kl
+                0.5*snxj_nb[dummy_idx, f_inb, kdim, :,:,:][..., mesh_init.sgi_order_on_other_side(sngi)]), # 0.5*du_l/dx_k of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
@@ -1178,7 +1184,7 @@ def _pmg_S_fi(
         # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
         S[..., kdim, :, idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
-                torch.flip(snj[dummy_idx, f_inb, :, :, :],[-1]), # u_i
+                snj[dummy_idx, f_inb, :, :, :][..., mesh_init.sgi_order_on_other_side(sngi)], # u_i
                 0.5*snxi[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
                 snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
@@ -1186,7 +1192,7 @@ def _pmg_S_fi(
             * cijkl[idim,jdim,kdim,ldim]*(-0.5)
         S[..., ldim, :, idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
-                torch.flip(snj[dummy_idx, f_inb, :, :, :],[-1]), # u_i
+                snj[dummy_idx, f_inb, :, :, :][..., mesh_init.sgi_order_on_other_side(sngi)], # u_i
                 0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
                 snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
@@ -1196,7 +1202,7 @@ def _pmg_S_fi(
     for idim in range(ndim):
         S[..., idim, :, idim] += torch.mul(torch.sum(torch.mul(torch.mul(
             sni[dummy_idx, f_i, :,:,:],
-            torch.flip(snj[dummy_idx, f_inb, :,:,:],[-1])),
+            snj[dummy_idx, f_inb, :,:,:][..., mesh_init.sgi_order_on_other_side(sngi)]),
             sdetweiv[dummy_idx, f_i, :,:,:]),
             -1), -mu_ev)
     # this S is off-diagonal contribution, therefore no need to put in diagS

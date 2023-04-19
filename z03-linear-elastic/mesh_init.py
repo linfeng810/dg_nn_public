@@ -5,6 +5,7 @@ import config, time
 from config import sf_nd_nb
 from get_nb import getfinele, getfin_p1cg
 
+
 def init():
     # initiate mesh ...
     # output:
@@ -260,6 +261,7 @@ def init():
     cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
     return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
 
+
 def connectivity(nbele):
     '''
     !! extremely memory hungry
@@ -319,6 +321,8 @@ def face_iloc(iface):
             return [2,7,8,0]
         case _:
             return []
+
+
 def face_iloc2(iface):
     # return local nodes number on the other side of a face
     # in reverse order 
@@ -326,16 +330,21 @@ def face_iloc2(iface):
     iloc_list.reverse()
     return iloc_list
 
+
 def sgi2(sgi):
     # return gaussian pnts index on the other side
-    if config.sngi == 4:  # cubic element
-        order_on_other_side = [3,2,1,0]
-    elif config.sngi == 2:  # linear element
-        order_on_other_side = [1,0]
-    else:
-        raise Exception(f"config.sngi is not accepted in sgi2 (find gaussian "
-                        f"points on the other side)")
-    return order_on_other_side[sgi]
+    return sgi_order_on_other_side(config.sngi)[sgi]
+
+
+def sgi_order_on_other_side(sngi, ndim=2):
+    if ndim == 2:
+        if sngi == 4:  # cubic element
+            return torch.tensor([3,2,1,0], dtype=torch.int64, device=config.dev)
+        elif sngi == 2:  # linear element
+            return torch.tensor([1,0], dtype=torch.int64, device=config.dev)
+        else:
+            raise Exception(f"sngi is not accepted in sgi2_order_on_other_side (find gaussian "
+                            f"points on the other side)")
 
 
 def p1cg_sparsity(cg_ndglbno):
