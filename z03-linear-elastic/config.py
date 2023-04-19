@@ -54,7 +54,7 @@ ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
-jac_its = 1000  # max jacobi iteration steps on PnDG (overall MG cycles)
+jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = 1.e-10  # convergence criteria
 jac_wei = 2./3. # jacobi weight
 mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...

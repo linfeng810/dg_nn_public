@@ -232,7 +232,7 @@ if (config.solver=='iterative') :
     r0l2all=[]
     # time loop
     r0 = torch.zeros(nele*nloc, ndim, device=dev, dtype=torch.float64)
-    for itime in tqdm(range(1,tstep)):
+    for itime in range(1,tstep):
         u_n = u.view(nele, nloc, ndim)  # store last timestep value to un
         u_i = u_n  # jacobi iteration initial value taken as last time step value
 
@@ -255,11 +255,98 @@ if (config.solver=='iterative') :
         print('9. time elapsed, ', time.time()-starttime)
 
         # get initial residual on PnDG
-        r0 *= 0
-        r0 = volume_mf_linear_elastic.get_residual_only(
-            r0,
-            u_i, u_n, u_bc, f)
-        r0_init = torch.linalg.norm(r0.view(-1), dim=0)
+        if False:
+            r0 *= 0
+            r0 = volume_mf_linear_elastic.get_residual_only(
+                r0,
+                u_i, u_n, u_bc, f)
+            r0_init = torch.linalg.norm(r0.view(-1), dim=0)
+        else:
+            u_i = u_i.view(nonods, ndim)
+            # on fine grid
+            # get diagA and residual at fine grid r0
+            for its1 in range(config.pre_smooth_its):
+                r0 *= 0
+                r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
+                    r0, u_i, u_n, u_bc, f)
+            # get residual on PnDG
+            r0 *= 0
+            r0 = volume_mf_linear_elastic.get_residual_only(
+                r0,
+                u_i, u_n, u_bc, f)
+
+            if False:  # PnDG to P0DG - TODO: this should be permanantly disabled...
+                # per element condensation
+                # passing r0 to next level coarse grid and solve Ae=r0
+                r1 = torch.einsum('...ij,i->...j', r0.view(nele, nloc, ndim), R)  # restrict residual to coarser mesh,
+                # (nele, ndim)
+                r1 = torch.transpose(r1, dim0=0, dim1=1)  # shape (ndim, nele)
+            if not config.is_pmg:  # PnDG to P1CG
+                r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+                for idim in range(ndim):
+                    r1[:, idim] += torch.mv(I_cf, mg.p3dg_to_p1dg_restrictor(r0[:, idim]))
+            else:  # PnDG down one order each time, eventually go to P1CG
+                r_p, e_p = mg.p_mg_pre(r0)
+                r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+                ilevel = 3 - 1
+                for idim in range(ndim):
+                    r1[:, idim] += torch.mv(I_cf, r_p[ilevel][:, idim])
+            if not config.is_sfc:  # two-grid method
+                e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+                e_direct = sp.sparse.linalg.spsolve(
+                    RAR.tocsr(),
+                    r1.contiguous().view(-1).cpu().numpy())
+                e_direct = np.reshape(e_direct, (cg_nonods, ndim))
+                e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+            else:  # multi-grid method
+                ncurve = 1  # always use 1 sfc
+                N = len(space_filling_curve_numbering)
+                inverse_numbering = np.zeros((N, ncurve), dtype=int)
+                inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
+                r1_sfc = r1[inverse_numbering[:, 0], :].view(cg_nonods, ndim)
+
+                # # if we do the presmooth steps inside mg_on_P1CG, there's no need to pass in rr1 and e_i
+                # e_i = torch.zeros((cg_nonods,1), device=dev, dtype=torch.float64)
+                # rr1 = r1_sfc.detach().clone()
+                # rr1_l2_0 = torch.linalg.norm(rr1.view(-1),dim=0)
+                # rr1_l2 = 10.
+                # go to SFC coarse grid levels and do 1 mg cycles there
+                e_i = mg.mg_on_P1CG(
+                    r1_sfc.view(cg_nonods, ndim),
+                    variables_sfc,
+                    nlevel,
+                    nodes_per_level
+                )
+                # reverse to original order
+                e_i = e_i[space_filling_curve_numbering[:, 0] - 1, :].view(cg_nonods, ndim)
+            if not config.is_pmg:  # from P1CG to P3DG
+                # prolongate error to fine grid
+                e_i0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+                for idim in range(ndim):
+                    e_i0[:, idim] += mg.p1dg_to_p3dg_prolongator(torch.mv(I_fc, e_i[:, idim]))
+            else:  # from P1CG to P1DG, then go one order up each time while also do post smoothing
+                # prolongate error to P1DG
+                ilevel = 3 - 1
+                for idim in range(ndim):
+                    e_p[ilevel][:, idim] += torch.mv(I_fc, e_i[:, idim])
+                r_p, e_p = mg.p_mg_post(e_p, r_p)
+                e_i0 = e_p[0]
+            # correct fine grid solution
+            u_i += e_i0
+            # post smooth
+            for its1 in range(config.post_smooth_its):
+                r0 *= 0
+                r0, u_i = volume_mf_linear_elastic.get_residual_and_smooth_once(
+                    r0, u_i, u_n, u_bc, f)
+            r0l2 = torch.linalg.norm(r0.view(-1), dim=0)
+            r0_init = r0l2
+
+            print('its=', its, 'fine grid residual l2 norm=', r0l2.cpu().numpy(),
+                  'abs res=', torch.linalg.norm(r0.view(-1), dim=0).cpu().numpy(),
+                  'r0_init', r0_init.cpu().numpy())
+            r0l2all.append(r0l2.cpu().numpy())
+
+            its += 1
         # sawtooth iteration : sooth one time at each white dot
         # fine grid    o   o - o   o - o   o
         #               \ /     \ /     \ /  ...
