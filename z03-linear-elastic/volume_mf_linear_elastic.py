@@ -389,7 +389,9 @@ def get_residual_and_smooth_once(
                                                             bdiagA,
                                                             r0.view(nele, nloc*ndim)[idx_in, :])
         if config.blk_solver == 'jacobi':
-            new_b = torch.einsum('...ij,...j->...i', bdiagA, u_i.view(nele, nloc*ndim)[idx_in, :])\
+            new_b = torch.einsum('...ij,...j->...i',
+                                 bdiagA.view(batch_in, nloc * ndim, nloc * ndim),
+                                 u_i.view(nele, nloc*ndim)[idx_in, :])\
                     + config.jac_wei * r0.view(nele, nloc*ndim)[idx_in, :]
             new_b = new_b.view(-1)
             diagA = diagA.view(-1)
@@ -397,9 +399,10 @@ def get_residual_and_smooth_once(
             u_i_partial = u_i[idx_in, :]
             for its in range(3):
                 u_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
-                                                      bdiagA,
+                                                      bdiagA.view(batch_in, nloc * ndim, nloc * ndim),
                                                       u_i_partial).view(-1))
                                 / diagA).view(-1, nloc*ndim)
+            u_i[idx_in, :] = u_i_partial.view(-1, nloc*ndim)
     r0 = r0.view(nele*nloc, ndim)
     u_i = u_i.view(nele*nloc, ndim)
     return r0, u_i
@@ -452,7 +455,7 @@ def k_mf_one_batch(r0, u_i, u_n, f,
     x_ref_in = sf_nd_nb.x_ref_in
     weight = sf_nd_nb.weight
 
-    batch_in = idx_in.shape[0]
+    batch_in = torch.sum(idx_in)
     # change view
     r0 = r0.view(-1, nloc, ndim)
     u_i = u_i.view(-1, nloc, ndim)
@@ -469,7 +472,7 @@ def k_mf_one_batch(r0, u_i, u_n, f,
 
     # declare K
     K = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
-
+    # print('in k_mf_one_batch(), batch_in = ', batch_in)
     # ni nj
     for idim in range(ndim):
         K[:, :, idim, :, idim] += torch.sum(torch.mul(torch.mul(ni, nj), detweiv), -1)
@@ -873,7 +876,7 @@ def pmg_get_residual_and_smooth_once(r0, u_i, po: int):
                                                             r0.view(nele, mg_le.p_nloc(po)*ndim)[idx_in, :])
         if config.blk_solver == 'jacobi':
             new_b = torch.einsum('...ij,...j->...i',
-                                 bdiagA,
+                                 bdiagA.view(batch_in, mg_le.p_nloc(po)*ndim, mg_le.p_nloc(po)*ndim),
                                  u_i.view(nele, mg_le.p_nloc(po)*ndim)[idx_in, :])\
                     + config.jac_wei * r0.view(nele, mg_le.p_nloc(po)*ndim)[idx_in, :]
             new_b = new_b.view(-1)
@@ -882,9 +885,12 @@ def pmg_get_residual_and_smooth_once(r0, u_i, po: int):
             u_i_partial = u_i[idx_in, :]
             for its in range(3):
                 u_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
-                                                      bdiagA,
+                                                      bdiagA.view(batch_in,
+                                                                  mg_le.p_nloc(po)*ndim,
+                                                                  mg_le.p_nloc(po)*ndim),
                                                       u_i_partial).view(-1))
                                 / diagA).view(-1, mg_le.p_nloc(po)*ndim)
+            u_i[idx_in, :] = u_i_partial.view(-1, mg_le.p_nloc(po) * ndim)
     r0 = r0.view(-1, ndim)
     u_i = u_i.view(-1, ndim)
     return r0, u_i
@@ -939,7 +945,7 @@ def _pmg_k_mf_one_batch(
     x_ref_in = sf_nd_nb.x_ref_in
     weight = sf_nd_nb.weight
 
-    batch_in = idx_in.shape[0]
+    batch_in = torch.sum(idx_in)
     # change view
     r0 = r0.view(-1, mg_le.p_nloc(po), ndim)
     u_i = u_i.view(-1, mg_le.p_nloc(po), ndim)
