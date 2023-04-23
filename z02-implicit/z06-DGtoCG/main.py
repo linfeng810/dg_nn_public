@@ -11,20 +11,17 @@ starttime = time.time()
 import toughio 
 import numpy as np
 import torch
-from torch.nn import Conv1d,Sequential,Module
 import scipy as sp
 # import time
 from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
+from config import sf_nd_nb
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx, get_det_nlx
-from surface_integral import S_Minv_sparse, RSR_DG_to_CG, RSR_DG_to_CG_color
-import surface_integral_mf
-from volume_integral import K_mf, calc_RKR, calc_RAR, \
-    RKR_DG_to_CG, RKR_DG_to_CG_color, RAR_DG_to_CG, \
-    calc_RAR_mf_color, get_residual_and_smooth_once, \
+from surface_integral import S_Minv_sparse
+from volume_integral import calc_RAR_mf_color, get_residual_and_smooth_once, \
     get_residual_only
 from color import color2
 import multi_grid
@@ -49,8 +46,14 @@ tstart = config.tstart
 print('computation on ',dev)
 print('nele=', nele)
 
-[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
+if ndim == 2:
+    [x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
+    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf)
+else:
+    [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndgln, cg_nonods] = mesh_init.init_3d()
+    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
 # [fina, cola, ncola] = mesh_init.connectivity(nbele)
+np.savetxt('x_all.txt', x_all, delimiter=',')
 if False:  # P0DG connectivity and coloring
     # coloring and get probing vector
     [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
@@ -87,8 +90,13 @@ print('1. time elapsed, ',time.time()-starttime)
 # get shape functions on reference element
 [n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc,
                                            config.ngi, config.ndim, config.snloc, config.sngi)
-n = torch.tensor(n, device=config.dev, dtype=torch.float64)
-nlx = torch.tensor(nlx, device=config.dev, dtype=torch.float64)
+sf_nd_nb.set_data(n = torch.tensor(n, device=config.dev, dtype=torch.float64))
+sf_nd_nb.set_data(nlx = torch.tensor(nlx, device=dev, dtype=torch.float64))
+sf_nd_nb.set_data(weight = weight)
+sf_nd_nb.set_data(sn = torch.tensor(sn, dtype=torch.float64, device=dev))
+sf_nd_nb.set_data(snlx = snlx)
+sf_nd_nb.set_data(sweight = sweight)
+del n, nlx, weight, sn, snlx, sweight
 print('3. time elapsed, ',time.time()-starttime)
 #######################################################
 # assemble local mass matrix and stiffness matrix
@@ -108,38 +116,50 @@ for ele in range(nele):
         glb_iloc = ele*nloc+iloc
         x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
         x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
-x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
+sf_nd_nb.set_data(x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False))
+del x_ref_in
 # print(x_ref_in)
 # initical condition
 c = torch.zeros(nele*nloc, device=dev, dtype=torch.float64)
-# apply boundary conditions (4 Dirichlet bcs)
-for inod in bc1:
-    c[inod]=0.
-    # x_inod = x_ref_in[inod//10, 0, inod%10]
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc1 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-for inod in bc2:
-    c[inod]=0.
-    # x_inod = x_ref_in[inod//10, 0, inod%10]
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc2 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-for inod in bc3:
-    c[inod]=0.
-    # x_inod = x_ref_in[inod//10, 0, inod%10]
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc3 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-for inod in bc4:
-    x_inod = x_ref_in[inod//nloc, 0, inod%nloc]
-    c[inod]= torch.sin(torch.pi*x_inod)
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-    # print("x, c", x_inod.cpu().numpy(), c[inod])
-
-
+if ndim == 2:
+    # apply boundary conditions (4 Dirichlet bcs)
+    for inod in bc1:
+        c[inod]=0.
+        # x_inod = x_ref_in[inod//10, 0, inod%10]
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc1 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+    for inod in bc2:
+        c[inod]=0.
+        # x_inod = x_ref_in[inod//10, 0, inod%10]
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc2 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+    for inod in bc3:
+        c[inod]=0.
+        # x_inod = x_ref_in[inod//10, 0, inod%10]
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc3 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+    for inod in bc4:
+        x_inod = sf_nd_nb.x_ref_in[inod//nloc, 0, inod%nloc]
+        c[inod]= torch.sin(torch.pi*x_inod)
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+        # print("x, c", x_inod.cpu().numpy(), c[inod])
+else:  # (6 Dirichlet bcs)
+    for bci in bc:
+        for inod in bci:
+            x_inod = sf_nd_nb.x_ref_in[inod//nloc, :, inod%nloc]
+            c[inod] = torch.sin(torch.pi*3*x_inod[0]) \
+                * torch.sin(torch.pi*3*x_inod[1]) \
+                * torch.sin(torch.pi*3*x_inod[2])
+    # right hand side
+    f = 27*np.pi**2 * np.sin(3*np.pi*x_all[:, 0]) \
+                    * np.sin(3*np.pi*x_all[:, 1]) \
+                    * np.sin(3*np.pi*x_all[:, 2])
+    f = torch.tensor(f, device=dev, dtype=torch.float64)
 tstep=int(np.ceil((tend-tstart)/dt))+1
 c = c.reshape(nele,nloc) # reshape doesn't change memory allocation.
 # c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
@@ -150,16 +170,7 @@ c = torch.rand_like(c)*0
 c_all=np.empty([tstep,nonods])
 c_all[0,:]=c.view(-1).cpu().numpy()[:]
 print('5. time elapsed, ',time.time()-starttime)
-## surface integral 
 
-# # prepare shape functions ** only once ** store for all future usages
-# [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
-# # with torch.no_grad():
-# #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
-# nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
-
-# put numpy array to torch tensor in expected device
-sn = torch.tensor(sn, dtype=torch.float64, device=dev)
 print('6. time elapsed, ',time.time()-starttime)
 
 if False:  # per element condensation Rotation matrix (diagonal)
@@ -274,11 +285,7 @@ if (config.solver=='iterative') :
         r0 = torch.zeros(config.nonods, device=dev, dtype=torch.float64)
 
         # prepare for MG on SFC-coarse grids
-        RAR = calc_RAR_mf_color(n, nlx, weight,
-                                sn, snlx, sweight,
-                                x_ref_in,
-                                nbele, nbf,
-                                I_fc, I_cf,
+        RAR = calc_RAR_mf_color(I_fc, I_cf,
                                 whichc, ncolor,
                                 fina, cola, ncola)
         print(torch.cuda.mem_get_info(device=dev))
@@ -286,7 +293,7 @@ if (config.solver=='iterative') :
         print('finishing getting RAR: ', time.time()-starttime)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-            multi_grid.mg_on_P0DG_prep(RAR, x_ref_in)
+            multi_grid.mg_on_P1CG_prep(RAR)
         # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
@@ -302,19 +309,13 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 r0, c_i = get_residual_and_smooth_once(
                     r0,
-                    c_i, c_n, c_bc, x_ref_in,
-                    n, nlx, weight,
-                    sn, snlx, sweight,
-                    nbele, nbf)
+                    c_i, c_n, c_bc)
 
             # residual on PnDG
             r0 *= 0
             r0 = get_residual_only(
                 r0,
-                c_i, c_n, c_bc, x_ref_in,
-                n, nlx, weight,
-                sn, snlx, sweight,
-                nbele, nbf)
+                c_i, c_n, c_bc)
             
             if False:  # PnDG to P0DG
                 # per element condensation
@@ -328,7 +329,7 @@ if (config.solver=='iterative') :
             N = len(space_filling_curve_numbering)
             inverse_numbering = np.zeros((N, ncurve), dtype=int)
             inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
-            r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, config.cg_nonods)
+            r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, cg_nonods)
 
             e_i = torch.zeros((cg_nonods,1), device=dev, dtype=torch.float64)
             rr1 = r1_sfc.detach().clone()
@@ -351,7 +352,7 @@ if (config.solver=='iterative') :
                     # use SFC to generate a series of coarse grid
                     # and iterate there (V-cycle saw-tooth fasion)
                     # then return a residual on level-1 grid (P1CG)
-                    e_i = multi_grid.mg_on_P0DG(
+                    e_i = multi_grid.mg_on_P1CG(
                         r1_sfc.view(cg_nonods, 1),
                         rr1,
                         e_i,
@@ -430,10 +431,7 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 r0, c_i = get_residual_and_smooth_once(
                     r0,
-                    c_i, c_n, c_bc, x_ref_in,
-                    n, nlx, weight,
-                    sn, snlx, sweight,
-                    nbele, nbf)
+                    c_i, c_n, c_bc)
             # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
 
@@ -450,10 +448,7 @@ if (config.solver=='iterative') :
         r0 *= 0
         r0 = get_residual_only(
             r0,
-            c_i, c_n, c_bc, x_ref_in,
-            n, nlx, weight,
-            sn, snlx, sweight,
-            nbele, nbf)
+            c_i, c_n, c_bc)
 
         r0l2 = torch.linalg.norm(r0,dim=0)
         r0l2all.append(r0l2.cpu().numpy())

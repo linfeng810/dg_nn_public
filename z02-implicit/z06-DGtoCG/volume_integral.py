@@ -1,6 +1,7 @@
 import torch 
 from torch.nn import Module 
-import config 
+import config
+from config import sf_nd_nb
 import numpy as np
 
 import multi_grid
@@ -22,10 +23,7 @@ nface = config.nface
 
 def get_residual_and_smooth_once(
         r0,
-        c_i, c_n, c_bc, x_ref_in,
-        n, nlx, weight,
-        sn, snlx, sweight,
-        nbele, nbf):
+        c_i, c_n, c_bc):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -43,14 +41,11 @@ def get_residual_and_smooth_once(
         bdiagA = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
         r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
                                            diagA, bdiagA,
-                                           idx_in,
-                                           n, nlx, x_ref_in, weight)
+                                           idx_in)
         # surface integral
         idx_in_f = np.zeros(nele * nface, dtype=bool)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = S_mf_one_batch(r0, c_i, c_bc,
-                                           sn, snlx, x_ref_in, sweight,
-                                           nbele, nbf,
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
         # one smooth step
@@ -82,10 +77,7 @@ def get_residual_and_smooth_once(
 
 def get_residual_only(
         r0,
-        c_i, c_n, c_bc, x_ref_in,
-        n, nlx, weight,
-        sn, snlx, sweight,
-        nbele, nbf):
+        c_i, c_n, c_bc):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -104,14 +96,11 @@ def get_residual_only(
         bdiagA = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
         r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
                                            diagA, bdiagA,
-                                           idx_in,
-                                           n, nlx, x_ref_in, weight)
+                                           idx_in)
         # surface integral
         idx_in_f = np.zeros(nele * nface, dtype=bool)
         idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
         r0, diagA, bdiagA = S_mf_one_batch(r0, c_i, c_bc,
-                                           sn, snlx, x_ref_in, sweight,
-                                           nbele, nbf,
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
     r0 = r0.view(-1)
@@ -158,8 +147,12 @@ def K_mf(r0, c_i, c_n, k, dt, n, nlx, x_ref_in, weight):
 
 def K_mf_one_batch(r0, c_i, c_n, k, dt,
                    diagA, bdiagA,
-                   idx_in,
-                   n, nlx, x_ref_in, weight):
+                   idx_in):
+    # get essential data
+    n = sf_nd_nb.n; nlx = sf_nd_nb.nlx
+    x_ref_in = sf_nd_nb.x_ref_in
+    weight = sf_nd_nb.weight
+
     batch_in = idx_in.shape[0]
     # change view
     r0 = r0.view(-1, nloc)
@@ -473,11 +466,7 @@ def RAR_DG_to_CG(diagRKR, RKR, diagRSR, RSR):
     return diagRAR, RAR
 
 
-def calc_RAR_mf_color(n, nlx, weight,
-                      sn, snlx, sweight,
-                      x_ref_in,
-                      nbele, nbf,
-                      I_fc, I_cf,
+def calc_RAR_mf_color(I_fc, I_cf,
                       whichc, ncolor,
                       fina, cola, ncola):
     '''
@@ -504,7 +493,7 @@ def calc_RAR_mf_color(n, nlx, weight,
     import surface_integral_mf
     import time
     start_time = time.time()
-    cg_nonods = config.cg_nonods
+    cg_nonods = sf_nd_nb.cg_nonods
     value = torch.zeros(ncola, device=dev, dtype=torch.float64)  # NNZ entry values
     dummy = torch.zeros(nonods, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
     ARm = torch.zeros(nonods, device=dev, dtype=torch.float64)
@@ -517,10 +506,7 @@ def calc_RAR_mf_color(n, nlx, weight,
         Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
         ARm *= 0
         ARm = get_residual_only(ARm,
-                                Rm, dummy, dummy, x_ref_in,
-                                n, nlx, weight,
-                                sn, snlx, sweight,
-                                nbele, nbf)
+                                Rm, dummy, dummy)
         ARm *= -1.  # (p3dg_nonods, )
         RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
         RARm = torch.mv(I_cf, RARm)  # (cg_nonods, 1)

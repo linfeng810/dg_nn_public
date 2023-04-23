@@ -5,7 +5,8 @@ in finest grid and P0DG grid matrix-free-ly.
 Hence the name "surface_integral_mf".
 '''
 import torch 
-import config 
+import config
+from config import sf_nd_nb
 import numpy as np
 
 import shape_function
@@ -88,10 +89,12 @@ def S_mf(r, sn, snlx, x_ref_in, sweight,
 
 
 def S_mf_one_batch(r, c_i, c_bc,
-                   sn, snlx, x_ref_in, sweight,
-                   nbele, nbf,
                    diagA, bdiagA,
                    idx_in_f, batch_start_idx):
+
+    # get essential data
+    nbf = sf_nd_nb.nbf
+
     c_i = c_i.view(nele, nloc)
     r = r.view(nele, nloc)
     c_bc = c_bc.view(nele, nloc)
@@ -127,7 +130,7 @@ def S_mf_one_batch(r, c_i, c_bc,
         r, diagA, bdiagA = S_fi(
             r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
             f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
-            sn, snlx, x_ref_in, sweight, c_i, diagA, bdiagA, batch_start_idx)
+            c_i, diagA, bdiagA, batch_start_idx)
 
         # # if split and compute separately (to save memory)
         # idx_iface = f_i == iface
@@ -153,19 +156,24 @@ def S_mf_one_batch(r, c_i, c_bc,
     # r <= r + b_bc - S*c
     # let's hope that each element has only one boundary face.
     r, diagA, bdiagA = S_fb(r, f_b, E_F_b, F_b,
-                            sn, snlx, x_ref_in, sweight, c_i, c_bc, diagA, bdiagA, batch_start_idx)
+                            c_i, c_bc, diagA, bdiagA, batch_start_idx)
 
     return r, diagA, bdiagA
 
 
 def S_fi(r, f_i, E_F_i, F_i, 
          f_inb, E_F_inb, F_inb, 
-         sn, snlx, x_ref_in, sweight, c_i,
+         c_i,
          diagS, bdiagS, batch_start_idx):
     '''
     this function add interior face S*c contribution
     to r
     '''
+    # get essential data
+    sn = sf_nd_nb.sn
+    snlx = sf_nd_nb.snlx
+    x_ref_in = sf_nd_nb.x_ref_in
+    sweight = sf_nd_nb.sweight
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_i.shape[0]
@@ -284,7 +292,7 @@ def S_fi(r, f_i, E_F_i, F_i,
 
 
 def S_fb(r, f_b, E_F_b, F_b,
-    sn, snlx, x_ref_in, sweight, c_i, c_bc,
+    c_i, c_bc,
     diagS, bdiagS, batch_start_idx):
     '''
     This function add boundary face S*c_i contribution
@@ -295,6 +303,12 @@ def S_fb(r, f_b, E_F_b, F_b,
     residual
     r ,_ r + S*c_bc
     '''
+
+    # get essential data
+    sn = sf_nd_nb.sn
+    snlx = sf_nd_nb.snlx
+    x_ref_in = sf_nd_nb.x_ref_in
+    sweight = sf_nd_nb.sweight
 
     # faces can be passed in by batches to fit memory/GPU cores
     batch_in = f_b.shape[0]

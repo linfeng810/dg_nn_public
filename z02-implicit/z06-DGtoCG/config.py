@@ -3,6 +3,7 @@ import toughio
 import numpy as np
 import torch
 import sys
+import cmmn_data
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -24,15 +25,16 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square.msh' # directory to mesh file (gmsh)
+filename='cube.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
+sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
 ele_type = 'cubic'  # 'linear' or 'cubic'
-ndim = 3 # dimesnion of the problem
+ndim = 2 # dimesnion of the problem
 if ndim == 2:
     if ele_type=='cubic':
         nloc = 10  # number of nodes in an element
@@ -60,8 +62,6 @@ else:  # ndim = 3
     nface = 4
 nonods = nloc*nele # number of nodes
 ndglno=np.arange(0,nonods) # local to global
-cg_ndglno=[]
-cg_nonods=[]
 
 
 ######################

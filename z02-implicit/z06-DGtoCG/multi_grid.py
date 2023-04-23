@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import config
+from config import sf_nd_nb
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
 
@@ -157,7 +158,7 @@ def mg_smooth(level, e_i, b, variables_sfc):
     # print('e_i ', e_i)
     return e_i, res_this_level
 
-def mg_on_P0DG_prep(RAR, x_ref_in):
+def mg_on_P1CG_prep(RAR):
     '''
     # Prepare for Multi-grid cycle on P0DG mesh
 
@@ -229,7 +230,7 @@ def mg_on_P0DG_prep(RAR, x_ref_in):
     max_ncola_sfc_all_un = 10*ncola
 
     if config.is_mass_weighted:
-        ml = get_p1cg_lumped_mass(x_ref_in)
+        ml = get_p1cg_lumped_mass(sf_nd_nb.x_ref_in)
         ml = ml.cpu().numpy()
     else:
         ml = dummy_vec
@@ -266,7 +267,7 @@ def mg_on_P0DG_prep(RAR, x_ref_in):
     print('start_level: ', config.smooth_start_level)
     return sfc, variables_sfc, nlevel, nodes_per_level
 
-def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
+def mg_on_P1CG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
     '''
     # Multi-grid cycle on P0DG mesh
 
@@ -293,8 +294,8 @@ def mg_on_P0DG(r0, rr0, e_i0, sfc, variables_sfc, nlevel, nodes_per_level):
     # r = r1[inverse_numbering[:,0],0].view(1,1,config.cg_nonods)
 
     smooth_start_level = config.smooth_start_level
-    r = r0.view(1,1,config.cg_nonods)  # residual r in error equation, Ae=r
-    e_i = e_i0.view(1, 1, config.cg_nonods)  # error
+    r = r0.view(1,1,sf_nd_nb.cg_nonods)  # residual r in error equation, Ae=r
+    e_i = e_i0.view(1, 1, sf_nd_nb.cg_nonods)  # error
     r_s = [r]  # collection of r
     e_s = [e_i.view(-1)]  # collec. of e, all stored as 1D tensor
     rr = rr0
@@ -449,7 +450,7 @@ def get_p1cg_lumped_mass(x_ref_in):
     cg_n = torch.tensor(cg_n, device=config.dev, dtype=torch.float64)
     cg_nlx = torch.tensor(cg_nlx, device=config.dev, dtype=torch.float64)
     cg_wt = torch.tensor(cg_wt, device=config.dev, dtype=torch.float64)
-    ml = torch.zeros(config.cg_nonods, device=config.dev, dtype=torch.float64)
+    ml = torch.zeros(sf_nd_nb.cg_nonods, device=config.dev, dtype=torch.float64)
     for ele in range(config.nele):
         nx, detwei = shape_function.get_det_nlx(cg_nlx,
                                                 x_ref_in[ele,:,0:3].view(-1,config.ndim,3),
