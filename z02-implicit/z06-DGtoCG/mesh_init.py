@@ -258,6 +258,21 @@ def init():
         if mesh.points[inod, 1] > 1. - 1e-8:
             cg_bc4.append(inod)
     cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
+
+    # store P3DG from/to P1DG restrictor/prolongator
+    sf_nd_nb.set_data(I_31=torch.tensor([
+        [1., 0, 0],
+        [0, 1., 0],
+        [0, 0, 1.],
+        [2. / 3, 1. / 3, 0],
+        [1. / 3, 2. / 3, 0],
+        [0, 2. / 3, 1. / 3],
+        [0, 1. / 3, 2. / 3],
+        [1. / 3, 0, 2. / 3],
+        [2. / 3, 0, 1. / 3],
+        [1. / 3, 1. / 3, 1. / 3]
+    ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator)
+
     return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
 
 
@@ -515,6 +530,30 @@ def init_3d():
             bc6.append(inod)
     # mark boundary nodes
     bc = [bc1, bc2, bc3, bc4, bc5, bc6]
+
+    # store P3DG from/to P1DG restrictor/prolongator
+    sf_nd_nb.set_data(I_31=torch.tensor([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+        [2 / 3, 0, 1 / 3, 0],
+        [1 / 3, 0, 2 / 3, 0],
+        [2 / 3, 1 / 3, 0, 0],
+        [1 / 3, 2 / 3, 0, 0],
+        [0, 2 / 3, 1 / 3, 0],
+        [0, 1 / 3, 2 / 3, 0],
+        [2 / 3, 0, 0, 1 / 3],
+        [1 / 3, 0, 0, 2 / 3],
+        [0, 2 / 3, 0, 1 / 3],
+        [0, 1 / 3, 0, 2 / 3],
+        [0, 0, 2 / 3, 1 / 3],
+        [0, 0, 1 / 3, 2 / 3],
+        [0, 1 / 3, 1 / 3, 1 / 3],
+        [1 / 3, 1 / 3, 1 / 3, 0],
+        [1 / 3, 0, 1 / 3, 1 / 3],
+        [1 / 3, 1 / 3, 0, 1 / 3]
+    ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator)
     return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods
 
 

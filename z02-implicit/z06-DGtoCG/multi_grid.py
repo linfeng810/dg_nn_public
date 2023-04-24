@@ -400,20 +400,7 @@ def p3dg_to_p1dg_restrictor(x):
     takes in a vector on p3dg, do restriction and spit out
     its projection on p1dg.
     '''
-    I_31 = torch.tensor([
-        [1., 0, 0],
-        [0, 1., 0],
-        [0, 0, 1.],
-        [2. / 3, 1. / 3, 0],
-        [1. / 3, 2. / 3, 0],
-        [0, 2. / 3, 1. / 3],
-        [0, 1. / 3, 2. / 3],
-        [1. / 3, 0, 2. / 3],
-        [2. / 3, 0, 1. / 3],
-        [1. / 3, 1. / 3, 1. / 3]
-    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
-    I_13 = torch.transpose(I_31, dim0=0, dim1=1)
-    y = torch.einsum('ij,kj->ki', I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
+    y = torch.einsum('ij,kj->ki', sf_nd_nb.I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
     return y
 
 
@@ -422,19 +409,7 @@ def p1dg_to_p3dg_prolongator(x):
     takes in a vector on p1dg, do prolongation and spit out
     its projection on p3dg
     '''
-    I_31 = torch.tensor([
-        [1., 0, 0],
-        [0, 1., 0],
-        [0, 0, 1.],
-        [2. / 3, 1. / 3, 0],
-        [1. / 3, 2. / 3, 0],
-        [0, 2. / 3, 1. / 3],
-        [0, 1. / 3, 2. / 3],
-        [1. / 3, 0, 2. / 3],
-        [2. / 3, 0, 1. / 3],
-        [1. / 3, 1. / 3, 1. / 3]
-    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
-    y = torch.einsum('ij,kj->ki', I_31, x.view(config.nele, 3)).contiguous().view(-1)
+    y = torch.einsum('ij,kj->ki', sf_nd_nb.I_31, x.view(config.nele, config.p1cg_nloc)).contiguous().view(-1)
     return y
 
 

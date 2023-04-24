@@ -2,6 +2,8 @@
 
 from types import NoneType
 
+import torch
+
 
 class SfNdNb:
     """
@@ -38,6 +40,8 @@ class SfNdNb:
         self.cg_ndglno = cg_ndglno
         self.cg_nonods = cg_nonods
         self.alnmt = alnmt
+        self.I_31 = None
+        self.I_13 = None
 
     def set_data(self,
                  n=None,
@@ -52,6 +56,7 @@ class SfNdNb:
                  cg_ndglno=None,  # P1CG connectivity matrix
                  cg_nonods=None,  # number of nodes on P1CG
                  alnmt=None,  # face alignment in 3D
+                 I_31=None,
                  ):
         if type(n) != NoneType:
             self.n = n
@@ -77,3 +82,6 @@ class SfNdNb:
             self.cg_nonods = cg_nonods
         if type(alnmt) != NoneType:
             self.alnmt = alnmt
+        if type(I_31) != NoneType:
+            self.I_31 = I_31
+            self.I_13 = torch.transpose(I_31, dim0=0, dim1=1)

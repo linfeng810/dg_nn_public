@@ -34,7 +34,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 # mesh info
 nele = mesh.n_cells # number of elements
 ele_type = 'cubic'  # 'linear' or 'cubic'
-ndim = 2 # dimesnion of the problem
+ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type=='cubic':
         nloc = 10  # number of nodes in an element
@@ -50,6 +50,7 @@ if ndim == 2:
         raise Exception("Element type is not acceptable.")
     p1dg_nonods = 3*nele  # number of nodes on P1DG grid
     nface = 3 # number of element faces
+    p1cg_nloc = 3
 else:  # ndim = 3
     if ele_type=='cubic':
         nloc = 20
@@ -60,6 +61,7 @@ else:  # ndim = 3
         raise Exception("Element type is not acceptable.")
     p1dg_nonods = 4*nele
     nface = 4
+    p1cg_nloc = 4
 nonods = nloc*nele # number of nodes
 ndglno=np.arange(0,nonods) # local to global
 

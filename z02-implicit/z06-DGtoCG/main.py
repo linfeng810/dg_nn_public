@@ -92,10 +92,10 @@ print('1. time elapsed, ',time.time()-starttime)
                                            config.ngi, config.ndim, config.snloc, config.sngi)
 sf_nd_nb.set_data(n = torch.tensor(n, device=config.dev, dtype=torch.float64))
 sf_nd_nb.set_data(nlx = torch.tensor(nlx, device=dev, dtype=torch.float64))
-sf_nd_nb.set_data(weight = weight)
+sf_nd_nb.set_data(weight = torch.tensor(weight, device=dev, dtype=torch.float64))
 sf_nd_nb.set_data(sn = torch.tensor(sn, dtype=torch.float64, device=dev))
-sf_nd_nb.set_data(snlx = snlx)
-sf_nd_nb.set_data(sweight = sweight)
+sf_nd_nb.set_data(snlx = torch.tensor(snlx, dtype=torch.float64, device=dev))
+sf_nd_nb.set_data(sweight = torch.tensor(sweight, dtype=torch.float64, device=dev))
 del n, nlx, weight, sn, snlx, sweight
 print('3. time elapsed, ',time.time()-starttime)
 #######################################################
@@ -114,8 +114,8 @@ x_ref_in = np.empty((nele, ndim, nloc))
 for ele in range(nele):
     for iloc in range(nloc):
         glb_iloc = ele*nloc+iloc
-        x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
-        x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
+        for idim in range(ndim):
+            x_ref_in[ele, idim, iloc] = x_all[glb_iloc, idim]
 sf_nd_nb.set_data(x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False))
 del x_ref_in
 # print(x_ref_in)
