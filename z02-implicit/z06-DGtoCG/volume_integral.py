@@ -160,7 +160,7 @@ def K_mf_one_batch(r0, c_i, c_n, k, dt,
     diagA = diagA.view(-1, nloc)
     bdiagA = bdiagA.view(-1, nloc, nloc)
     # get shape function derivatives
-    nx, detwei = shape_function.get_det_nlx(nlx, x_ref_in[idx_in], weight)
+    nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in[idx_in], weight)
     # stiffness matrix
     nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
     nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)

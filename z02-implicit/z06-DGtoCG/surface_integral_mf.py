@@ -189,7 +189,7 @@ def S_fi(r, f_i, E_F_i, F_i,
 
     # get shape function derivatives
     # this side.
-    snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in[E_F_i], sweight)
+    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_i], sweight)
     # now tensor shape are:
     # snx | snx_nb         (batch_in, nface, ndim, nloc, sngi)
     # sdetwei | sdetwei_nb (batch_in, nface, sngi)
@@ -206,7 +206,7 @@ def S_fi(r, f_i, E_F_i, F_i,
     sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3)\
         .expand(-1,-1,nloc,nloc,-1)
     # other side.
-    snx_nb, sdetwei_nb, snormal_nb = shape_function.sdet_snlx(snlx, x_ref_in[E_F_inb], sweight)
+    snx_nb, sdetwei_nb, snormal_nb = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_inb], sweight)
     # snxi_nb = snx_nb.unsqueeze(4) \
     #     .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
     snxj_nb = snx_nb.unsqueeze(3) \
@@ -323,7 +323,7 @@ def S_fb(r, f_b, E_F_b, F_b,
         .unsqueeze(2).expand(-1,-1,nloc,-1,-1) # expand on nloc(inod)
 
     # get shaps function derivatives
-    snx, sdetwei, snormal = shape_function.sdet_snlx(snlx, x_ref_in[E_F_b], sweight)
+    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_b], sweight)
     mu_e = eta_e/torch.sum(sdetwei[dummy_idx, f_b,:],-1)
     snxi = snx.unsqueeze(4)\
         .expand(-1,-1,-1,-1,nloc,-1) # expand on nloc(jnod)
