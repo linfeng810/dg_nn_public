@@ -148,6 +148,7 @@ if ndim == 2:
         # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
         # c[inod]= x_inod
         # print("x, c", x_inod.cpu().numpy(), c[inod])
+    f = x_all * 0  # right-hand side source
 else:  # (6 Dirichlet bcs)
     for bci in bc:
         for inod in bci:
@@ -309,14 +310,14 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 r0, c_i = get_residual_and_smooth_once(
                     r0,
-                    c_i, c_n, c_bc)
+                    c_i, c_n, c_bc, f)
 
             # residual on PnDG
             r0 *= 0
             r0 = get_residual_only(
                 r0,
-                c_i, c_n, c_bc)
-            
+                c_i, c_n, c_bc, f)
+
             if False:  # PnDG to P0DG
                 # per element condensation
                 # passing r0 to next level coarse grid and solve Ae=r0
@@ -431,7 +432,7 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 r0, c_i = get_residual_and_smooth_once(
                     r0,
-                    c_i, c_n, c_bc)
+                    c_i, c_n, c_bc, f)
             # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
             # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
 
@@ -448,7 +449,7 @@ if (config.solver=='iterative') :
         r0 *= 0
         r0 = get_residual_only(
             r0,
-            c_i, c_n, c_bc)
+            c_i, c_n, c_bc, f)
 
         r0l2 = torch.linalg.norm(r0,dim=0)
         r0l2all.append(r0l2.cpu().numpy())

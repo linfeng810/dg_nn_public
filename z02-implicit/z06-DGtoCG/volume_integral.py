@@ -23,7 +23,7 @@ nface = config.nface
 
 def get_residual_and_smooth_once(
         r0,
-        c_i, c_n, c_bc):
+        c_i, c_n, c_bc, f):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -39,7 +39,7 @@ def get_residual_and_smooth_once(
         batch_in = np.sum(idx_in)
         diagA = torch.zeros(batch_in, nloc, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
-        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
+        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, f, k, dt,
                                            diagA, bdiagA,
                                            idx_in)
         # surface integral
@@ -77,7 +77,7 @@ def get_residual_and_smooth_once(
 
 def get_residual_only(
         r0,
-        c_i, c_n, c_bc):
+        c_i, c_n, c_bc, f):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -94,7 +94,7 @@ def get_residual_only(
         # here diagA and bdiagA are dummy variables since we won't need them to update c_i.
         diagA = torch.zeros(batch_in, nloc, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
-        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, k, dt,
+        r0, diagA, bdiagA = K_mf_one_batch(r0, c_i, c_n, f, k, dt,
                                            diagA, bdiagA,
                                            idx_in)
         # surface integral
@@ -145,7 +145,7 @@ def K_mf(r0, c_i, c_n, k, dt, n, nlx, x_ref_in, weight):
     return bdiagA, diagA, r0
 
 
-def K_mf_one_batch(r0, c_i, c_n, k, dt,
+def K_mf_one_batch(r0, c_i, c_n, f, k, dt,
                    diagA, bdiagA,
                    idx_in):
     # get essential data
@@ -168,9 +168,11 @@ def K_mf_one_batch(r0, c_i, c_n, k, dt,
     nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
     del nx1nx1, nx2nx2
 
+    nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
+    f = f.view(nele, nloc)
+    r0[idx_in, ...] += torch.einsum('...ij,...j->...i', nn, f[idx_in, ...])
     if config.isTransient:
         print('I go to transient...')
-        nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
         nxnx = nn/dt + nxnx  # this is (M/dt + K), (batch_in, nloc, nloc)
         c_n = c_n.view(-1, nloc)
         r0[idx_in, ...] += torch.einsum('...ij,...j->...i', nn/dt, c_n[idx_in, ...])  # (batch_in, nloc)
@@ -506,7 +508,7 @@ def calc_RAR_mf_color(I_fc, I_cf,
         Rm = multi_grid.p1dg_to_p3dg_prolongator(Rm)  # (p3dg_nonods, )
         ARm *= 0
         ARm = get_residual_only(ARm,
-                                Rm, dummy, dummy)
+                                Rm, dummy, dummy, dummy)
         ARm *= -1.  # (p3dg_nonods, )
         RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
         RARm = torch.mv(I_cf, RARm)  # (cg_nonods, 1)
