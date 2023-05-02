@@ -106,14 +106,14 @@ def S_mf_one_batch(r, c_i, c_bc,
     F_inb = F_inb.astype(np.int64)
 
     # create two lists of which element f_i / f_b is in
-    E_F_i = np.floor_divide(F_i, 3)
-    E_F_b = np.floor_divide(F_b, 3)
-    E_F_inb = np.floor_divide(F_inb, 3)
+    E_F_i = np.floor_divide(F_i, nface)
+    E_F_b = np.floor_divide(F_b, nface)
+    E_F_inb = np.floor_divide(F_inb, nface)
 
     # local face number
-    f_i = np.mod(F_i, 3)
-    f_b = np.mod(F_b, 3)
-    f_inb = np.mod(F_inb, 3)
+    f_i = np.mod(F_i, nface)
+    f_b = np.mod(F_b, nface)
+    f_inb = np.mod(F_inb, nface)
 
     # diagS = torch.zeros(nonods, device=dev, dtype=torch.float64)
     # diagS = diagS.view(nele, nloc)
