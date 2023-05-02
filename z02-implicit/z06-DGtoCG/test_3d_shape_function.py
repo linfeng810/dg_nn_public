@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+
+import numpy as np
+import shape_function
+import config
+import torch
+
+dev = config.dev
+nele = config.nele
+mesh = config.mesh
+nonods = config.nonods
+ngi = config.ngi
+ndim = config.ndim
+nloc = config.nloc
+dt = config.dt
+tend = config.tend
+tstart = config.tstart
+torch.set_printoptions(precision=4)
+
+n, nlx, weight, sn, snlx, sweight = shape_function.SHATRInew(
+    nloc=20, ngi=24, ndim=3, snloc=10, sngi=9
+)
+n = torch.tensor(n, device=dev)
+nlx = torch.tensor(nlx, device=dev)
+weight = torch.tensor(weight, device=dev)
+sn = torch.tensor(sn, device=dev)
+snlx = torch.tensor(snlx, device=dev)
+sweight = torch.tensor(sweight, device=dev)
+# # mass matrix
+# nn = np.zeros((nloc, nloc))
+# for inod in range(nloc):
+#     for jnod in range(nloc):
+#         nn[inod, jnod] = np.sum(n[inod, :] * n[jnod, :] * weight)
+# np.savetxt('nn.txt', nn, delimiter=',')
+#
+# # stiffness matrix
+# nxnx = np.zeros((nloc, nloc, ndim, ndim))
+# for inod in range(nloc):
+#     for jnod in range(nloc):
+#         for idim in range(ndim):
+#             for jdim in range(ndim):
+#                 nxnx[inod, jnod, idim, jdim] = np.sum(nlx[idim, inod, :] * nlx[jdim, jnod, :] * weight)
+# for idim in range(ndim):
+#     for jdim in range(ndim):
+#         np.savetxt('nxnx'+str(idim)+str(jdim)+'.txt', nxnx[:,:,idim,jdim], delimiter=',')
+
+# face integral
+# print(sn.shape, snlx.shape, sweight.shape)
+
+x_ref_in = [
+    1, 0, 0,
+    0, 1, 0,
+    0, 0, 1,
+    0, 0, 0,
+    2/3, 0, 1/3,
+    1/3, 0, 2/3,
+    2/3, 1/3, 0,
+    1/3, 2/3, 0,
+    0, 2/3, 1/3,
+    0, 1/3, 2/3,
+    2/3, 0, 0,
+    1/3, 0, 0,
+    0, 2/3, 0,
+    0, 1/3, 0,
+    0, 0, 2/3,
+    0, 0, 1/3,
+    0, 1/3, 1/3,
+    1/3, 1/3, 1/3,
+    1/3, 0, 1/3,
+    1/3, 1/3, 0
+]
+x_ref_in0 = torch.tensor(x_ref_in, device=dev,
+                        dtype=torch.float64).reshape(-1,3).transpose(0,1).view(1,3,20)
+x_ref_in1 = x_ref_in0 * .5
+x_ref_in = torch.vstack((x_ref_in0, x_ref_in1))
+nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in, weight)
+
+
+# mass matrix
+nn = torch.zeros((2, nloc, nloc), device=dev, dtype=torch.float64)
+for inod in range(nloc):
+    for jnod in range(nloc):
+        nn[:, inod, jnod] = torch.sum(n[inod, :] * n[jnod, :] * detwei[:, :])
+
+# stiffness matrix
+nxnx = torch.einsum('...ilg,...jmg,...kng,...g->...lmnijk', nx, nx, nx, detwei)
+
+# === face shape functions ===
+snlx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in, sweight)
+snx_int = torch.einsum('...fdng,...fg->...fdn', snlx, sdetwei)
+print(snx_int)

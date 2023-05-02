@@ -1143,7 +1143,7 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
     # calculate nx
     nx = torch.zeros(batch_in, ndim, nloc, ngi, device=dev, dtype=torch.float64)
     for idim in range(ndim):
-        nx[:, idim, :, :] = torch.einsum('...i,i...->...', invj[:, :, idim, :], nlx[:, :, :])
+        nx[:, idim, :, :] = torch.einsum('bgj,jng->bng', invj[:, :, idim, :], nlx[:, :, :])
     # nlx1 = nlx[0, :, :].expand(batch_in, -1, -1)
     # nlx2 = nlx[1, :, :].expand(batch_in, -1, -1)
     # invj11 = torch.mul(j22, invdet).view(batch_in, -1)
@@ -1238,7 +1238,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
     j = torch.zeros(batch_in, nface, sngi, ndim, ndim, device=dev, dtype=torch.float64)
     for idim in range(ndim):
         for jdim in range(ndim):
-            j[..., idim, jdim] = torch.einsum('fig,bi->bfg',  # f: nface, b: batch_in, g: sngi
+            j[..., idim, jdim] = torch.einsum('fig,bi->bfg',  # f: nface, b: batch_in, g: sngi, i: inod
                                               snlx[:, idim, :, :],
                                               x_loc[:, jdim, :])
     # j11 = torch.tensordot(snlx[:, 0, :, :], x, dims=([1], [2])).view(nface, sngi, batch_in)
