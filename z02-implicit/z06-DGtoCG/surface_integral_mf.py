@@ -6,6 +6,7 @@ Hence the name "surface_integral_mf".
 '''
 import torch 
 import config
+import mesh_init
 from config import sf_nd_nb
 import numpy as np
 
@@ -94,15 +95,15 @@ def S_mf_one_batch(r, c_i, c_bc,
 
     # get essential data
     nbf = sf_nd_nb.nbf
-
+    alnmt = sf_nd_nb.alnmt
     c_i = c_i.view(nele, nloc)
     r = r.view(nele, nloc)
     c_bc = c_bc.view(nele, nloc)
 
     # first lets separate nbf to get two list of F_i and F_b
-    F_i = np.where(np.logical_not(np.isnan(nbf)) & idx_in_f)[0]  # interior face
-    F_b = np.where(np.isnan(nbf) & idx_in_f)[0]  # boundary face
-    F_inb = -nbf[F_i]  # neighbour list of interior face
+    F_i = np.where(alnmt >= 0 & idx_in_f)[0]  # interior face
+    F_b = np.where(alnmt < 0 & idx_in_f)[0]  # boundary face
+    F_inb = nbf[F_i]  # neighbour list of interior face
     F_inb = F_inb.astype(np.int64)
 
     # create two lists of which element f_i / f_b is in
@@ -124,13 +125,17 @@ def S_mf_one_batch(r, c_i, c_bc,
     # r <- r-S*c
     # use r+= or r-= to make sure in-place assignment to avoid copy
     # update 3 local faces separately to avoid change r with multiple values
+    # idx_iface_all = np.zeros(F_i.shape[0], dtype=bool)
     for iface in range(nface):
-        idx_iface = f_i == iface
-        # idx_iface = idx_iface & idx_in_f
-        r, diagA, bdiagA = S_fi(
-            r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
-            f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
-            c_i, diagA, bdiagA, batch_start_idx)
+        for nb_gi_aln in range(nface-1):
+            idx_iface = (f_i == iface) & (sf_nd_nb.alnmt[F_i] == nb_gi_aln)
+            # idx_iface_all += idx_iface
+            # idx_iface = idx_iface & idx_in_f
+            r, diagA, bdiagA = S_fi(
+                r, f_i[idx_iface], E_F_i[idx_iface], F_i[idx_iface],
+                f_inb[idx_iface], E_F_inb[idx_iface], F_inb[idx_iface],
+                c_i, diagA, bdiagA, batch_start_idx,
+                nb_gi_aln)
 
         # # if split and compute separately (to save memory)
         # idx_iface = f_i == iface
@@ -164,7 +169,8 @@ def S_mf_one_batch(r, c_i, c_bc,
 def S_fi(r, f_i, E_F_i, F_i, 
          f_inb, E_F_inb, F_inb, 
          c_i,
-         diagS, bdiagS, batch_start_idx):
+         diagS, bdiagS, batch_start_idx,
+         nb_gi_aln):  # neighbour face gaussian points aliagnment
     '''
     this function add interior face S*c contribution
     to r
@@ -206,7 +212,11 @@ def S_fi(r, f_i, E_F_i, F_i,
     sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3)\
         .expand(-1,-1,nloc,nloc,-1)
     # other side.
-    snx_nb, sdetwei_nb, snormal_nb = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_inb], sweight)
+    snx_nb, _, snormal_nb = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_inb], sweight)
+    # change gausian pnts alignment on the other side use nb_gi_aln
+    nb_aln = sf_nd_nb.gi_align[nb_gi_aln, :]
+    snx_nb = snx_nb[..., nb_aln]
+    snj_nb = snj[..., nb_aln]
     # snxi_nb = snx_nb.unsqueeze(4) \
     #     .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
     snxj_nb = snx_nb.unsqueeze(3) \
@@ -264,7 +274,7 @@ def S_fi(r, f_i, E_F_i, F_i,
     # Nj2 * Ni1x * n2
     for idim in range(ndim):
         S[:,:nloc,:nloc] += torch.sum(torch.mul(torch.mul(torch.mul(
-            torch.flip(snj[dummy_idx, f_inb, :, :, :], [-1]), # torch.flip make copy of data. might be memory-intensive
+            snj_nb[dummy_idx, f_inb, :, :, :],
             snxi[dummy_idx, f_i, idim, :,:,:]),
             snormalv_nb[dummy_idx,f_inb, idim, :,:,:]),
             sdetweiv[dummy_idx,f_i, :,:,:]),
@@ -272,7 +282,7 @@ def S_fi(r, f_i, E_F_i, F_i,
     # Nj2x * Ni1 * n1
     for idim in range(ndim):
         S[:,:nloc,:nloc] += torch.sum(torch.mul(torch.mul(torch.mul(
-            torch.flip(snxj_nb[dummy_idx, f_inb,idim,:,:,:],[-1]),
+            snxj_nb[dummy_idx, f_inb,idim,:,:,:],
             sni[dummy_idx, f_i, :,:,:]),
             snormalv[dummy_idx,f_i, idim, :,:,:]),
             sdetweiv[dummy_idx, f_i, :,:,:]),
@@ -281,7 +291,7 @@ def S_fi(r, f_i, E_F_i, F_i,
     S[:,:nloc,:nloc] += torch.mul(
         torch.sum(torch.mul(torch.mul(
         sni[dummy_idx, f_i, :,:,:],
-        torch.flip(snj[dummy_idx, f_inb, :,:,:],[-1])),
+        snj_nb[dummy_idx, f_inb, :,:,:]),
         sdetweiv[dummy_idx, f_i, :,:,:]),
         -1)   ,   -mu_e)
     # this S is off-diagonal contribution, therefore no need to put in diagS
