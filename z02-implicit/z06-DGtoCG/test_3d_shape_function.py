@@ -72,12 +72,27 @@ x_ref_in = [
 x_ref_in0 = torch.tensor(x_ref_in, device=dev,
                         dtype=torch.float64).reshape(-1,3).transpose(0,1).view(1,3,20)
 x_ref_in1 = x_ref_in0 * .5
-x_ref_in = torch.vstack((x_ref_in0, x_ref_in1))
+
+alpha = np.pi/2
+beta = np.pi/2*0
+gamma = np.pi/2*0
+r_z = torch.tensor([np.cos(gamma), -np.sin(gamma), 0,
+                   np.sin(gamma), np.cos(gamma),  0,
+                   0, 0, 1], device=dev).reshape((3,3))
+r_y = torch.tensor([np.cos(beta), 0, np.sin(beta),
+                   0, 1, 0,
+                   -np.sin(beta), 0, np.cos(beta)], device=dev).reshape((3,3))
+r_x = torch.tensor([1, 0, 0,
+                   0, np.cos(alpha), -np.sin(alpha),
+                   0, np.sin(alpha), np.cos(alpha)], device=dev).reshape((3,3))
+r_mat = r_z @ r_y @ r_x
+x_ref_in2 = torch.matmul(r_mat, x_ref_in0)
+x_ref_in = torch.vstack((x_ref_in0, x_ref_in1, x_ref_in2))
 nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in, weight)
 
 
 # mass matrix
-nn = torch.zeros((2, nloc, nloc), device=dev, dtype=torch.float64)
+nn = torch.zeros((x_ref_in.shape[0], nloc, nloc), device=dev, dtype=torch.float64)
 for inod in range(nloc):
     for jnod in range(nloc):
         nn[:, inod, jnod] = torch.sum(n[inod, :] * n[jnod, :] * detwei[:, :])
