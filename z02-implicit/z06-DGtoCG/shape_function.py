@@ -2,7 +2,8 @@
 
 
 import numpy as np 
-import config 
+import config
+from config import sf_nd_nb
 import torch
 from torch.nn import Conv1d,Sequential,Module
 
@@ -238,6 +239,10 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             sweight = [0.205950504760887,   0.205950504760887,   0.205950504760887,
                        0.063691414286223,   0.063691414286223,   0.063691414286223,
                        0.063691414286223,   0.063691414286223,   0.063691414286223]
+            alignment = [1, 3, 2, 5, 4, 7, 6, 9, 8,
+                         2, 1, 3, 6, 8, 4, 9, 5, 7,
+                         3, 2, 1, 9, 7, 8, 5, 6, 4]
+            sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi)-1)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 3-2-4, l1 = 0
             SL[0, :, 0] = 0
@@ -1248,12 +1253,12 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
 
     # calculate determinant of jacobian
     # (nface, sngi, batch_in)
-    det = torch.det(j)
+    # det = torch.det(j)
     # det = torch.mul(j11, j22) - torch.mul(j21, j12)
     # calculate inverse of jacobian
     invj = torch.linalg.inv(j)
-    invdet = torch.div(1.0, det)
-    del det  # this is the final use of volume det
+    # invdet = torch.div(1.0, det)
+    # del det  # this is the final use of volume det
     # calculate snx
     snx = torch.einsum('bfgij,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
                        invj,

@@ -42,6 +42,7 @@ class SfNdNb:
         self.alnmt = alnmt
         self.I_31 = None
         self.I_13 = None
+        self.gi_align = None  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
 
     def set_data(self,
                  n=None,
@@ -57,6 +58,7 @@ class SfNdNb:
                  cg_nonods=None,  # number of nodes on P1CG
                  alnmt=None,  # face alignment in 3D
                  I_31=None,
+                 gi_align=None,  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
                  ):
         if type(n) != NoneType:
             self.n = n
@@ -85,3 +87,5 @@ class SfNdNb:
         if type(I_31) != NoneType:
             self.I_31 = I_31
             self.I_13 = torch.transpose(I_31, dim0=0, dim1=1)
+        if type(gi_align) != NoneType:
+            self.gi_align = gi_align
