@@ -352,7 +352,7 @@ def init_3d():
     #       0  is the same alignment
     #       1  rotate once (e.g. self is 1-2-3, nb is 2-3-1
     #       2  rotate twice (e.g. self is 1-2-3, nb is 3-1-2
-    nbf = np.zeros(len(faces), dtype=np.int64)
+    nbf = np.zeros(len(faces), dtype=np.int64) - 1
     alnmt = np.ones(len(faces), dtype=np.int64) * - 1
     found = np.zeros(len(faces), dtype=np.bool)
     for ele in range(config.nele):
@@ -361,10 +361,14 @@ def init_3d():
             if found[glb_iface]:
                 continue
             for idx in range(finele[ele], finele[ele + 1]):
+                if found[glb_iface]:
+                    continue
                 ele2 = colele[idx]
                 if ele == ele2:
                     continue
                 for iface2 in range(nface):
+                    if found[glb_iface]:
+                        continue
                     glb_iface2 = ele2 * nface + iface2
                     if set(faces[glb_iface]) == set(faces[glb_iface2]):
                         nbf[glb_iface] = glb_iface2
@@ -374,12 +378,13 @@ def init_3d():
                             alnmt[glb_iface2] = 0
                         elif faces[glb_iface][1] == faces[glb_iface2][0]:
                             alnmt[glb_iface] = 1
-                            alnmt[glb_iface] = 2
+                            alnmt[glb_iface2] = 2
                         else:
                             alnmt[glb_iface] = 2
                             alnmt[glb_iface2] = 1
                         found[glb_iface] = True
                         found[glb_iface2] = True
+                        continue
     endtime = time.time()
     print('nbf: ', nbf)
     print('time consumed in finding neighbouring:', endtime - starttime, ' s')
