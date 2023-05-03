@@ -44,7 +44,7 @@ def get_residual_and_smooth_once(
                                            idx_in)
         # surface integral
         idx_in_f = np.zeros(nele * nface, dtype=bool)
-        idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
+        idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         r0, diagA, bdiagA = S_mf_one_batch(r0, c_i, c_bc,
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
@@ -99,7 +99,7 @@ def get_residual_only(
                                            idx_in)
         # surface integral
         idx_in_f = np.zeros(nele * nface, dtype=bool)
-        idx_in_f[brk_pnt[i] * 3:brk_pnt[i + 1] * 3] = True
+        idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         r0, diagA, bdiagA = S_mf_one_batch(r0, c_i, c_bc,
                                            diagA, bdiagA,
                                            idx_in_f, brk_pnt[i])
@@ -161,12 +161,12 @@ def K_mf_one_batch(r0, c_i, c_n, f, k, dt,
     bdiagA = bdiagA.view(-1, nloc, nloc)
     # get shape function derivatives
     nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in[idx_in], weight)
+    nxnx = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
     # stiffness matrix
-    nx1nx1 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 0, :, :], nx[:, 0, :, :], detwei)
-    nx2nx2 = torch.einsum('...ig,...jg,...g->...ij', nx[:, 1, :, :], nx[:, 1, :, :], detwei)
+    for idim in range(ndim):
+        nxnx += torch.einsum('...ig,...jg,...g->...ij', nx[:, idim, :, :], nx[:, idim, :, :], detwei)
     del nx
-    nxnx = (nx1nx1+nx2nx2)*k # scalar multiplication, (batch_in, nloc, nloc)
-    del nx1nx1, nx2nx2
+    nxnx *= k  # scalar multiplication, (batch_in, nloc, nloc)
 
     nn = torch.einsum('ig,jg,...g->...ij', n, n, detwei)
     f = f.view(nele, nloc)
