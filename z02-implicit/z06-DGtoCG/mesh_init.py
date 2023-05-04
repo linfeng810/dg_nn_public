@@ -327,7 +327,7 @@ def init_3d():
     #         cg_ndglno[ele * 4 + iloc] = mesh.cells[0][1][ele][iloc]
     cg_ndglno = mesh.cells[0][1].reshape((nele * 4))
     sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
-    # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
+    np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele, finele, colele, _ = getfinele(
@@ -378,10 +378,10 @@ def init_3d():
                             alnmt[glb_iface2] = 0
                         elif faces[glb_iface][1] == faces[glb_iface2][0]:
                             alnmt[glb_iface] = 1
-                            alnmt[glb_iface2] = 2
+                            alnmt[glb_iface2] = 1
                         else:
                             alnmt[glb_iface] = 2
-                            alnmt[glb_iface2] = 1
+                            alnmt[glb_iface2] = 2
                         found[glb_iface] = True
                         found[glb_iface2] = True
                         continue
