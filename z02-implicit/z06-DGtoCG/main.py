@@ -158,11 +158,13 @@ else:  # (6 Dirichlet bcs)
             c[inod] = torch.sin(torch.pi*2*x_inod[0]) \
                 * torch.sin(torch.pi*2*x_inod[1]) \
                 * torch.sin(torch.pi*2*x_inod[2])
+            # c[inod] = x_inod[1]
     # right hand side
-    f = 8*np.pi**2 * np.sin(2*np.pi*x_all[:, 0]) \
+    f = 12*np.pi**2 * np.sin(2*np.pi*x_all[:, 0]) \
                    * np.sin(2*np.pi*x_all[:, 1]) \
                    * np.sin(2*np.pi*x_all[:, 2])
     f = torch.tensor(f, device=dev, dtype=torch.float64)
+    # f *= 0; f += 1
 tstep=int(np.ceil((tend-tstart)/dt))+1
 c = c.reshape(nele,nloc) # reshape doesn't change memory allocation.
 # c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
@@ -585,39 +587,49 @@ if (config.solver=='direct'):
     #     # np.savetxt('Mphimat.txt', M_phi.toarray(), delimiter=',')
     #     np.savetxt('cg_ndglno.txt', cg_ndgln, delimiter=',')
 
-    # ----- new matrix assemble for direct solver -----
-    dummy1 = torch.zeros(nonods, device=dev, dtype=torch.float64)
-    dummy2 = torch.zeros(nonods, device=dev, dtype=torch.float64)
-    dummy3 = torch.zeros(nonods, device=dev, dtype=torch.float64)
-    dummy4 = torch.zeros(nonods, device=dev, dtype=torch.float64)
-    Amat = torch.zeros(nonods, nonods, device=dev, dtype=torch.float64)
-    rhs = torch.zeros(nonods, device=dev, dtype=torch.float64)
-    probe = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # # ----- new matrix assemble for direct solver -----
+    # dummy1 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # dummy2 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # dummy3 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # dummy4 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # Amat = torch.zeros(nonods, nonods, device=dev, dtype=torch.float64)
+    # rhs = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # probe = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
+    # dummy1 *= 0
+    # dummy2 *= 0
+    # rhs = volume_integral.get_residual_only(r0=rhs,
+    #                                         c_i=dummy1,
+    #                                         c_n=dummy2,
+    #                                         c_bc=c_bc,
+    #                                         f=f)
+    # for inod in tqdm(range(nonods)):
+    #     dummy1 *= 0
+    #     dummy2 *= 0
+    #     dummy3 *= 0
+    #     dummy4 *= 0
+    #     probe *= 0
+    #     probe[inod] = 1.
+    #     Amat[:, inod] -= volume_integral.get_residual_only(r0=dummy1,
+    #                                                        c_i=probe,
+    #                                                        c_n=dummy2,
+    #                                                        c_bc=dummy3,
+    #                                                        f=dummy4)
+    # np.savetxt('Amat.txt', Amat.cpu().numpy(), delimiter=',')
+    # np.savetxt('rhs.txt', rhs.cpu().numpy(), delimiter=',')
+    # Amat_np = sp.sparse.csr_matrix(Amat.cpu().numpy())
+    # rhs_np = rhs.cpu().numpy()
+
+    # proper assembly matrix
+    import diffusion_3d_assemble
+    print('im going to assemble', time.time()-starttime)
+    Amat_np, rhs_np = diffusion_3d_assemble.assemble(c_bc, f)
+    print('im going to solve', time.time()-starttime)
     np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
-    for inod in tqdm(range(nonods)):
-        dummy1 *= 0
-        dummy2 *= 0
-        dummy3 *= 0
-        dummy4 *= 0
-        probe *= 0
-        probe[inod] = 1.
-        Amat[:, inod] -= volume_integral.get_residual_only(r0=dummy1,
-                                                           c_i=probe,
-                                                           c_n=dummy2,
-                                                           c_bc=dummy3,
-                                                           f=dummy4)
-    dummy1 *= 0
-    dummy2 *= 0
-    rhs = volume_integral.get_residual_only(r0=rhs,
-                                            c_i=dummy1,
-                                            c_n=dummy2,
-                                            c_bc=c_bc,
-                                            f=f)
-    np.savetxt('Amat.txt', Amat.cpu().numpy(), delimiter=',')
-    np.savetxt('rhs.txt', rhs.cpu().numpy(), delimiter=',')
-    Amat_np = sp.sparse.csr_matrix(Amat.cpu().numpy())
-    rhs_np = rhs.cpu().numpy()
+    np.savetxt('Amat.txt', Amat_np.toarray(), delimiter=',')
+    np.savetxt('rhs.txt', rhs_np, delimiter=',')
     c_i = sp.sparse.linalg.spsolve(Amat_np, rhs_np)
+    print('ive done solving', time.time() - starttime)
     c_all[1,:] = c_i
 
 #############################################################
