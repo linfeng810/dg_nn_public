@@ -134,12 +134,13 @@ subroutine getfin_p1cg(cg_noglbn, nele, nloc, p1dg_nonods, idx, n_idx)
     implicit none
     integer, intent(in) :: nele, nloc, p1dg_nonods
     integer, intent(in) :: cg_noglbn(p1dg_nonods)
-    integer, dimension(2, nele*9), intent(out) :: idx
+    integer, dimension(2, nele*nloc*nloc), intent(out) :: idx
     integer, intent(out) :: n_idx  ! length of idx
     ! local variables
     integer :: ele, inod, jnod, glbi, glbj
 
     n_idx = 0
+    idx = 0
     do ele = 1,nele
         do inod = 1,nloc
             glbi = cg_noglbn((ele-1)*nloc+inod)

@@ -650,7 +650,7 @@ def p1cg_sparsity(cg_ndglbno):
     nele = config.nele
     cg_nonods = sf_nd_nb.cg_nonods
     p1dg_nonods = config.p1dg_nonods
-    nloc = 3
+    nloc = config.p1cg_nloc
     idx = []
     val = []
     import scipy.sparse as sp
