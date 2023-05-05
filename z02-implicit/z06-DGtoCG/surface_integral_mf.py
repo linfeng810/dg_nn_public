@@ -159,9 +159,12 @@ def S_mf_one_batch(r, c_i, c_bc,
 
     # for boundary faces, update r
     # r <= r + b_bc - S*c
-    # let's hope that each element has only one boundary face.
-    r, diagA, bdiagA = S_fb(r, f_b, E_F_b, F_b,
-                            c_i, c_bc, diagA, bdiagA, batch_start_idx)
+    # FIXME: let's hope that each element has only one boundary face.
+    #        This isn't the case in 3D!
+    for iface in range(nface):
+        idx_iface = f_b == iface
+        r, diagA, bdiagA = S_fb(r, f_b[idx_iface], E_F_b[idx_iface], F_b[idx_iface],
+                                c_i, c_bc, diagA, bdiagA, batch_start_idx)
 
     return r, diagA, bdiagA
 
