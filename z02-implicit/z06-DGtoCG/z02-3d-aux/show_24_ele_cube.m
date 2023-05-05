@@ -1,12 +1,7 @@
 x_all_cg = readmatrix('../x_all_cg.txt');
 x_all_dg = readmatrix('../x_all.txt');
-cg_ndglno = [ 1,  0,  8, 10,  0,  2,  8, 13, 10,  0, 13,  4, 13,  8,  0, 10,  1, ...
-        8,  3, 12, 12,  1, 10,  5, 10,  8,  1, 12,  3, 11,  8,  2, 11, 13,...
-        2,  6,  8,  2, 11, 13, 11,  7,  3, 12, 11,  3,  8, 12, 10,  4,  9,...
-        5,  4, 13,  9,  6, 13,  9, 10,  4, 12,  9,  7,  5, 12, 10,  9,  5,...
-        6, 11,  9,  7, 11,  9, 13,  6,  7, 11,  9, 12,  8, 10, 11, 12,  8,...
-       13, 11, 10,  9, 11, 10, 12, 11, 10, 13,  9]+1;
-cg_ndglno = reshape(cg_ndglno, [4, 24]);
+cg_ndglno = readmatrix('../cg_ndglno.txt');
+cg_ndglno = reshape(cg_ndglno, [4, 24])+1;
 nele = 24;
 fig = figure(1);
 clf; 
@@ -16,10 +11,10 @@ ylabel('y')
 zlabel('z')
 hold on;
 axis equal
-ele_to_plt = 5
+ele_to_plt = 5;
 % for ele = 1:nele
 % for ele = colele(finele(ele_to_plt)+1:finele(ele_to_plt+1))+1
-for ele = [7, 9, 14, 21, 23]+1
+for ele = [0,  1,  2,  4,  5,  7,  8, 10, 12, 13, 15, 17]+1
     plab = {int2str((ele-1)*4+1), ...
         int2str((ele-1)*4+2),...
         int2str((ele-1)*4+3),...
