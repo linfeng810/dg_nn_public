@@ -71,7 +71,8 @@ x_ref_in = [
 ]
 x_ref_in0 = torch.tensor(x_ref_in, device=dev,
                         dtype=torch.float64).reshape(-1,3).transpose(0,1).view(1,3,20)
-x_ref_in1 = x_ref_in0 * .5
+x_ref_in1 = x_ref_in0.detach().clone()
+x_ref_in1[:,1,:] *= 0.5
 
 alpha = np.pi/2
 beta = np.pi/2*0
@@ -87,7 +88,31 @@ r_x = torch.tensor([1, 0, 0,
                    0, np.sin(alpha), np.cos(alpha)], device=dev).reshape((3,3))
 r_mat = r_z @ r_y @ r_x
 x_ref_in2 = torch.matmul(r_mat, x_ref_in0)
-x_ref_in = torch.vstack((x_ref_in0, x_ref_in1, x_ref_in2))
+
+x_ref_in3 = torch.tensor(
+    [0, 0, 0,
+     0, 1, 0,
+     1, 0, 0,
+     0, 0, 1,
+     1./3., 0, 0,
+     2./3., 0, 0,
+     0, 1./3., 0,
+     0, 2./3., 0,
+     1./3., 2./3., 0,
+     2./3., 1./3., 0,
+     0, 0, 1./3.,
+     0, 0, 2./3.,
+     0, 2./3., 1./3.,
+     0, 1./3., 2./3.,
+     2./3., 0, 1./3.,
+     1./3., 0, 2./3.,
+     1./3., 1./3., 1./3.,
+     1./3., 1./3., 0,
+     1./3., 0, 1./3.,
+     0, 1./3., 1./3.
+     ], device=dev, dtype=torch.float64
+).reshape(-1,3).transpose(0,1).view(1,3,20)
+x_ref_in = torch.vstack((x_ref_in0, x_ref_in1, x_ref_in2, x_ref_in3))
 nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in, weight)
 
 
@@ -98,9 +123,10 @@ for inod in range(nloc):
         nn[:, inod, jnod] = torch.sum(n[inod, :] * n[jnod, :] * detwei[:, :])
 
 # stiffness matrix
-nxnx = torch.einsum('...ilg,...jmg,...kng,...g->...lmnijk', nx, nx, nx, detwei)
+nxnx = torch.einsum('...ilg,...img,...g->...lm', nx, nx, detwei)
 
 # === face shape functions ===
 snlx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in, sweight)
 snx_int = torch.einsum('...fdng,...fg->...fdn', snlx, sdetwei)
 print(snx_int)
+
