@@ -155,14 +155,16 @@ else:  # (6 Dirichlet bcs)
     for bci in bc:
         for inod in bci:
             x_inod = sf_nd_nb.x_ref_in[inod//nloc, :, inod%nloc]
-            c[inod] = torch.sin(torch.pi*2*x_inod[0]) \
-                * torch.sin(torch.pi*2*x_inod[1]) \
-                * torch.sin(torch.pi*2*x_inod[2])
+            # c[inod] = torch.sin(torch.pi*2*x_inod[0]) \
+            #     * torch.sin(torch.pi*2*x_inod[1]) \
+            #     * torch.sin(torch.pi*2*x_inod[2])
+            c[inod] = torch.exp(-x_inod[0] - x_inod[1] - x_inod[2])
             # c[inod] = x_inod[1]
     # right hand side
-    f = 12*np.pi**2 * np.sin(2*np.pi*x_all[:, 0]) \
-                   * np.sin(2*np.pi*x_all[:, 1]) \
-                   * np.sin(2*np.pi*x_all[:, 2])
+    # f = 12*np.pi**2 * np.sin(2*np.pi*x_all[:, 0]) \
+    #                * np.sin(2*np.pi*x_all[:, 1]) \
+    #                * np.sin(2*np.pi*x_all[:, 2])
+    f = -3. * np.exp(-x_all[:, 0] - x_all[:, 1] - x_all[:,2])
     f = torch.tensor(f, device=dev, dtype=torch.float64)
     # f *= 0; f += 1
 tstep=int(np.ceil((tend-tstart)/dt))+1
@@ -225,6 +227,7 @@ if True:  # from PnDG to P1CG
                                    values=I_cf.data,
                                    size=(cg_nonods, p1dg_nonods),
                                    device=dev)
+    # np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
     # PnDG to P1DG
     # if config.ele_type == 'cubic':
     if False:
@@ -251,7 +254,7 @@ if True:  # from PnDG to P1CG
                               shape=(nonods, p1dg_nonods))
         I_31_big = I_31_big.tocsr()
         I_13_big = bsr_matrix((I_13.repeat(nele, axis=0).reshape(3, nele, 10).transpose((1, 0, 2)),
-                               np.arange(0,nele), np.arange(0,nele+1)),
+                               np.arange(0, nele), np.arange(0, nele + 1)),
                               shape=(p1dg_nonods, nonods))
         I_13_big = I_13_big.tocsr()
         I_31_big = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_31_big.indptr),
@@ -295,7 +298,12 @@ if (config.solver=='iterative') :
                                 fina, cola, ncola)
         print(torch.cuda.mem_get_info(device=dev))
         print('RAR fina cola len: ', RAR.crow_indices().shape, RAR.col_indices().shape)
-        print('finishing getting RAR: ', time.time()-starttime)
+        print('finishing getting RAR: ', time.time() - starttime)
+        # get RARmat (scipy csr format) for direct solver on P1CG (two-grid cycle)
+        RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
+                                       RAR.col_indices().cpu().numpy(),
+                                       RAR.crow_indices().cpu().numpy()),
+                                      shape=(cg_nonods, cg_nonods))
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P1CG_prep(RAR)
