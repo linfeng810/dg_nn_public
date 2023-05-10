@@ -268,24 +268,33 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             # 9 pnts triangle quadrature rule, 6 degree precision
             # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
             # strang8
+            a = 0.437525248383384
+            b = 0.124949503233232
+            c = 0.797112651860071
+            d = 0.165409927389841
+            e = 0.037477420750088
             pnts = np.asarray(
-                [0.124949503233232, 0.437525248383384, 0.437525248383384,
-                 0.437525248383384, 0.124949503233232, 0.437525248383384,
-                 0.437525248383384, 0.437525248383384, 0.124949503233232,
-                 0.797112651860071, 0.165409927389841, 0.037477420750088,
-                 0.797112651860071, 0.037477420750088, 0.165409927389841,
-                 0.165409927389841, 0.797112651860071, 0.037477420750088,
-                 0.165409927389841, 0.037477420750088, 0.797112651860071,
-                 0.037477420750088, 0.797112651860071, 0.165409927389841,
-                 0.037477420750088, 0.165409927389841, 0.797112651860071],
+                [b, a, a,
+                 a, b, a,
+                 a, a, b,
+                 c, e, d,
+                 c, d, e,
+                 d, c, e,
+                 e, c, d,
+                 e, d, c,
+                 d, e, c,
+                 ],
                 dtype=np.float64).reshape((sngi, 3))
             sweight = [0.205950504760887,   0.205950504760887,   0.205950504760887,
                        0.063691414286223,   0.063691414286223,   0.063691414286223,
                        0.063691414286223,   0.063691414286223,   0.063691414286223]
-            alignment = [1, 3, 2, 5, 4, 7, 6, 9, 8,
-                         2, 1, 3, 6, 8, 4, 9, 5, 7,
-                         3, 2, 1, 9, 7, 8, 5, 6, 4]
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi)-1)
+            # alignment = [1, 3, 2, 5, 4, 7, 6, 9, 8,
+            #              2, 1, 3, 6, 8, 4, 9, 5, 7,
+            #              3, 2, 1, 9, 7, 8, 5, 6, 4]
+            alignment = [0, 2, 1, 4, 3, 8, 7, 6, 5,
+                         1, 0, 2, 6, 5, 4, 3, 8, 7,
+                         2, 1, 0, 8, 7, 6, 5, 4, 3]
+            sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 3-2-4, l1 = 0
             SL[0, :, 0] = 0
@@ -443,8 +452,9 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                                0,   0.5, 0.5], dtype=np.float64).reshape((sngi,3))
             sweight = [1./3., 1./3., 1./3.]
             alignment = [1, 0, 2,
+                         2, 1, 0,
                          0, 2, 1,
-                         2, 1, 0]
+                         ]
             sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
                                                     device=dev,
                                                     dtype=torch.int64).view(ndim, sngi))
