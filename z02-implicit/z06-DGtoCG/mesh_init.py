@@ -500,6 +500,20 @@ def init_3d():
                 [(x_loc[1][0] + x_loc[0][0] + x_loc[3][0]) / 3.,
                  (x_loc[1][1] + x_loc[0][1] + x_loc[3][1]) / 3.,
                  (x_loc[1][2] + x_loc[0][2] + x_loc[3][2]) / 3.])
+    elif nloc == 4:  # linear element
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[0][1][ele]
+            # vertex nodes coordinate
+            x_loc = []
+            for id in idx:
+                x_loc.append(mesh.points[id])
+                # corner  0, 1, 2, 3
+            x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
+            x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
+            x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
+            x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
@@ -558,7 +572,14 @@ def init_3d():
         [1 / 3, 1 / 3, 1 / 3, 0],
         [1 / 3, 0, 1 / 3, 1 / 3],
         [1 / 3, 1 / 3, 0, 1 / 3]
-    ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator)
+    ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator
+    if nloc == 4:  # linear element
+        sf_nd_nb.set_data(I_31=torch.tensor([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ], device=config.dev, dtype=torch.float64))  # P1DG to P1DG, element-wise prolongation operator
     return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods
 
 

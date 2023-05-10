@@ -25,7 +25,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='cube.msh' # directory to mesh file (gmsh)
+filename='z21-cube-mesh/cube_r1.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -33,7 +33,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'cubic'  # 'linear' or 'cubic'
+ele_type = 'linear'  # 'linear' or 'cubic'
 ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type=='cubic':
@@ -57,6 +57,11 @@ else:  # ndim = 3
         ngi = 24
         snloc = 10
         sngi = 9
+    elif ele_type=='linear':
+        nloc = 4
+        ngi = 4
+        snloc = 3
+        sngi = 3
     else:
         raise Exception("Element type is not acceptable.")
     p1dg_nonods = 4*nele
@@ -67,7 +72,7 @@ ndglno=np.arange(0,nonods) # local to global
 
 
 ######################
-jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
+jac_its = 2000  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_wei = 2./3. # jacobi weight
 mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...
 mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)

@@ -215,6 +215,49 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nlz[17, gi] = 27 * l1 * l2
                 nlz[18, gi] = - 27 * l1 * l3 - 27 * l1 * (l1 + l2 + l3 - 1)
                 nlz[19, gi] = -27 * l1 * l2
+        elif nloc == 4:  # linear element
+            if ngi != 4:
+                raise Exception('ngi ', ngi, 'is not compatible with nloc ', nloc)
+            L = [0.1381966011250105, 0.1381966011250105, 0.1381966011250105,
+                 0.1381966011250105, 0.1381966011250105, 0.5854101966249685,
+                 0.1381966011250105, 0.5854101966249685, 0.1381966011250105,
+                 0.5854101966249685, 0.1381966011250105, 0.1381966011250105,]
+            L = np.asarray(L, dtype=np.float64)
+            L = np.reshape(L, (ngi, 3))
+            weight = [0.25, 0.25, 0.25, 0.25]
+            nface = ndim + 1
+            weight = np.asarray(weight, dtype=np.float64)
+            weight *= 1./6.
+
+            n = np.zeros((nloc, ngi))
+            nlx = np.zeros((nloc, ngi))
+            nly = np.zeros((nloc, ngi))
+            nlz = np.zeros((nloc, ngi))
+            for gi in range(ngi):
+                l1 = L[gi, 0]
+                l2 = L[gi, 1]
+                l3 = L[gi, 2]
+                l4 = 1. - l1 - l2 - l3
+                # corner nodes
+                n[0, gi] = l1
+                n[1, gi] = l2
+                n[2, gi] = l3
+                n[3, gi] = l4
+                # x-derivative
+                nlx[0, gi] = 1.
+                nlx[1, gi] = 0
+                nlx[2, gi] = 0
+                nlx[3, gi] = -1.
+                # y-derivative
+                nly[0, gi] = 0
+                nly[1, gi] = 1.
+                nly[2, gi] = 0
+                nly[3, gi] = -1.
+                # z-derivative
+                nlz[0, gi] = 0
+                nlz[1, gi] = 0
+                nlz[2, gi] = 1.
+                nlz[3, gi] = -1.
         else:  # nloc
             raise Exception('nloc %d is not accepted in 3D' % nloc)
 
@@ -390,6 +433,75 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                     snlz[iface, 17, gi] = 27 * l1 * l2
                     snlz[iface, 18, gi] = - 27 * l1 * l3 - 27 * l1 * (l1 + l2 + l3 - 1)
                     snlz[iface, 19, gi] = -27 * l1 * l2
+        elif snloc == 3:  # linear element
+            if sngi != 3:
+                raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
+            # 3 pnts triangle quadrature rule, 2 degree precision
+            # strang2
+            pnts = np.asarray([0.5, 0,   0.5,
+                               0.5, 0.5, 0,
+                               0,   0.5, 0.5], dtype=np.float64).reshape((sngi,3))
+            sweight = [1./3., 1./3., 1./3.]
+            alignment = [1, 0, 2,
+                         0, 2, 1,
+                         2, 1, 0]
+            sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+                                                    device=dev,
+                                                    dtype=torch.int64).view(ndim, sngi))
+            SL = np.zeros((nface, sngi, 4), dtype=np.float64)
+            # face1  triangle 2-1-3, l1 = 0
+            SL[0, :, 0] = 0
+            SL[0, :, 1] = pnts[:, 1]
+            SL[0, :, 2] = pnts[:, 0]
+            SL[0, :, 3] = pnts[:, 2]
+            # face2  triangle 0-2-3, l2 = 0
+            SL[1, :, 0] = pnts[:, 0]
+            SL[1, :, 1] = 0
+            SL[1, :, 2] = pnts[:, 1]
+            SL[1, :, 3] = pnts[:, 2]
+            # face3  triangle 1-0-3, l3 = 0
+            SL[2, :, 0] = pnts[:, 1]
+            SL[2, :, 1] = pnts[:, 0]
+            SL[2, :, 2] = 0
+            SL[2, :, 3] = pnts[:, 2]
+            # face4  triangle 0-1-2, l4 = 0
+            SL[3, :, 0] = pnts[:, 0]
+            SL[3, :, 1] = pnts[:, 1]
+            SL[3, :, 2] = pnts[:, 2]
+            SL[3, :, 3] = 0
+            sweight = np.asarray(sweight, dtype=np.float64)
+            sweight *= 0.5
+
+            sn = np.zeros((nface, nloc, sngi))
+            snlx = np.zeros((nface, nloc, sngi))
+            snly = np.zeros((nface, nloc, sngi))
+            snlz = np.zeros((nface, nloc, sngi))
+            for iface in range(nface):
+                for gi in range(sngi):
+                    l1 = SL[iface, gi, 0]
+                    l2 = SL[iface, gi, 1]
+                    l3 = SL[iface, gi, 2]
+                    l4 = SL[iface, gi, 3]
+                    # cornor nodes
+                    sn[iface, 0, gi] = l1
+                    sn[iface, 1, gi] = l2
+                    sn[iface, 2, gi] = l3
+                    sn[iface, 3, gi] = l4
+                    # x-derivative
+                    snlx[iface, 0, gi] = 1.
+                    snlx[iface, 1, gi] = 0
+                    snlx[iface, 2, gi] = 0
+                    snlx[iface, 3, gi] = -1.
+                    # y-derivative
+                    snly[iface, 0, gi] = 0
+                    snly[iface, 1, gi] = 1.
+                    snly[iface, 2, gi] = 0
+                    snly[iface, 3, gi] = -1.
+                    # z-derivative
+                    snlz[iface, 0, gi] = 0
+                    snlz[iface, 1, gi] = 0
+                    snlz[iface, 2, gi] = 1.
+                    snlz[iface, 3, gi] = -1.
         else:  # snloc
             raise Exception('snloc %d is not accpted in 3D' % snloc)
         nlx_all = np.stack([nlx, nly, nlz], axis=0)
