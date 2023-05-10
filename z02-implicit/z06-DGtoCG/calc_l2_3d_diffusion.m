@@ -22,8 +22,9 @@ for i = 1:nonods
     xi = x_all(i,1);
     yi = x_all(i,2);
     zi = x_all(i,3);
-    bi = sin(2*pi*xi)*sin(2*pi*yi)*sin(2*pi*zi);
+%     bi = sin(2*pi*xi)*sin(2*pi*yi)*sin(2*pi*zi);
 %     bi = yi;
+    bi = exp(-xi-yi-zi);
     c_ana(i) = bi;
 %     ai-bi
     l_inf = max(l_inf, abs(ai-bi));
@@ -34,7 +35,7 @@ nele
 l2norm = sqrt(sq_sum)/nonods
 l_inf
 
-figure();clf;
+figure(2);clf;
 plot(c_ana, 'x'); hold on; plot(c_all(2,:), 'o')
 legend('analytical', 'numerical')
 title({[int2str(nele), ' element approximation'],...
