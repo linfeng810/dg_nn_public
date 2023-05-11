@@ -33,7 +33,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'linear'  # 'linear' or 'cubic'
+ele_type = 'quadratic'  # 'linear' or 'cubic' or 'quadratic'
 ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type=='cubic':
@@ -62,6 +62,11 @@ else:  # ndim = 3
         ngi = 4
         snloc = 3
         sngi = 3
+    elif ele_type == 'quadratic':
+        nloc = 10
+        ngi = 11
+        snloc = 6
+        sngi = 6
     else:
         raise Exception("Element type is not acceptable.")
     p1dg_nonods = 4*nele

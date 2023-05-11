@@ -500,6 +500,65 @@ def init_3d():
                 [(x_loc[1][0] + x_loc[0][0] + x_loc[3][0]) / 3.,
                  (x_loc[1][1] + x_loc[0][1] + x_loc[3][1]) / 3.,
                  (x_loc[1][2] + x_loc[0][2] + x_loc[3][2]) / 3.])
+    elif nloc == 10:  # quadratic element
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[0][1][ele]
+            # vertex nodes coordinate
+            x_loc = []
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # print(x_loc)
+            # ! a reference quadratic element looks like this:
+            # Tetrahedron:
+            #                    z
+            #                  .
+            #                ,/
+            #               /
+            #            2
+            #          ,/|`\
+            #        ,/  |  `\
+            #      ,9    '.   `4
+            #    ,/       5     `\
+            #  ,/         |       `\
+            # 3--------8--'.--------1---y
+            #  `\.         |      ,/
+            #     `\.      |    ,6
+            #        `7.   '. ,/
+            #           `\. |/
+            #              `0
+            #                 `\.
+            #                    ` x
+            # corner  0, 1, 2, 3
+            x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
+            x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
+            x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
+            x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
+            # edge node 4 on edge 1-2
+            x_all.append([x_loc[1][0] * 1. / 2. + x_loc[2][0] * 1. / 2.,
+                          x_loc[1][1] * 1. / 2. + x_loc[2][1] * 1. / 2.,
+                          x_loc[1][2] * 1. / 2. + x_loc[2][2] * 1. / 2.])
+            # edge node 5 on edge 0-2
+            x_all.append([x_loc[0][0] * 1. / 2. + x_loc[2][0] * 1. / 2.,
+                          x_loc[0][1] * 1. / 2. + x_loc[2][1] * 1. / 2.,
+                          x_loc[0][2] * 1. / 2. + x_loc[2][2] * 1. / 2.])
+            # edge node 6 on edge 0-1
+            x_all.append([x_loc[0][0] * 1. / 2. + x_loc[1][0] * 1. / 2.,
+                          x_loc[0][1] * 1. / 2. + x_loc[1][1] * 1. / 2.,
+                          x_loc[0][2] * 1. / 2. + x_loc[1][2] * 1. / 2.])
+            # edge node 7 on edge 0-3
+            x_all.append([x_loc[0][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
+                          x_loc[0][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
+                          x_loc[0][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
+            # edge node 8 on edge 1-3
+            x_all.append([x_loc[1][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
+                          x_loc[1][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
+                          x_loc[1][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
+            # edge node 9 on edge 2-3
+            x_all.append([x_loc[2][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
+                          x_loc[2][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
+                          x_loc[2][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
     elif nloc == 4:  # linear element
         x_all = []
         for ele in range(nele):
@@ -580,13 +639,44 @@ def init_3d():
             [0, 0, 1, 0],
             [0, 0, 0, 1],
         ], device=config.dev, dtype=torch.float64))  # P1DG to P1DG, element-wise prolongation operator
+    elif nloc == 10:  # quadratic element
+        sf_nd_nb.set_data(I_31=torch.tensor([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, 1 / 2, 1 / 2, 0],
+            [1 / 2, 0, 1 / 2, 0],
+            [1 / 2, 1 / 2, 0, 0],
+            [1 / 2, 0, 0, 1 / 2],
+            [0, 1 / 2, 0, 1 / 2],
+            [0, 0, 1 / 2, 1 / 2],
+        ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
+        # sf_nd_nb.I_13 = torch.tensor([
+        #     [1 / 5, -2 / 15, -2 / 15, -2 / 15, -2 / 15, 8 / 15, 8 / 15, 8 / 15, -2 / 15, -2 / 15],
+        #     [-2 / 15, 1 / 5, -2 / 15, -2 / 15, 8 / 15, -2 / 15, 8 / 15, -2 / 15, 8 / 15, -2 / 15],
+        #     [-2 / 15, -2 / 15, 1 / 5, -2 / 15, 8 / 15, 8 / 15, -2 / 15, -2 / 15, -2 / 15, 8 / 15],
+        #     [-2 / 15, -2 / 15, -2 / 15, 1 / 5, -2 / 15, -2 / 15, -2 / 15, 8 / 15, 8 / 15, 8 / 15],
+        # ], device=config.dev, dtype=torch.float64)
+        # sf_nd_nb.set_data(I_31=torch.tensor([
+        #     [1, 0, 0, 0],
+        #     [0, 1, 0, 0],
+        #     [0, 0, 1, 0],
+        #     [0, 0, 0, 1],
+        #     [0, 0, 0, 0],
+        #     [0, 0, 0, 0],
+        #     [0, 0, 0, 0],
+        #     [0, 0, 0, 0],
+        #     [0, 0, 0, 0],
+        #     [0, 0, 0, 0],
+        # ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
     return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods
 
 
 def connectivity(nbele):
     '''
     !! extremely memory hungry
-    !! to be deprecated
+    !! TODO: to be deprecated
     generate element connectivity matrix
     adjacency_matrix[nele, nele] 
     its sparsity: fina, cola, ncola is nnz
