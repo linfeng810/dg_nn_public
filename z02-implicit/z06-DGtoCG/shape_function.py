@@ -14,6 +14,182 @@ ndim = config.ndim
 dev = config.dev
 
 
+def _gi_pnts_tetra(ngi):
+    """
+    output gaussian points and weights in tetrahedron
+    reference tetrahedron:
+    (1,0,0) - (0,1,0) - (0,0,1) - (0,0,0)
+    """
+    if ngi == 24:
+        # 24 pnts tetronhedron quadrature rule, 6 degree precision
+        # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tet/quadrature_rules_tet.html
+        # keast7
+        L = [0.3561913862225449, 0.2146028712591517, 0.2146028712591517,
+             0.2146028712591517, 0.2146028712591517, 0.2146028712591517,
+             0.2146028712591517, 0.2146028712591517, 0.3561913862225449,
+             0.2146028712591517, 0.3561913862225449, 0.2146028712591517,
+             0.8779781243961660, 0.0406739585346113, 0.0406739585346113,
+             0.0406739585346113, 0.0406739585346113, 0.0406739585346113,
+             0.0406739585346113, 0.0406739585346113, 0.8779781243961660,
+             0.0406739585346113, 0.8779781243961660, 0.0406739585346113,
+             0.0329863295731731, 0.3223378901422757, 0.3223378901422757,
+             0.3223378901422757, 0.3223378901422757, 0.3223378901422757,
+             0.3223378901422757, 0.3223378901422757, 0.0329863295731731,
+             0.3223378901422757, 0.0329863295731731, 0.3223378901422757,
+             0.2696723314583159, 0.0636610018750175, 0.0636610018750175,
+             0.0636610018750175, 0.2696723314583159, 0.0636610018750175,
+             0.0636610018750175, 0.0636610018750175, 0.2696723314583159,
+             0.6030056647916491, 0.0636610018750175, 0.0636610018750175,
+             0.0636610018750175, 0.6030056647916491, 0.0636610018750175,
+             0.0636610018750175, 0.0636610018750175, 0.6030056647916491,
+             0.0636610018750175, 0.2696723314583159, 0.6030056647916491,
+             0.2696723314583159, 0.6030056647916491, 0.0636610018750175,
+             0.6030056647916491, 0.0636610018750175, 0.2696723314583159,
+             0.0636610018750175, 0.6030056647916491, 0.2696723314583159,
+             0.2696723314583159, 0.0636610018750175, 0.6030056647916491,
+             0.6030056647916491, 0.2696723314583159, 0.0636610018750175]
+        L = np.asarray(L, dtype=np.float64)
+        L = np.reshape(L, (ngi, 3))
+        weight = [0.0399227502581679, 0.0399227502581679, 0.0399227502581679,
+                  0.0399227502581679, 0.0100772110553207, 0.0100772110553207,
+                  0.0100772110553207, 0.0100772110553207, 0.0553571815436544,
+                  0.0553571815436544, 0.0553571815436544, 0.0553571815436544,
+                  0.0482142857142857, 0.0482142857142857, 0.0482142857142857,
+                  0.0482142857142857, 0.0482142857142857, 0.0482142857142857,
+                  0.0482142857142857, 0.0482142857142857, 0.0482142857142857,
+                  0.0482142857142857, 0.0482142857142857, 0.0482142857142857]
+        weight = np.asarray(weight, dtype=np.float64)
+        weight *= 1. / 6.
+    elif ngi == 11:
+        # keast4 quadrature, 11 points, order 4
+        # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tet/quadrature_rules_tet.html
+        L = [
+            0.2500000000000000, 0.2500000000000000, 0.2500000000000000,
+            0.7857142857142857, 0.0714285714285714, 0.0714285714285714,
+            0.0714285714285714, 0.0714285714285714, 0.0714285714285714,
+            0.0714285714285714, 0.0714285714285714, 0.7857142857142857,
+            0.0714285714285714, 0.7857142857142857, 0.0714285714285714,
+            0.1005964238332008, 0.3994035761667992, 0.3994035761667992,
+            0.3994035761667992, 0.1005964238332008, 0.3994035761667992,
+            0.3994035761667992, 0.3994035761667992, 0.1005964238332008,
+            0.3994035761667992, 0.1005964238332008, 0.1005964238332008,
+            0.1005964238332008, 0.3994035761667992, 0.1005964238332008,
+            0.1005964238332008, 0.1005964238332008, 0.3994035761667992,
+        ]
+        L = np.asarray(L, dtype=np.float64)
+        L = np.reshape(L, (ngi, 3))
+        weight = [
+            -0.0789333333333333, 0.0457333333333333, 0.0457333333333333,
+            0.0457333333333333, 0.0457333333333333, 0.1493333333333333, 0.1493333333333333,
+            0.1493333333333333, 0.1493333333333333, 0.1493333333333333, 0.1493333333333333,
+        ]
+        weight = np.asarray(weight, dtype=np.float64)
+        weight *= 1. / 6.
+    elif ngi == 4:
+        L = [0.1381966011250105, 0.1381966011250105, 0.1381966011250105,
+             0.1381966011250105, 0.1381966011250105, 0.5854101966249685,
+             0.1381966011250105, 0.5854101966249685, 0.1381966011250105,
+             0.5854101966249685, 0.1381966011250105, 0.1381966011250105, ]
+        L = np.asarray(L, dtype=np.float64)
+        L = np.reshape(L, (ngi, 3))
+        weight = [0.25, 0.25, 0.25, 0.25]
+        weight = np.asarray(weight, dtype=np.float64)
+        weight *= 1. / 6.
+    else:
+        raise Exception('ngi ', ngi, 'for tetrahedron is not implemented or existed!')
+    return L, weight
+
+
+def _gi_pnts_tri(sngi):
+    """
+    output gaussian points and weights in triangle
+    also output neighbour face gaussian points order in 3 different
+    alignment.
+    reference triangle:
+    (1,0) - (0,1) - (0,0)
+    neighbour face: note that nodes in neighbours are in opposite order.
+    alignment 0:
+    (1,0) - (0,0) - (0,1)
+    alignment 1:
+    (0,1) - (1,0) - (0,0)
+    alignment 2:
+    (0,0) - (0,1) - (1,0)
+    """
+    if sngi == 9:
+        # 9 pnts triangle quadrature rule, 6 degree precision
+        # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
+        # strang8
+        a = 0.437525248383384
+        b = 0.124949503233232
+        c = 0.797112651860071
+        d = 0.165409927389841
+        e = 0.037477420750088
+        pnts = np.asarray(
+            [b, a, a,
+             a, b, a,
+             a, a, b,
+             c, e, d,
+             c, d, e,
+             d, c, e,
+             e, c, d,
+             e, d, c,
+             d, e, c,
+             ],
+            dtype=np.float64).reshape((sngi, 3))
+        sweight = [0.205950504760887, 0.205950504760887, 0.205950504760887,
+                   0.063691414286223, 0.063691414286223, 0.063691414286223,
+                   0.063691414286223, 0.063691414286223, 0.063691414286223]
+        # alignment = [1, 3, 2, 5, 4, 7, 6, 9, 8,
+        #              2, 1, 3, 6, 8, 4, 9, 5, 7,
+        #              3, 2, 1, 9, 7, 8, 5, 6, 4]
+        alignment = [0, 2, 1, 4, 3, 8, 7, 6, 5,
+                     1, 0, 2, 6, 5, 4, 3, 8, 7,
+                     2, 1, 0, 8, 7, 6, 5, 4, 3]
+        sweight = np.asarray(sweight, dtype=np.float64)
+        sweight *= 0.5
+    elif sngi == 6:
+        # strang5 6 pnts quadrature rule, order 4 precision
+        # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
+        a = 0.816847572980459
+        b = 0.091576213509771
+        c = 0.108103018168070
+        d = 0.445948490915965
+        pnts = np.asarray([
+            a, b, b,
+            b, a, b,
+            b, b, a,
+            c, d, d,
+            d, c, d,
+            d, d, c,
+        ], dtype=np.float64).reshape((sngi, 3))
+        sweight = [0.109951743655322, 0.109951743655322, 0.109951743655322,
+                   0.223381589678011, 0.223381589678011, 0.223381589678011]
+        alignment = [
+            0, 2, 1, 3, 5, 4,
+            1, 0, 2, 4, 3, 5,
+            2, 1, 0, 5, 4, 3,
+        ]
+        sweight = np.asarray(sweight, dtype=np.float64)
+        sweight *= 0.5
+    elif sngi == 3:
+        # 3 pnts triangle quadrature rule, 2 degree precision
+        # strang2
+        pnts = np.asarray([0.5, 0, 0.5,
+                           0.5, 0.5, 0,
+                           0, 0.5, 0.5], dtype=np.float64).reshape((sngi, 3))
+        sweight = [1. / 3., 1. / 3., 1. / 3.]
+        alignment = [
+            1, 0, 2,
+            2, 1, 0,
+            0, 2, 1,
+        ]
+        sweight = np.asarray(sweight, dtype=np.float64)
+        sweight *= 0.5
+    else:
+        raise Exception('ngi ', sngi, 'for triangle is not implemented or existed!')
+    return pnts, sweight, alignment
+
+
 def SHATRInew(nloc,ngi,ndim, snloc, sngi):
     '''
     shape functions on a reference element
@@ -46,52 +222,10 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
         # 3D tetrahedron
         # volume shape function
         if nloc == 20:  # cubic elements
-            if ngi != 24:
-                raise Exception('ngi ', ngi, 'is not compatible with nloc ', nloc)
-            # 24 pnts tetronhedron quadrature rule, 6 degree precision
-            # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tet/quadrature_rules_tet.html
-            # keast7
-            L = [ 0.3561913862225449, 0.2146028712591517, 0.2146028712591517,
-                  0.2146028712591517, 0.2146028712591517, 0.2146028712591517,
-                  0.2146028712591517, 0.2146028712591517, 0.3561913862225449,
-                  0.2146028712591517, 0.3561913862225449, 0.2146028712591517,
-                  0.8779781243961660, 0.0406739585346113, 0.0406739585346113,
-                  0.0406739585346113, 0.0406739585346113, 0.0406739585346113,
-                  0.0406739585346113, 0.0406739585346113, 0.8779781243961660,
-                  0.0406739585346113, 0.8779781243961660, 0.0406739585346113,
-                  0.0329863295731731, 0.3223378901422757, 0.3223378901422757,
-                  0.3223378901422757, 0.3223378901422757, 0.3223378901422757,
-                  0.3223378901422757, 0.3223378901422757, 0.0329863295731731,
-                  0.3223378901422757, 0.0329863295731731, 0.3223378901422757,
-                  0.2696723314583159, 0.0636610018750175, 0.0636610018750175,
-                  0.0636610018750175, 0.2696723314583159, 0.0636610018750175,
-                  0.0636610018750175, 0.0636610018750175, 0.2696723314583159,
-                  0.6030056647916491, 0.0636610018750175, 0.0636610018750175,
-                  0.0636610018750175, 0.6030056647916491, 0.0636610018750175,
-                  0.0636610018750175, 0.0636610018750175, 0.6030056647916491,
-                  0.0636610018750175, 0.2696723314583159, 0.6030056647916491,
-                  0.2696723314583159, 0.6030056647916491, 0.0636610018750175,
-                  0.6030056647916491, 0.0636610018750175, 0.2696723314583159,
-                  0.0636610018750175, 0.6030056647916491, 0.2696723314583159,
-                  0.2696723314583159, 0.0636610018750175, 0.6030056647916491,
-                  0.6030056647916491, 0.2696723314583159, 0.0636610018750175]
-            L = np.asarray(L, dtype=np.float64)
-            L = np.reshape(L, (ngi, 3))
-            # l1 = L[:,0]
-            # l2 = L[:,1]
-            # l3 = L[:.2]
-            # l4 = np.ones_like(l1) - l1 - l2 - l3
-            weight = [  0.0399227502581679,   0.0399227502581679,   0.0399227502581679,
-                        0.0399227502581679,   0.0100772110553207,   0.0100772110553207,
-                        0.0100772110553207,   0.0100772110553207,   0.0553571815436544,
-                        0.0553571815436544,   0.0553571815436544,   0.0553571815436544,
-                        0.0482142857142857,   0.0482142857142857,   0.0482142857142857,
-                        0.0482142857142857,   0.0482142857142857,   0.0482142857142857,
-                        0.0482142857142857,   0.0482142857142857,   0.0482142857142857,
-                        0.0482142857142857,   0.0482142857142857,   0.0482142857142857]
+            # if ngi != 24:
+            #     raise Exception('ngi ', ngi, 'is not compatible with nloc ', nloc)
+            L, weight = _gi_pnts_tetra(ngi)
             nface = ndim + 1
-            weight = np.asarray(weight, dtype=np.float64)
-            weight *= 1./6.
 
             n = np.zeros((nloc, ngi))
             nlx = np.zeros((nloc, ngi))
@@ -216,33 +350,10 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nlz[18, gi] = - 27 * l1 * l3 - 27 * l1 * (l1 + l2 + l3 - 1)
                 nlz[19, gi] = -27 * l1 * l2
         elif nloc == 10:  # quadratic element
-            if ngi != 11:
-                raise Exception('ngi ', ngi, 'is not compatible iwth nloc ', nloc)
-            # keast4 quadrature, 11 points, order 4
-            # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tet/quadrature_rules_tet.html
-            L = [
-                0.2500000000000000, 0.2500000000000000, 0.2500000000000000,
-                0.7857142857142857, 0.0714285714285714, 0.0714285714285714,
-                0.0714285714285714, 0.0714285714285714, 0.0714285714285714,
-                0.0714285714285714, 0.0714285714285714, 0.7857142857142857,
-                0.0714285714285714, 0.7857142857142857, 0.0714285714285714,
-                0.1005964238332008, 0.3994035761667992, 0.3994035761667992,
-                0.3994035761667992, 0.1005964238332008, 0.3994035761667992,
-                0.3994035761667992, 0.3994035761667992, 0.1005964238332008,
-                0.3994035761667992, 0.1005964238332008, 0.1005964238332008,
-                0.1005964238332008, 0.3994035761667992, 0.1005964238332008,
-                0.1005964238332008, 0.1005964238332008, 0.3994035761667992,
-                ]
-            L = np.asarray(L, dtype=np.float64)
-            L = np.reshape(L, (ngi, 3))
-            weight = [
-                -0.0789333333333333,   0.0457333333333333,   0.0457333333333333,
-                0.0457333333333333,   0.0457333333333333,   0.1493333333333333,   0.1493333333333333,
-                0.1493333333333333,   0.1493333333333333,   0.1493333333333333,   0.1493333333333333,
-            ]
+            # if ngi != 11:
+            #     raise Exception('ngi ', ngi, 'is not compatible iwth nloc ', nloc)
+            L, weight = _gi_pnts_tetra(ngi)
             nface = ndim + 1
-            weight = np.asarray(weight, dtype=np.float64)
-            weight *= 1./6.
 
             n = np.zeros((nloc, ngi))
             nlx = np.zeros((nloc, ngi))
@@ -299,18 +410,10 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nlz[8, gi] = -4. * l2
                 nlz[9, gi] = 4. - 4. * l2 - 8. * l3 - 4. * l1
         elif nloc == 4:  # linear element
-            if ngi != 4:
-                raise Exception('ngi ', ngi, 'is not compatible with nloc ', nloc)
-            L = [0.1381966011250105, 0.1381966011250105, 0.1381966011250105,
-                 0.1381966011250105, 0.1381966011250105, 0.5854101966249685,
-                 0.1381966011250105, 0.5854101966249685, 0.1381966011250105,
-                 0.5854101966249685, 0.1381966011250105, 0.1381966011250105,]
-            L = np.asarray(L, dtype=np.float64)
-            L = np.reshape(L, (ngi, 3))
-            weight = [0.25, 0.25, 0.25, 0.25]
+            # if ngi != 4:
+            #     raise Exception('ngi ', ngi, 'is not compatible with nloc ', nloc)
+            L, weight = _gi_pnts_tetra(ngi)
             nface = ndim + 1
-            weight = np.asarray(weight, dtype=np.float64)
-            weight *= 1./6.
 
             n = np.zeros((nloc, ngi))
             nlx = np.zeros((nloc, ngi))
@@ -346,37 +449,9 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
 
         # face shape function
         if snloc == 10:  # cubic face shape functions
-            if sngi != 9:
-                raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
-            # 9 pnts triangle quadrature rule, 6 degree precision
-            # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
-            # strang8
-            a = 0.437525248383384
-            b = 0.124949503233232
-            c = 0.797112651860071
-            d = 0.165409927389841
-            e = 0.037477420750088
-            pnts = np.asarray(
-                [b, a, a,
-                 a, b, a,
-                 a, a, b,
-                 c, e, d,
-                 c, d, e,
-                 d, c, e,
-                 e, c, d,
-                 e, d, c,
-                 d, e, c,
-                 ],
-                dtype=np.float64).reshape((sngi, 3))
-            sweight = [0.205950504760887,   0.205950504760887,   0.205950504760887,
-                       0.063691414286223,   0.063691414286223,   0.063691414286223,
-                       0.063691414286223,   0.063691414286223,   0.063691414286223]
-            # alignment = [1, 3, 2, 5, 4, 7, 6, 9, 8,
-            #              2, 1, 3, 6, 8, 4, 9, 5, 7,
-            #              3, 2, 1, 9, 7, 8, 5, 6, 4]
-            alignment = [0, 2, 1, 4, 3, 8, 7, 6, 5,
-                         1, 0, 2, 6, 5, 4, 3, 8, 7,
-                         2, 1, 0, 8, 7, 6, 5, 4, 3]
+            # if sngi != 9:
+            #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
+            pnts, sweight, alignment = _gi_pnts_tri(sngi)
             sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 3-2-4, l1 = 0
@@ -399,8 +474,6 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             SL[3, :, 1] = pnts[:, 1]
             SL[3, :, 2] = pnts[:, 2]
             SL[3, :, 3] = 0
-            sweight = np.asarray(sweight, dtype=np.float64)
-            sweight *= 0.5
 
             sn = np.zeros((nface, nloc, sngi))
             snlx = np.zeros((nface, nloc, sngi))
@@ -526,29 +599,10 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                     snlz[iface, 18, gi] = - 27 * l1 * l3 - 27 * l1 * (l1 + l2 + l3 - 1)
                     snlz[iface, 19, gi] = -27 * l1 * l2
         elif snloc == 6:  # quadratic element
-            if sngi != 6:
-                raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
-            # strang5 6 pnts quadrature rule, order 4 precision
-            # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
-            a = 0.816847572980459
-            b = 0.091576213509771
-            c = 0.108103018168070
-            d = 0.445948490915965
-            pnts = np.asarray([
-                a,  b,  b,
-                b,  a,  b,
-                b,  b,  a,
-                c,  d,  d,
-                d,  c,  d,
-                d,  d,  c,
-            ], dtype=np.float64).reshape((sngi, 3))
-            sweight = [0.109951743655322,   0.109951743655322,   0.109951743655322,
-                       0.223381589678011,   0.223381589678011,   0.223381589678011]
-            alignment = [
-                0, 2, 1, 3, 5, 4,
-                1, 0, 2, 4, 3, 5,
-                2, 1, 0, 5, 4, 3,
-            ]
+            # if sngi != 6:
+            #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
+            pnts, sweight, alignment = _gi_pnts_tri(sngi)
+
             sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
                                                     device=dev,
                                                     dtype=torch.int64).view(ndim, sngi))
@@ -573,8 +627,7 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             SL[3, :, 1] = pnts[:, 1]
             SL[3, :, 2] = pnts[:, 2]
             SL[3, :, 3] = 0
-            sweight = np.asarray(sweight, dtype=np.float64)
-            sweight *= 0.5
+
             sn = np.zeros((nface, nloc, sngi))
             snlx = np.zeros((nface, nloc, sngi))
             snly = np.zeros((nface, nloc, sngi))
@@ -631,18 +684,9 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                     snlz[iface, 8, gi] = -4. * l2
                     snlz[iface, 9, gi] = 4. - 4. * l2 - 8. * l3 - 4. * l1
         elif snloc == 3:  # linear element
-            if sngi != 3:
-                raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
-            # 3 pnts triangle quadrature rule, 2 degree precision
-            # strang2
-            pnts = np.asarray([0.5, 0,   0.5,
-                               0.5, 0.5, 0,
-                               0,   0.5, 0.5], dtype=np.float64).reshape((sngi,3))
-            sweight = [1./3., 1./3., 1./3.]
-            alignment = [1, 0, 2,
-                         2, 1, 0,
-                         0, 2, 1,
-                         ]
+            # if sngi != 3:
+            #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
+            pnts, sweight, alignment = _gi_pnts_tri(sngi)
             sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
                                                     device=dev,
                                                     dtype=torch.int64).view(ndim, sngi))
@@ -667,8 +711,6 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             SL[3, :, 1] = pnts[:, 1]
             SL[3, :, 2] = pnts[:, 2]
             SL[3, :, 3] = 0
-            sweight = np.asarray(sweight, dtype=np.float64)
-            sweight *= 0.5
 
             sn = np.zeros((nface, nloc, sngi))
             snlx = np.zeros((nface, nloc, sngi))
