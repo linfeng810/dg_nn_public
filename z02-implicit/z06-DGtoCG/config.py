@@ -33,7 +33,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'quadratic'  # 'linear' or 'cubic' or 'quadratic'
+ele_type = 'linear'  # 'linear' or 'cubic' or 'quadratic'
 ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type=='cubic':
@@ -93,6 +93,7 @@ print('this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its))
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
+# 'none' don't use block jacobian, but use point jacobian. Usually not stable.
 
 ####################
 # discretisation settings

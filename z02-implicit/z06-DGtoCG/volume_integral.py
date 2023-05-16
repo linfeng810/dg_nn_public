@@ -69,6 +69,10 @@ def get_residual_and_smooth_once(
                                                        c_i_partial).view(-1))
                                    / diagA).view(-1, nloc)
             c_i[idx_in, :] = c_i_partial.view(-1, nloc)
+        if config.blk_solver == 'none':
+            # then use point jacobi iteration
+            c_i = c_i.view(nele, nloc)
+            c_i[idx_in, :] += config.jac_wei * r0.view(nele, nloc)[idx_in, :] / diagA
     r0 = r0.view(-1)
     c_i = c_i.view(-1)
 
