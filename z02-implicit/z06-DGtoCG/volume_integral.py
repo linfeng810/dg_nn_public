@@ -7,6 +7,7 @@ import numpy as np
 import multi_grid
 import shape_function
 from surface_integral_mf import S_mf_one_batch
+from types import NoneType
 
 dev = config.dev
 nele = config.nele 
@@ -23,7 +24,7 @@ nface = config.nface
 
 def get_residual_and_smooth_once(
         r0,
-        c_i, c_n, c_bc, f):
+        c_i, c_n, c_bc, f, c_rhs=None):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -32,6 +33,8 @@ def get_residual_and_smooth_once(
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     # diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
     # bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    if type(c_rhs) != NoneType:
+        r0 += c_rhs  # precalculated rhs
     for i in range(nnn):
         # volume integral
         idx_in = np.zeros(nele, dtype=bool)
@@ -81,7 +84,7 @@ def get_residual_and_smooth_once(
 
 def get_residual_only(
         r0,
-        c_i, c_n, c_bc, f):
+        c_i, c_n, c_bc, f, c_rhs=None):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -90,6 +93,8 @@ def get_residual_only(
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     # diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
     # bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
+    if type(c_rhs) != NoneType:
+        r0 += c_rhs  # precalculated rhs
     for i in range(nnn):
         # volume integral
         idx_in = np.zeros(nele, dtype=bool)
