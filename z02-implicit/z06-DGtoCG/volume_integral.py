@@ -164,7 +164,7 @@ def K_mf_one_batch(r0, c_i, c_n, f, k, dt,
     x_ref_in = sf_nd_nb.x_ref_in
     weight = sf_nd_nb.weight
 
-    batch_in = idx_in.shape[0]
+    batch_in = np.sum(idx_in)
     # change view
     r0 = r0.view(-1, nloc)
     c_i = c_i.view(-1, nloc)

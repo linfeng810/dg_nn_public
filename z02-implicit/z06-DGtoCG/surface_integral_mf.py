@@ -101,8 +101,8 @@ def S_mf_one_batch(r, c_i, c_bc,
     c_bc = c_bc.view(nele, nloc)
 
     # first lets separate nbf to get two list of F_i and F_b
-    F_i = np.where(alnmt >= 0 & idx_in_f)[0]  # interior face
-    F_b = np.where(alnmt < 0 & idx_in_f)[0]  # boundary face
+    F_i = np.where(np.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
+    F_b = np.where(np.logical_and(alnmt < 0, idx_in_f))[0]  # boundary face
     F_inb = nbf[F_i]  # neighbour list of interior face
     F_inb = F_inb.astype(np.int64)
 
