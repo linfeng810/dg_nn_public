@@ -26,7 +26,7 @@ from surface_integral import S_Minv_sparse
 from volume_integral import calc_RAR_mf_color, get_residual_and_smooth_once, \
     get_residual_only
 from color import color2
-import multi_grid
+import multi_grid, solvers
 
 # for pretty print out torch tensor
 # torch.set_printoptions(sci_mode=False)
@@ -227,6 +227,7 @@ if True:  # from PnDG to P1CG
                                    values=I_cf.data,
                                    size=(cg_nonods, p1dg_nonods),
                                    device=dev)
+    sf_nd_nb.set_data(I_fc=I_fc, I_cf=I_cf)
     # np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
     # PnDG to P1DG
     # if config.ele_type == 'cubic':
@@ -314,146 +315,27 @@ if (config.solver=='iterative') :
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
-        while (r0l2>1e-9 and its<config.jac_its):
-            c_i = c_i.view(-1,1,nloc)
-
-            for its1 in range(config.pre_smooth_its):
-                # on fine grid
-                r0 *= 0
-                r0, c_i = get_residual_and_smooth_once(
-                    r0,
-                    c_i, c_n, c_bc, f)
-
-            # residual on PnDG
-            r0 *= 0
-            r0 = get_residual_only(
-                r0,
-                c_i, c_n, c_bc, f)
-
-            if False:  # PnDG to P0DG
-                # per element condensation
-                # passing r0 to next level coarse grid and solve Ae=r0
-                r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
-            if True:  # P1DG to P1CG
-                r1 = multi_grid.p3dg_to_p1dg_restrictor(r0)
-                r1 = torch.matmul(I_cf, r1)
-            # reordering node according to SFC
-            ncurve = 1  # always use 1 sfc
-            N = len(space_filling_curve_numbering)
-            inverse_numbering = np.zeros((N, ncurve), dtype=int)
-            inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
-            r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, cg_nonods)
-
-            e_i = torch.zeros((cg_nonods,1), device=dev, dtype=torch.float64)
-            rr1 = r1_sfc.detach().clone()
-            rr1_l2_0 = torch.linalg.norm(rr1.view(-1),dim=0)
-            rr1_l2 = 10.
-            its1=0
-            # while its1 < config.mg_its[0] and rr1_l2 > config.mg_tol:
-            if True:  # smooth on P1CG
-                for _ in range(config.pre_smooth_its):
-                    # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-                    rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
-
-                    diagA1 = 1. / variables_sfc[0][2]
-                    e_i = e_i.view(cg_nonods, 1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1, 1)
-                # for _ in range(100):
-                if True:  # SFC multi-grid saw-tooth iteration
-                    rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
-                    # use SFC to generate a series of coarse grid
-                    # and iterate there (V-cycle saw-tooth fasion)
-                    # then return a residual on level-1 grid (P1CG)
-                    e_i = multi_grid.mg_on_P1CG(
-                        r1_sfc.view(cg_nonods, 1),
-                        rr1,
-                        e_i,
-                        space_filling_curve_numbering,
-                        variables_sfc,
-                        nlevel,
-                        nodes_per_level)
-
-                else:  # direct solver on first SFC coarsened grid (thus constitutes a 3-level MG)
-                    rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
-                    level = 1
-
-                    # restrict residual
-                    sfc_restrictor = torch.nn.Conv1d(in_channels=1,
-                                                     out_channels=1, kernel_size=2,
-                                                     stride=2, padding='valid', bias=False)
-                    sfc_restrictor.weight.data = \
-                        torch.tensor([[1., 1.]],
-                                     dtype=torch.float64,
-                                     device=config.dev).view(1, 1, 2)
-                    b = torch.nn.functional.pad(rr1, (0, 1), "constant", 0)  # residual on level1 sfc coarse grid
-                    with torch.no_grad():
-                        b = sfc_restrictor(b)
-                        # np.savetxt('b.txt', b.view(-1).cpu().numpy(), delimiter=',')
-                    # get operator
-                    a_sfc_l1 = variables_sfc[level][0]
-                    cola = a_sfc_l1.col_indices().detach().clone().cpu().numpy()
-                    fina = a_sfc_l1.crow_indices().detach().clone().cpu().numpy()
-                    vals = a_sfc_l1.values().detach().clone().cpu().numpy()
-                    # direct solve on level1 sfc coarse grid
-                    from scipy.sparse import csr_matrix, linalg
-                    # np.savetxt('a_sfc_l0.txt', variables_sfc[0][0].to_dense().cpu().numpy(), delimiter=',')
-                    # np.savetxt('a_sfc_l1.txt', variables_sfc[1][0].to_dense().cpu().numpy(), delimiter=',')
-                    a_on_l1 = csr_matrix((vals, cola, fina), shape=(nodes_per_level[level], nodes_per_level[level]))
-                    # np.savetxt('a_sfc_l1_sp.txt', a_on_l1.todense(), delimiter=',')
-                    e_i_direct = linalg.spsolve(a_on_l1, b.view(-1).cpu().numpy())
-                    # prolongation
-                    e_ip1 = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64).view(1, 1, -1)
-                    CNN1D_prol_odd = torch.nn.Upsample(scale_factor=nodes_per_level[level - 1] / nodes_per_level[level])
-                    e_ip1 = CNN1D_prol_odd(e_ip1.view(1, 1, -1))
-                    e_i += torch.squeeze(e_ip1).view(cg_nonods, 1)
-                    # e_i += e_ip1[0, 0, space_filling_curve_numbering[:, 0] - 1].view(-1,1)
-
-                    for _ in range(config.post_smooth_its):
-                        # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-                        rr1 = r1_sfc-torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                        rr1_l2 = torch.linalg.norm(rr1.view(-1),dim=0)/rr1_l2_0
-
-                        diagA1 = 1./variables_sfc[0][2]
-                        e_i = e_i.view(cg_nonods,1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1,1)
-
-                its1 += 1
-                # print('its1: %d, residual on P1CG: '%(its1), rr1_l2)
-            # reverse to original order
-            e_i = e_i[space_filling_curve_numbering[:, 0] - 1, 0].view(-1,1)
-
-            if False:  # direc solve on P1CG R^T A R e = r1?
-                e_direct = sp.sparse.linalg.spsolve(RARmat, r1.contiguous().view(-1).cpu().numpy())
-                # np.savetxt('RARmat.txt', RARmat.toarray(), delimiter=',')
-                e_i = e_i.view(-1)
-                # print(e_i - torch.tensor(e_direct, device=dev, dtype=torch.float64))
-                e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-
-            # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
-            if False:  # from P0DG to PnDG
-                # pass e_i back to fine mesh
-                e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1,1))
-            if True:  # from P1CG to P1DG
-                e_i0 = torch.mv(I_fc, e_i.view(-1))
-                e_i0 = multi_grid.p1dg_to_p3dg_prolongator(e_i0)
-            c_i = c_i.view(-1) + e_i0.view(-1)
-
-            for _ in range(config.post_smooth_its):
-                # post smooth
-                r0 *= 0
-                r0, c_i = get_residual_and_smooth_once(
-                    r0,
-                    c_i, c_n, c_bc, f)
-            # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
-            # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
-
-            r0l2 = torch.linalg.norm(r0,dim=0)
-            # print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
-            print('P1CG its=', its1, 'its=', its, 'fine grid residual l2 norm=', r0l2.cpu().numpy())
-            r0l2all.append(r0l2.cpu().numpy())
-
-            its+=1
+        if config.linear_solver == 'mg':
+            c_i = solvers.multigrid_solver(c_i, c_n, c_bc, f,
+                                           config.tol,
+                                           space_filling_curve_numbering,
+                                           variables_sfc,
+                                           nlevel,
+                                           nodes_per_level)
+        if config.linear_solver == 'gmres-mg':
+            c_i = solvers.gmres_mg_solver(c_i, c_n, c_bc, f,
+                                          config.tol,
+                                          space_filling_curve_numbering,
+                                          variables_sfc,
+                                          nlevel,
+                                          nodes_per_level)
+        if config.linear_solver == 'gmres':
+            c_i = solvers.gmres_solver(c_i, c_n, c_bc, f,
+                                       config.tol,
+                                       space_filling_curve_numbering,
+                                       variables_sfc,
+                                       nlevel,
+                                       nodes_per_level)
 
         # get final residual after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)

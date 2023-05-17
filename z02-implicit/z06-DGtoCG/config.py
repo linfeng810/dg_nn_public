@@ -25,7 +25,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z21-cube-mesh/cube_r1.msh' # directory to mesh file (gmsh)
+filename='z21-cube-mesh/cube.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -33,7 +33,8 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'linear'  # 'linear' or 'cubic' or 'quadratic'
+ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
+print('element order: ', ele_type)
 ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type=='cubic':
@@ -75,7 +76,8 @@ else:  # ndim = 3
 nonods = nloc*nele # number of nodes
 ndglno=np.arange(0,nonods) # local to global
 
-
+linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
+tol = 1.e-10  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 2000  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_wei = 2./3. # jacobi weight
@@ -94,6 +96,10 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 # 'none' don't use block jacobian, but use point jacobian. Usually not stable.
+
+# gmres parameters
+gmres_m = 10  # restart
+gmres_its = 100  # max GMRES steps
 
 ####################
 # discretisation settings

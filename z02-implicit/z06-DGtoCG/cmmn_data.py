@@ -43,6 +43,9 @@ class SfNdNb:
         self.I_31 = None
         self.I_13 = None
         self.gi_align = None  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
+        self.I_cf = None  # discontinuous P1DG to continuous P1CG prolongator
+        self.I_fc = None  # continuous P1CG to discontinuous p1DG restrictor
+
 
     def set_data(self,
                  n=None,
@@ -59,6 +62,8 @@ class SfNdNb:
                  alnmt=None,  # face alignment in 3D
                  I_31=None,
                  gi_align=None,  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
+                 I_cf = None,  # discontinuous P1DG to continuous P1CG prolongator
+                 I_fc = None,  # continuous P1CG to discontinuous p1DG restrictor
                  ):
         if type(n) != NoneType:
             self.n = n
@@ -89,3 +94,7 @@ class SfNdNb:
             self.I_13 = torch.transpose(I_31, dim0=0, dim1=1)
         if type(gi_align) != NoneType:
             self.gi_align = gi_align
+        if type(I_cf) != NoneType:
+            self.I_cf = I_cf
+        if type(I_fc) != NoneType:
+            self.I_fc = I_fc
