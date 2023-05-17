@@ -6,6 +6,7 @@ We have MG solver, and MG-preconditioned GMRES solver.
 """
 import torch
 import numpy as np
+import scipy as sp
 import config
 import multi_grid
 from volume_integral import get_residual_only, get_residual_and_smooth_once
@@ -48,23 +49,29 @@ def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
         r0,
         c_i, c_n, c_bc, f, c_rhs)
 
-    # P1DG to P1CG
-    r1 = multi_grid.p3dg_to_p1dg_restrictor(r0)
-    r1 = torch.matmul(sf_nd_nb.I_cf, r1)
-    # reordering node according to SFC
-    ncurve = 1  # always use 1 sfc
-    N = len(space_filling_curve_numbering)
-    inverse_numbering = np.zeros((N, ncurve), dtype=int)
-    inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
-    r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, cg_nonods)
+    if not config.is_pmg:
+        # P1DG to P1CG
+        r1 = multi_grid.p3dg_to_p1dg_restrictor(r0)
+        r1 = torch.matmul(sf_nd_nb.I_cf, r1)
+    else:  # do visit each p grid (p-multigrid)
+        r_p, e_p = multi_grid.p_mg_pre(r0)
+        # now restrict P1DG to P1CG
+        ilevel = config.ele_p - 1
+        r1 = torch.mv(sf_nd_nb.I_cf, r_p[ilevel])
 
     e_i = torch.zeros((cg_nonods, 1), device=dev, dtype=torch.float64)
-    rr1 = r1_sfc.detach().clone()
+    # rr1 = r1_sfc.detach().clone()
     # rr1_l2_0 = torch.linalg.norm(rr1.view(-1), dim=0)
     # rr1_l2 = 10.
     its1 = 0
     # while its1 < config.mg_its[0] and rr1_l2 > config.mg_tol:
-    if True:  # smooth on P1CG
+    if config.is_sfc:  # smooth on P1CG
+        # reordering node according to SFC
+        ncurve = 1  # always use 1 sfc
+        N = len(space_filling_curve_numbering)
+        inverse_numbering = np.zeros((N, ncurve), dtype=int)
+        inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
+        r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, cg_nonods)
         for _ in range(config.pre_smooth_its):
             # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
             rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
@@ -134,23 +141,25 @@ def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
 
         its1 += 1
         # print('its1: %d, residual on P1CG: '%(its1), rr1_l2)
-    # reverse to original order
-    e_i = e_i[space_filling_curve_numbering[:, 0] - 1, 0].view(-1, 1)
+        # reverse to original order
+        e_i = e_i[space_filling_curve_numbering[:, 0] - 1, 0].view(-1, 1)
 
-    if False:  # direc solve on P1CG R^T A R e = r1?
-        e_direct = sp.sparse.linalg.spsolve(RARmat, r1.contiguous().view(-1).cpu().numpy())
+    else:  # direc solve on P1CG R^T A R e = r1?
+        e_direct = sp.sparse.linalg.spsolve(sf_nd_nb.RARmat, r1.contiguous().view(-1).cpu().numpy())
         # np.savetxt('RARmat.txt', RARmat.toarray(), delimiter=',')
         e_i = e_i.view(-1)
         # print(e_i - torch.tensor(e_direct, device=dev, dtype=torch.float64))
         e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
 
-    # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
-    if False:  # from P0DG to PnDG
-        # pass e_i back to fine mesh
-        e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1, 1))
-    if True:  # from P1CG to P1DG
+    if not config.is_pmg:  # from P1CG to P1DG
         e_i0 = torch.mv(sf_nd_nb.I_fc, e_i.view(-1))
         e_i0 = multi_grid.p1dg_to_p3dg_prolongator(e_i0)
+    else:  # do visit all p grids (p multi-grid)
+        # prolongate error from P1CG to P1DG
+        ilevel = config.ele_p - 1
+        e_p[ilevel] += torch.mv(sf_nd_nb.I_fc, e_i.view(-1))
+        r_p, e_p = multi_grid.p_mg_post(e_p, r_p)
+        e_i0 = e_p[0]
     c_i = c_i.view(-1) + e_i0.view(-1)
 
     for _ in range(config.post_smooth_its):

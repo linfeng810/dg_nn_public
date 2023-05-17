@@ -45,6 +45,7 @@ class SfNdNb:
         self.gi_align = None  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
         self.I_cf = None  # discontinuous P1DG to continuous P1CG prolongator
         self.I_fc = None  # continuous P1CG to discontinuous p1DG restrictor
+        self.RARmat = None  # operator on P1CG, type: scipy csr sparse matrix
 
 
     def set_data(self,
@@ -64,6 +65,7 @@ class SfNdNb:
                  gi_align=None,  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
                  I_cf = None,  # discontinuous P1DG to continuous P1CG prolongator
                  I_fc = None,  # continuous P1CG to discontinuous p1DG restrictor
+                 RARmat = None,  # operator on P1CG, type: scipy csr sparse matrix
                  ):
         if type(n) != NoneType:
             self.n = n
@@ -98,3 +100,5 @@ class SfNdNb:
             self.I_cf = I_cf
         if type(I_fc) != NoneType:
             self.I_fc = I_fc
+        if type(RARmat) != NoneType:
+            self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix

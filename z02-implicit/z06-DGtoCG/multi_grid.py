@@ -9,11 +9,9 @@ import config
 from config import sf_nd_nb
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
-
+import volume_integral
 import shape_function
 
-
-# import space_filling_decomp as sfc
 
 def get_a_ml_b(level, \
     fin_sfc_nonods, \
@@ -450,11 +448,12 @@ def p_mg_pre(r0):
     The geometry of the mesh is the same for these
     p multi-grids.
     """
+    ele_p = config.ele_p
     r_p = [r0]  # store residaul on each p level
     e_p = [torch.zeros_like(r0, device=config.dev, dtype=torch.float64)]  # store error on each p level
-    rr_i = r0
-    for p in range(2, 0, -1):
-        ilevel = 3 - p
+    rr_i = r0  # residual of error equation Ae=r. rr_i := r_p - A e_i
+    for p in range(ele_p-1, 0, -1):
+        ilevel = ele_p - p
         # restrict r and e
         r_i = p_restrict(rr_i, p+1, p)
         e_i = p_restrict(e_p[ilevel-1], p+1, p)
@@ -462,10 +461,10 @@ def p_mg_pre(r0):
         e_p.append(e_i)
         # pre-smooth
         for its1 in range(config.pre_smooth_its):
-            _, e_p[ilevel] = volume_mf_linear_elastic.pmg_get_residual_and_smooth_once(
+            _, e_p[ilevel] = volume_integral.pmg_get_residual_and_smooth_once(
                 r_p[ilevel], e_p[ilevel], p)
         # get residual on this level
-        rr_i = volume_mf_linear_elastic.pmg_get_residual_only(r_p[ilevel], e_p[ilevel], p)
+        rr_i = volume_integral.pmg_get_residual_only(r_p[ilevel], e_p[ilevel], p)
     return r_p, e_p
 
 
@@ -473,14 +472,15 @@ def p_mg_post(e_p, r_p):
     """
     do p-multigrid post-smooth
     """
-    for p in range(1, 3):
-        ilevel = 3-p
+    ele_p = config.ele_p
+    for p in range(1, ele_p):
+        ilevel = ele_p - p
         # post smooth
         for its1 in range(config.post_smooth_its):
-            _, e_p[ilevel] = volume_mf_linear_elastic.pmg_get_residual_and_smooth_once(
+            _, e_p[ilevel] = volume_integral.pmg_get_residual_and_smooth_once(
                 r_p[ilevel], e_p[ilevel], p)
         # prolongation and correct error
-        e_p[ilevel-1] += p_prolongate(e_p[ilevel][:,idim], p, p+1)
+        e_p[ilevel-1] += p_prolongate(e_p[ilevel], p, p+1)
     return r_p, e_p
 
 

@@ -300,11 +300,13 @@ if (config.solver=='iterative') :
         print(torch.cuda.mem_get_info(device=dev))
         print('RAR fina cola len: ', RAR.crow_indices().shape, RAR.col_indices().shape)
         print('finishing getting RAR: ', time.time() - starttime)
-        # get RARmat (scipy csr format) for direct solver on P1CG (two-grid cycle)
-        RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
-                                       RAR.col_indices().cpu().numpy(),
-                                       RAR.crow_indices().cpu().numpy()),
-                                      shape=(cg_nonods, cg_nonods))
+        if not config.is_sfc:  # we are solving on two-grid, thus direct solve on P1CG.
+            # get RARmat (scipy csr format) for direct solver on P1CG (two-grid cycle)
+            RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
+                                           RAR.col_indices().cpu().numpy(),
+                                           RAR.crow_indices().cpu().numpy()),
+                                          shape=(cg_nonods, cg_nonods))
+            sf_nd_nb.set_data(RARmat=RARmat)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P1CG_prep(RAR)
