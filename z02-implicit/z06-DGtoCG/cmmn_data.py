@@ -46,7 +46,7 @@ class SfNdNb:
         self.I_cf = None  # discontinuous P1DG to continuous P1CG prolongator
         self.I_fc = None  # continuous P1CG to discontinuous p1DG restrictor
         self.RARmat = None  # operator on P1CG, type: scipy csr sparse matrix
-
+        self.sfc_data = SFCdata()  # sfc related data
 
     def set_data(self,
                  n=None,
@@ -63,9 +63,9 @@ class SfNdNb:
                  alnmt=None,  # face alignment in 3D
                  I_31=None,
                  gi_align=None,  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
-                 I_cf = None,  # discontinuous P1DG to continuous P1CG prolongator
-                 I_fc = None,  # continuous P1CG to discontinuous p1DG restrictor
-                 RARmat = None,  # operator on P1CG, type: scipy csr sparse matrix
+                 I_cf=None,  # discontinuous P1DG to continuous P1CG prolongator
+                 I_fc=None,  # continuous P1CG to discontinuous p1DG restrictor
+                 RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
                  ):
         if type(n) != NoneType:
             self.n = n
@@ -102,3 +102,38 @@ class SfNdNb:
             self.I_fc = I_fc
         if type(RARmat) != NoneType:
             self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
+
+
+class SFCdata:
+    """
+    SFC related data, including:
+    space_filling_curve_numbering
+    variables_sfc
+    nlevel
+    nodes_per_level
+    """
+    def __init__(self,
+                 space_filling_curve_numbering=None,
+                 variables_sfc=None,
+                 nlevel=None,
+                 nodes_per_level=None,
+                 ):
+        self.space_filling_curve_numbering = space_filling_curve_numbering
+        self.variables_sfc = variables_sfc
+        self.nlevel = nlevel
+        self.nodes_per_level = nodes_per_level
+
+    def set_data(self,
+                 space_filling_curve_numbering=None,
+                 variables_sfc=None,
+                 nlevel=None,
+                 nodes_per_level=None,
+                 ):
+        if type(space_filling_curve_numbering) != NoneType:
+            self.space_filling_curve_numbering = space_filling_curve_numbering
+        if type(variables_sfc) != NoneType:
+            self.variables_sfc = variables_sfc
+        if type(nlevel) != NoneType:
+            self.nlevel = nlevel
+        if type(nodes_per_level) != NoneType:
+            self.nodes_per_level = nodes_per_level

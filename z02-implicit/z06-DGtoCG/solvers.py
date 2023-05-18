@@ -18,11 +18,7 @@ dev = config.dev
 nloc = config.nloc
 
 
-def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
-                         space_filling_curve_numbering,
-                         variables_sfc,
-                         nlevel,
-                         nodes_per_level):
+def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs):
     """
     given initial vector and right hand side,
     do one MG cycle.
@@ -68,20 +64,20 @@ def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
     if config.is_sfc:  # smooth on P1CG
         # reordering node according to SFC
         ncurve = 1  # always use 1 sfc
-        N = len(space_filling_curve_numbering)
+        N = len(sf_nd_nb.sfc_data.space_filling_curve_numbering)
         inverse_numbering = np.zeros((N, ncurve), dtype=int)
-        inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
+        inverse_numbering[:, 0] = np.argsort(sf_nd_nb.sfc_data.space_filling_curve_numbering[:, 0])
         r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, cg_nonods)
         for _ in range(config.pre_smooth_its):
             # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-            rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
+            rr1 = r1_sfc - torch.sparse.mm(sf_nd_nb.sfc_data.variables_sfc[0][0], e_i).view(-1)
             # rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
 
-            diagA1 = 1. / variables_sfc[0][2]
+            diagA1 = 1. / sf_nd_nb.sfc_data.variables_sfc[0][2]
             e_i = e_i.view(cg_nonods, 1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1, 1)
         # for _ in range(100):
         if True:  # SFC multi-grid saw-tooth iteration
-            rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
+            rr1 = r1_sfc - torch.sparse.mm(sf_nd_nb.sfc_data.variables_sfc[0][0], e_i).view(-1)
             # rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
             # use SFC to generate a series of coarse grid
             # and iterate there (V-cycle saw-tooth fasion)
@@ -90,10 +86,10 @@ def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
                 r1_sfc.view(cg_nonods, 1),
                 rr1,
                 e_i,
-                space_filling_curve_numbering,
-                variables_sfc,
-                nlevel,
-                nodes_per_level)
+                sf_nd_nb.sfc_data.space_filling_curve_numbering,
+                sf_nd_nb.sfc_data.variables_sfc,
+                sf_nd_nb.sfc_data.nlevel,
+                sf_nd_nb.sfc_data.nodes_per_level)
 
         else:  # direct solver on first SFC coarsened grid (thus constitutes a 3-level MG)
             rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
@@ -142,7 +138,7 @@ def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
         its1 += 1
         # print('its1: %d, residual on P1CG: '%(its1), rr1_l2)
         # reverse to original order
-        e_i = e_i[space_filling_curve_numbering[:, 0] - 1, 0].view(-1, 1)
+        e_i = e_i[sf_nd_nb.sfc_data.space_filling_curve_numbering[:, 0] - 1, 0].view(-1, 1)
 
     else:  # direc solve on P1CG R^T A R e = r1?
         e_direct = sp.sparse.linalg.spsolve(sf_nd_nb.RARmat, r1.contiguous().view(-1).cpu().numpy())
@@ -168,15 +164,11 @@ def _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs,
         r0, c_i = get_residual_and_smooth_once(
             r0,
             c_i, c_n, c_bc, f, c_rhs)
-    return c_i
+    return c_i, r0
 
 
 def multigrid_solver(c_i, c_n, c_bc, f,
-                     tol,
-                     space_filling_curve_numbering,
-                     variables_sfc,
-                     nlevel,
-                     nodes_per_level):
+                     tol):
     """
     use multigrid as a solver
     """
@@ -190,11 +182,7 @@ def multigrid_solver(c_i, c_n, c_bc, f,
     c_n *= 0
     c_bc *= 0
     f *= 0
-    c_i = _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs=dummy,
-                               space_filling_curve_numbering=space_filling_curve_numbering,
-                               variables_sfc=variables_sfc,
-                               nlevel=nlevel,
-                               nodes_per_level=nodes_per_level)
+    c_i, _ = _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs=dummy)
     r0 *= 0
     r0 = get_residual_only(r0,
                            c_i, c_n, c_bc, f, c_rhs=dummy)
@@ -204,26 +192,18 @@ def multigrid_solver(c_i, c_n, c_bc, f,
     # now we do MG cycles
     its = 1
     while r0l2 > tol and its < config.jac_its:
-        c_i = _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs=dummy,
-                                   space_filling_curve_numbering=space_filling_curve_numbering,
-                                   variables_sfc=variables_sfc,
-                                   nlevel=nlevel,
-                                   nodes_per_level=nodes_per_level)
-        r0 *= 0
-        r0 = get_residual_only(r0,
-                               c_i, c_n, c_bc, f, c_rhs=dummy)
-        r0l2 = torch.linalg.norm(r0.view(-1), dim=0) / r0l2_init
+        c_i, r = _multigrid_one_cycle(c_i, c_n, c_bc, f, c_rhs=dummy)
+        # r0 *= 0
+        # r0 = get_residual_only(r0,
+        #                        c_i, c_n, c_bc, f, c_rhs=dummy)
+        r0l2 = torch.linalg.norm(r.view(-1), dim=0) / r0l2_init
         its += 1
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
     return c_i
 
 
 def gmres_mg_solver(c_i, c_n, c_bc, f,
-                    tol,
-                    space_filling_curve_numbering,
-                    variables_sfc,
-                    nlevel,
-                    nodes_per_level):
+                    tol):
     """
     use mg left preconditioned gmres as a solver
     """
@@ -247,11 +227,7 @@ def gmres_mg_solver(c_i, c_n, c_bc, f,
                                   c_n=dummy,
                                   c_bc=dummy,
                                   f=dummy,
-                                  c_rhs=r0,
-                                  space_filling_curve_numbering=space_filling_curve_numbering,
-                                  variables_sfc=variables_sfc,
-                                  nlevel=nlevel,
-                                  nodes_per_level=nodes_per_level)
+                                  c_rhs=r0)
         beta = torch.linalg.norm(r0)
         v_m[0, :] += r0 / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
@@ -269,11 +245,7 @@ def gmres_mg_solver(c_i, c_n, c_bc, f,
                                      c_n=dummy,
                                      c_bc=dummy,
                                      f=dummy,
-                                     c_rhs=w,
-                                     space_filling_curve_numbering=space_filling_curve_numbering,
-                                     variables_sfc=variables_sfc,
-                                     nlevel=nlevel,
-                                     nodes_per_level=nodes_per_level)
+                                     c_rhs=w)
             for i in range(0, j+1):
                 h_m[i, j] = torch.linalg.vecdot(w, v_m[i, :])
                 w -= h_m[i, j] * v_m[i, :]
@@ -297,11 +269,7 @@ def gmres_mg_solver(c_i, c_n, c_bc, f,
 
 
 def gmres_solver(c_i, c_n, c_bc, f,
-                 tol,
-                 space_filling_curve_numbering,
-                 variables_sfc,
-                 nlevel,
-                 nodes_per_level):
+                 tol):
     """
     use mg left preconditioned gmres as a solver
     """

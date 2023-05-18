@@ -311,6 +311,12 @@ if (config.solver=='iterative') :
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P1CG_prep(RAR)
+        sf_nd_nb.sfc_data.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
         # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
@@ -320,25 +326,13 @@ if (config.solver=='iterative') :
         # coarse grid    o       o       o
         if config.linear_solver == 'mg':
             c_i = solvers.multigrid_solver(c_i, c_n, c_bc, f,
-                                           config.tol,
-                                           space_filling_curve_numbering,
-                                           variables_sfc,
-                                           nlevel,
-                                           nodes_per_level)
+                                           config.tol)
         if config.linear_solver == 'gmres-mg':
             c_i = solvers.gmres_mg_solver(c_i, c_n, c_bc, f,
-                                          config.tol,
-                                          space_filling_curve_numbering,
-                                          variables_sfc,
-                                          nlevel,
-                                          nodes_per_level)
+                                          config.tol)
         if config.linear_solver == 'gmres':
             c_i = solvers.gmres_solver(c_i, c_n, c_bc, f,
-                                       config.tol,
-                                       space_filling_curve_numbering,
-                                       variables_sfc,
-                                       nlevel,
-                                       nodes_per_level)
+                                       config.tol)
 
         # get final residual after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)
