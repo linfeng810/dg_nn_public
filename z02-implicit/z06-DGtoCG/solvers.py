@@ -223,11 +223,11 @@ def gmres_mg_solver(c_i, c_n, c_bc, f,
         r0 *= 0
         r0 = get_residual_only(r0,
                                c_i, c_n, c_bc, f)
-        r0 = _multigrid_one_cycle(c_i=torch.zeros(nonods, device=dev, dtype=torch.float64),
-                                  c_n=dummy,
-                                  c_bc=dummy,
-                                  f=dummy,
-                                  c_rhs=r0)
+        r0, _ = _multigrid_one_cycle(c_i=torch.zeros(nonods, device=dev, dtype=torch.float64),
+                                     c_n=dummy,
+                                     c_bc=dummy,
+                                     f=dummy,
+                                     c_rhs=r0)
         beta = torch.linalg.norm(r0)
         v_m[0, :] += r0 / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
@@ -240,12 +240,12 @@ def gmres_mg_solver(c_i, c_n, c_bc, f,
                                   f=dummy,
                                   c_rhs=dummy)  # providing rhs=0, b-Ax is -Ax
             w *= -1.
-            w = _multigrid_one_cycle(c_i=torch.zeros(nonods, device=dev, dtype=torch.float64),
-                                     # ↑ here I believe we create another nonods memory usage
-                                     c_n=dummy,
-                                     c_bc=dummy,
-                                     f=dummy,
-                                     c_rhs=w)
+            w, _ = _multigrid_one_cycle(c_i=torch.zeros(nonods, device=dev, dtype=torch.float64),
+                                        # ↑ here I believe we create another nonods memory usage
+                                        c_n=dummy,
+                                        c_bc=dummy,
+                                        f=dummy,
+                                        c_rhs=w)
             for i in range(0, j+1):
                 h_m[i, j] = torch.linalg.vecdot(w, v_m[i, :])
                 w -= h_m[i, j] * v_m[i, :]
