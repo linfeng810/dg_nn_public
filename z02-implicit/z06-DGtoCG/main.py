@@ -49,8 +49,8 @@ print('computation on ',dev)
 print('nele=', nele)
 
 if ndim == 2:
-    [x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
-    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf)
+    [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
+    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
 else:
     [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndgln, cg_nonods] = mesh_init.init_3d()
     config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
@@ -151,6 +151,7 @@ if ndim == 2:
         # c[inod]= x_inod
         # print("x, c", x_inod.cpu().numpy(), c[inod])
     f = x_all[:, 0] * 0  # right-hand side source
+    f = torch.tensor(f, device=dev, dtype=torch.float64)
 else:  # (6 Dirichlet bcs)
     for bci in bc:
         for inod in bci:
@@ -310,6 +311,12 @@ if (config.solver=='iterative') :
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
             multi_grid.mg_on_P1CG_prep(RAR)
+        sf_nd_nb.sfc_data.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
         # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
@@ -319,25 +326,13 @@ if (config.solver=='iterative') :
         # coarse grid    o       o       o
         if config.linear_solver == 'mg':
             c_i = solvers.multigrid_solver(c_i, c_n, c_bc, f,
-                                           config.tol,
-                                           space_filling_curve_numbering,
-                                           variables_sfc,
-                                           nlevel,
-                                           nodes_per_level)
+                                           config.tol)
         if config.linear_solver == 'gmres-mg':
             c_i = solvers.gmres_mg_solver(c_i, c_n, c_bc, f,
-                                          config.tol,
-                                          space_filling_curve_numbering,
-                                          variables_sfc,
-                                          nlevel,
-                                          nodes_per_level)
+                                          config.tol)
         if config.linear_solver == 'gmres':
             c_i = solvers.gmres_solver(c_i, c_n, c_bc, f,
-                                       config.tol,
-                                       space_filling_curve_numbering,
-                                       variables_sfc,
-                                       nlevel,
-                                       nodes_per_level)
+                                       config.tol)
 
         # get final residual after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)

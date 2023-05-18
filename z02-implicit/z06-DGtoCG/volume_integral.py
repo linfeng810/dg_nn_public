@@ -5,9 +5,14 @@ from config import sf_nd_nb
 import numpy as np
 
 import multi_grid
-import shape_function
 from surface_integral_mf import S_mf_one_batch
 from types import NoneType
+if config.ndim == 2:
+    from shape_function import get_det_nlx as get_det_nlx
+    from shape_function import sdet_snlx as sdet_snlx
+else:
+    from shape_function import get_det_nlx_3d as get_det_nlx
+    from shape_function import sdet_snlx_3d as sdet_snlx
 
 dev = config.dev
 nele = config.nele 
@@ -26,7 +31,7 @@ eta_e = config.eta_e
 
 def get_residual_and_smooth_once(
         r0,
-        c_i, c_n, c_bc, f, c_rhs=None):
+        c_i, c_n, c_bc, f, c_rhs=0):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -35,8 +40,8 @@ def get_residual_and_smooth_once(
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     # diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
     # bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
-    if type(c_rhs) != NoneType:
-        r0 += c_rhs  # precalculated rhs
+    # if type(c_rhs) != NoneType:
+    r0 += c_rhs  # precalculated rhs
     for i in range(nnn):
         # volume integral
         idx_in = np.zeros(nele, dtype=bool)
@@ -86,7 +91,7 @@ def get_residual_and_smooth_once(
 
 def get_residual_only(
         r0,
-        c_i, c_n, c_bc, f, c_rhs=None):
+        c_i, c_n, c_bc, f, c_rhs=0):
     '''
     update residual, do block Jacobi smooth once, by batches.
     '''
@@ -95,8 +100,8 @@ def get_residual_only(
     brk_pnt = np.asarray(np.arange(0,nnn+1)/nnn*nele, dtype=int)
     # diagA = torch.zeros_like(r0, device=dev, dtype=torch.float64)
     # bdiagA = torch.zeros(nele, nloc, nloc, device=dev, dtype=torch.float64)
-    if type(c_rhs) != NoneType:
-        r0 += c_rhs  # precalculated rhs
+    # if type(c_rhs) != NoneType:
+    r0 += c_rhs  # precalculated rhs
     for i in range(nnn):
         # volume integral
         idx_in = np.zeros(nele, dtype=bool)
@@ -171,7 +176,7 @@ def K_mf_one_batch(r0, c_i, c_n, f, k, dt,
     diagA = diagA.view(-1, nloc)
     bdiagA = bdiagA.view(-1, nloc, nloc)
     # get shape function derivatives
-    nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in[idx_in], weight)
+    nx, detwei = get_det_nlx(nlx, x_ref_in[idx_in], weight)
     nxnx = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
     # stiffness matrix
     for idim in range(ndim):
@@ -649,7 +654,7 @@ def _pmg_k_mf_one_batch(
     diagA = diagA.view(-1, nloc_po)
     bdiagA = bdiagA.view(-1, nloc_po, nloc_po)
     # get shape function derivatives
-    nx, detwei = shape_function.get_det_nlx_3d(nlx, x_ref_in[idx_in], weight)
+    nx, detwei = get_det_nlx(nlx, x_ref_in[idx_in], weight)
     nxnx = torch.zeros(batch_in, nloc, nloc, device=dev, dtype=torch.float64)
     # stiffness matrix
     for idim in range(ndim):
@@ -768,6 +773,12 @@ def _pmg_S_fi(
     this function add interior face S*c contribution
     to r
     '''
+    # faces can be passed in by batches to fit memory/GPU cores
+    batch_in = f_i.shape[0]
+    if batch_in < 1:  # nothing to do here. return to what called me.
+        return r, diagS, bdiagS
+    dummy_idx = np.arange(0, batch_in)  # this is to use with idx f_i
+
     # get essential data
     sn = sf_nd_nb.sn
     snlx = sf_nd_nb.snlx
@@ -775,10 +786,6 @@ def _pmg_S_fi(
     sweight = sf_nd_nb.sweight
 
     nloc_po = multi_grid.p_nloc(po)
-
-    # faces can be passed in by batches to fit memory/GPU cores
-    batch_in = f_i.shape[0]
-    dummy_idx = np.arange(0, batch_in)  # this is to use with idx f_i
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor,
@@ -790,7 +797,7 @@ def _pmg_S_fi(
 
     # get shape function derivatives
     # this side.
-    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_i], sweight)
+    snx, sdetwei, snormal = sdet_snlx(snlx, x_ref_in[E_F_i], sweight)
     # now tensor shape are:
     # snx | snx_nb         (batch_in, nface, ndim, nloc, sngi)
     # sdetwei | sdetwei_nb (batch_in, nface, sngi)
@@ -807,7 +814,7 @@ def _pmg_S_fi(
     sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3) \
         .expand(-1, -1, nloc, nloc, -1)
     # other side.
-    snx_nb, _, snormal_nb = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_inb], sweight)
+    snx_nb, _, snormal_nb = sdet_snlx(snlx, x_ref_in[E_F_inb], sweight)
     # change gausian pnts alignment on the other side use nb_gi_aln
     nb_aln = sf_nd_nb.gi_align[nb_gi_aln, :]
     snx_nb = snx_nb[..., nb_aln]
@@ -921,6 +928,12 @@ def _pmg_S_fb(
     r ,_ r + S*c_bc
     '''
 
+    # faces can be passed in by batches to fit memory/GPU cores
+    batch_in = f_b.shape[0]
+    if batch_in < 1:  # there is nothing to do here. return to what called me.
+        return r, diagS, bdiagS
+    dummy_idx = np.arange(0, batch_in)
+
     # get essential data
     sn = sf_nd_nb.sn
     snlx = sf_nd_nb.snlx
@@ -928,10 +941,6 @@ def _pmg_S_fb(
     sweight = sf_nd_nb.sweight
 
     nloc_po = multi_grid.p_nloc(po)
-
-    # faces can be passed in by batches to fit memory/GPU cores
-    batch_in = f_b.shape[0]
-    dummy_idx = np.arange(0, batch_in)
 
     # make all tensors in shape (nele, nface, ndim, nloc(inod), nloc(jnod), sngi)
     # all these expansion are views of original tensor,
@@ -942,7 +951,7 @@ def _pmg_S_fb(
         .unsqueeze(2).expand(-1, -1, nloc, -1, -1)  # expand on nloc(inod)
 
     # get shaps function derivatives
-    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_b], sweight)
+    snx, sdetwei, snormal = sdet_snlx(snlx, x_ref_in[E_F_b], sweight)
     mu_e = eta_e / torch.sum(sdetwei[dummy_idx, f_b, :], -1)
     snxi = snx.unsqueeze(4) \
         .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
