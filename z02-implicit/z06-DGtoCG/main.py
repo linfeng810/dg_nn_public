@@ -49,8 +49,8 @@ print('computation on ',dev)
 print('nele=', nele)
 
 if ndim == 2:
-    [x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
-    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf)
+    [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
+    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
 else:
     [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndgln, cg_nonods] = mesh_init.init_3d()
     config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
@@ -151,6 +151,7 @@ if ndim == 2:
         # c[inod]= x_inod
         # print("x, c", x_inod.cpu().numpy(), c[inod])
     f = x_all[:, 0] * 0  # right-hand side source
+    f = torch.tensor(f, device=dev, dtype=torch.float64)
 else:  # (6 Dirichlet bcs)
     for bci in bc:
         for inod in bci:

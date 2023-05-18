@@ -811,6 +811,13 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
         sweight[1] = w1
         sweight[2] = w1
         sweight[3] = w2
+        alignment = [
+            [0, 1, 2, 3],
+            [3, 2, 1, 0],
+        ]
+        sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+                                                device=dev,
+                                                dtype=torch.int64).view(ndim, sngi))
         # face 1
         sl1[0,:] = np.asarray([b2,a2,a1,b1])
         sl2[0,:] = 1-sl1[0,:]
@@ -828,6 +835,13 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
         a = 0.5 + 0.5/np.sqrt(3.)
         b = 0.5 - 0.5/np.sqrt(3.)
         sweight = 1.
+        alignment = [
+            [0, 1],
+            [1, 0],
+        ]
+        sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+                                                device=dev,
+                                                dtype=torch.int64).view(ndim, sngi))
         # face 1
         sl1[0, :] = np.asarray([b, a])
         sl2[0, :] = 1 - sl1[0, :]

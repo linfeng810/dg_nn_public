@@ -9,8 +9,12 @@ import config
 import mesh_init
 from config import sf_nd_nb
 import numpy as np
-
-import shape_function
+if config.ndim == 2:
+    from shape_function import get_det_nlx as get_det_nlx
+    from shape_function import sdet_snlx as sdet_snlx
+else:
+    from shape_function import get_det_nlx_3d as get_det_nlx
+    from shape_function import sdet_snlx_3d as sdet_snlx
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -129,6 +133,9 @@ def S_mf_one_batch(r, c_i, c_bc,
     for iface in range(nface):
         for nb_gi_aln in range(nface-1):
             idx_iface = (f_i == iface) & (sf_nd_nb.alnmt[F_i] == nb_gi_aln)
+            if idx_iface.sum() < 1:
+                # there's nothing to do here. go on
+                continue
             # idx_iface_all += idx_iface
             # idx_iface = idx_iface & idx_in_f
             r, diagA, bdiagA = S_fi(
@@ -161,11 +168,15 @@ def S_mf_one_batch(r, c_i, c_bc,
     # r <= r + b_bc - S*c
     # FIXME: let's hope that each element has only one boundary face.
     #        This isn't the case in 3D!
-    for iface in range(nface):
+    if config.ndim == 3:
+        for iface in range(nface):
+            idx_iface = f_b == iface
+            r, diagA, bdiagA = S_fb(r, f_b[idx_iface], E_F_b[idx_iface], F_b[idx_iface],
+                                    c_i, c_bc, diagA, bdiagA, batch_start_idx)
+    else:
         idx_iface = f_b == iface
         r, diagA, bdiagA = S_fb(r, f_b[idx_iface], E_F_b[idx_iface], F_b[idx_iface],
                                 c_i, c_bc, diagA, bdiagA, batch_start_idx)
-
     return r, diagA, bdiagA
 
 
@@ -198,7 +209,7 @@ def S_fi(r, f_i, E_F_i, F_i,
 
     # get shape function derivatives
     # this side.
-    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_i], sweight)
+    snx, sdetwei, snormal = sdet_snlx(snlx, x_ref_in[E_F_i], sweight)
     # now tensor shape are:
     # snx | snx_nb         (batch_in, nface, ndim, nloc, sngi)
     # sdetwei | sdetwei_nb (batch_in, nface, sngi)
@@ -215,7 +226,7 @@ def S_fi(r, f_i, E_F_i, F_i,
     sdetweiv = sdetwei.unsqueeze(2).unsqueeze(3)\
         .expand(-1,-1,nloc,nloc,-1)
     # other side.
-    snx_nb, _, snormal_nb = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_inb], sweight)
+    snx_nb, _, snormal_nb = sdet_snlx(snlx, x_ref_in[E_F_inb], sweight)
     # change gausian pnts alignment on the other side use nb_gi_aln
     nb_aln = sf_nd_nb.gi_align[nb_gi_aln, :]
     snx_nb = snx_nb[..., nb_aln]
@@ -336,7 +347,7 @@ def S_fb(r, f_b, E_F_b, F_b,
         .unsqueeze(2).expand(-1,-1,nloc,-1,-1) # expand on nloc(inod)
 
     # get shaps function derivatives
-    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(snlx, x_ref_in[E_F_b], sweight)
+    snx, sdetwei, snormal = sdet_snlx(snlx, x_ref_in[E_F_b], sweight)
     mu_e = eta_e/torch.sum(sdetwei[dummy_idx, f_b,:],-1)
     snxi = snx.unsqueeze(4)\
         .expand(-1,-1,-1,-1,nloc,-1) # expand on nloc(jnod)

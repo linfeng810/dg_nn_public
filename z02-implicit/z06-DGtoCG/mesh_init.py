@@ -13,7 +13,6 @@ def init():
     mesh = config.mesh 
     nonods = config.nonods 
     nloc = config.nloc
-    
 
     # check and make sure triangle vertices are ordered anti-clockwisely
     for ele in range(nele):
@@ -31,7 +30,6 @@ def init():
             mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1]]
             # print(mesh.cells[0][1][ele])
             # print('clockise')
-        
 
     # create faces
     faces=[]
@@ -61,15 +59,18 @@ def init():
         colele[finele[row]:finele[row+1]] = col_this 
     colele = colele[:ncolele] # cut off extras at the end of colele
 
-    # neighbouring faces (global indices)
+    # ** new nbf definition **
+    # neighbouring faces
     # nbface = nbf(iface)
     # input: a global face index
-    # output: the global index of the input face's neighbouring face
-    #         sign denotes face node numbering orientation
-    #         np.nan denotes no neighbouring found (indicating this is a boundary face)
-    #         !! output type is real, convert to int before use as index !!
-    nbf=np.empty(len(faces))
-    nbf[:]=np.nan
+    # output: the global index of the input face's neighbouring face, if negative, then
+    #   no neighbours found, indicating boundary nodes.
+    # the alignment of gaussian points is determined by alnmt
+    #      0 - same alignment (impossible if all element nodes are ordered anti-clockwisely)
+    #      1 - reverse alignment
+    #     -1 - no neighbour
+    nbf = np.zeros(len(faces), dtype=np.int64) - 1
+    alnmt = np.ones(len(faces), dtype=np.int64) * -1.
     found=np.empty(len(faces))
     found[:]=False
     for ele in range(config.nele):
@@ -84,50 +85,19 @@ def init():
                 for iface2 in range(3):
                     glb_iface2 = ele2*3+iface2 
                     if (set(faces[glb_iface])==set(faces[glb_iface2])):
+                        nbf[glb_iface] = glb_iface2
+                        nbf[glb_iface2] = glb_iface
                         if faces[glb_iface][0]==faces[glb_iface2][0]:
-                            nbf[glb_iface]=glb_iface2
-                            nbf[glb_iface2]=glb_iface
+                            alnmt[glb_iface] = 0
+                            alnmt[glb_iface2] = 0
                         else:
-                            nbf[glb_iface]=-glb_iface2
-                            nbf[glb_iface2]=-glb_iface
+                            alnmt[glb_iface] = 1
+                            alnmt[glb_iface2] = 1
                         found[glb_iface]=True 
                         found[glb_iface2]=True 
     endtime = time.time()
     print('nbf: ', nbf)
     print('time consumed in finding neighbouring:', endtime-starttime,' s')
-    #### old method very slow to be deleted in the future ####
-    # # neighbouring faces (global indices)
-    # # nbface = nbf(iface)
-    # # input: a global face index
-    # # output: the global index of the input face's neighbouring face
-    # #         sign denotes face node numbering orientation
-    # #         np.nan denotes no neighbouring found (indicating this is a boundary face)
-    # #         !! output type is real, convert to int before use as index !!
-    # starttime = time.time()
-    # nbf=np.empty(len(faces))
-    # nbf[:]=np.nan
-    # color=np.zeros(len(faces))
-    # for iface in range(len(faces)):
-    #     if color[iface]==1 :
-    #         continue 
-    #     for jface in range(iface+1,len(faces)):
-    #         if (color[jface]==1):
-    #             continue 
-    #         elif (set(faces[jface])==set(faces[iface])):
-    #             # print(faces[jface],'|',faces[iface])
-    #             if faces[jface][0]==faces[iface][0]:
-    #                 nbf[iface]=jface 
-    #                 nbf[jface]=iface
-    #             else:
-    #                 nbf[iface]=-jface 
-    #                 nbf[jface]=-iface
-    #             color[iface]=1
-    #             color[jface]=1
-    #             continue
-    # endtime = time.time()
-    # print('time consumed in finding neighbouring:', endtime-starttime,' s')
-    # print('nbf:',nbf)
-    #### end of old method ####
 
     # find neighbouring elements associated with each face
     # via neighbouring faces
@@ -137,10 +107,7 @@ def init():
     # output type: float, sign denotes face node numbering orientation
     #              nan denotes non found (input is boundary element)
     #              !! convert to positive int before use as index !!
-    nbele=np.empty(len(faces))
-    nbele[:]=np.nan
-    for iface in range(len(nbf)):
-        nbele[iface] = np.sign(nbf[iface])*(np.abs(nbf[iface])//3)
+    nbele = nbf // config.nface
 
     if nloc == 10:
         # generate cubic nodes from element vertices
@@ -202,6 +169,8 @@ def init():
             x_all.append([x_loc[0][0], x_loc[0][1]])
             x_all.append([x_loc[1][0], x_loc[1][1]])
             x_all.append([x_loc[2][0], x_loc[2][1]])
+    else:
+        raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
     np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
     sf_nd_nb.set_data(cg_nonods=cg_nonods)
@@ -272,8 +241,14 @@ def init():
         [2. / 3, 0, 1. / 3],
         [1. / 3, 1. / 3, 1. / 3]
     ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator)
+    if nloc == 3:  # linear element
+        sf_nd_nb.set_data(I_31=torch.tensor([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ], device=config.dev, dtype=torch.float64))
 
-    return x_all, nbf, nbele, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
+    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
 
 
 def init_3d():
