@@ -6,28 +6,27 @@
 # import
 import time, os.path
 
+import volume_integral
+
 starttime = time.time()
 
 import toughio 
 import numpy as np
 import torch
-from torch.nn import Conv1d,Sequential,Module
 import scipy as sp
 # import time
 from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
+from config import sf_nd_nb
 import mesh_init 
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx, get_det_nlx
-from surface_integral import S_Minv_sparse, RSR_DG_to_CG, RSR_DG_to_CG_color
-import surface_integral_mf
-from volume_integral import K_mf, calc_RKR, calc_RAR, \
-    RKR_DG_to_CG, RKR_DG_to_CG_color, RAR_DG_to_CG, \
-    calc_RAR_mf_color, get_residual_and_smooth_once, \
+from surface_integral import S_Minv_sparse
+from volume_integral import calc_RAR_mf_color, get_residual_and_smooth_once, \
     get_residual_only
 from color import color2
-import multi_grid
+import multi_grid, solvers
 
 # for pretty print out torch tensor
 # torch.set_printoptions(sci_mode=False)
@@ -49,8 +48,14 @@ tstart = config.tstart
 print('computation on ',dev)
 print('nele=', nele)
 
-[x_all, nbf, nbele, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
+if ndim == 2:
+    [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc1, bc2, bc3, bc4, cg_ndgln, cg_nonods, cg_bc] = mesh_init.init()
+    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
+else:
+    [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndgln, cg_nonods] = mesh_init.init_3d()
+    config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
 # [fina, cola, ncola] = mesh_init.connectivity(nbele)
+np.savetxt('x_all.txt', x_all, delimiter=',')
 if False:  # P0DG connectivity and coloring
     # coloring and get probing vector
     [whichc, ncolor] = color2(fina=fina, cola=cola, nnode = nele)
@@ -87,8 +92,13 @@ print('1. time elapsed, ',time.time()-starttime)
 # get shape functions on reference element
 [n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc,
                                            config.ngi, config.ndim, config.snloc, config.sngi)
-n = torch.tensor(n, device=config.dev, dtype=torch.float64)
-nlx = torch.tensor(nlx, device=config.dev, dtype=torch.float64)
+sf_nd_nb.set_data(n = torch.tensor(n, device=config.dev, dtype=torch.float64))
+sf_nd_nb.set_data(nlx = torch.tensor(nlx, device=dev, dtype=torch.float64))
+sf_nd_nb.set_data(weight = torch.tensor(weight, device=dev, dtype=torch.float64))
+sf_nd_nb.set_data(sn = torch.tensor(sn, dtype=torch.float64, device=dev))
+sf_nd_nb.set_data(snlx = torch.tensor(snlx, dtype=torch.float64, device=dev))
+sf_nd_nb.set_data(sweight = torch.tensor(sweight, dtype=torch.float64, device=dev))
+del n, nlx, weight, sn, snlx, sweight
 print('3. time elapsed, ',time.time()-starttime)
 #######################################################
 # assemble local mass matrix and stiffness matrix
@@ -106,40 +116,58 @@ x_ref_in = np.empty((nele, ndim, nloc))
 for ele in range(nele):
     for iloc in range(nloc):
         glb_iloc = ele*nloc+iloc
-        x_ref_in[ele,0,iloc] = x_all[glb_iloc,0]
-        x_ref_in[ele,1,iloc] = x_all[glb_iloc,1]
-x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False)
+        for idim in range(ndim):
+            x_ref_in[ele, idim, iloc] = x_all[glb_iloc, idim]
+sf_nd_nb.set_data(x_ref_in = torch.tensor(x_ref_in, device=dev, requires_grad=False))
+del x_ref_in
 # print(x_ref_in)
 # initical condition
 c = torch.zeros(nele*nloc, device=dev, dtype=torch.float64)
-# apply boundary conditions (4 Dirichlet bcs)
-for inod in bc1:
-    c[inod]=0.
-    # x_inod = x_ref_in[inod//10, 0, inod%10]
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc1 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-for inod in bc2:
-    c[inod]=0.
-    # x_inod = x_ref_in[inod//10, 0, inod%10]
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc2 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-for inod in bc3:
-    c[inod]=0.
-    # x_inod = x_ref_in[inod//10, 0, inod%10]
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc3 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-for inod in bc4:
-    x_inod = x_ref_in[inod//nloc, 0, inod%nloc]
-    c[inod]= torch.sin(torch.pi*x_inod)
-    # y_inod = x_ref_in[inod//10, 1, inod%10]
-    # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
-    # c[inod]= x_inod
-    # print("x, c", x_inod.cpu().numpy(), c[inod])
-
-
+if ndim == 2:
+    # apply boundary conditions (4 Dirichlet bcs)
+    for inod in bc1:
+        c[inod]=0.
+        # x_inod = x_ref_in[inod//10, 0, inod%10]
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc1 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+    for inod in bc2:
+        c[inod]=0.
+        # x_inod = x_ref_in[inod//10, 0, inod%10]
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc2 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+    for inod in bc3:
+        c[inod]=0.
+        # x_inod = x_ref_in[inod//10, 0, inod%10]
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc3 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+    for inod in bc4:
+        x_inod = sf_nd_nb.x_ref_in[inod//nloc, 0, inod%nloc]
+        c[inod]= torch.sin(torch.pi*x_inod)
+        # y_inod = x_ref_in[inod//10, 1, inod%10]
+        # print('bc4 inod %d x %f y %f'%(inod,x_inod, y_inod))
+        # c[inod]= x_inod
+        # print("x, c", x_inod.cpu().numpy(), c[inod])
+    f = x_all[:, 0] * 0  # right-hand side source
+    f = torch.tensor(f, device=dev, dtype=torch.float64)
+else:  # (6 Dirichlet bcs)
+    for bci in bc:
+        for inod in bci:
+            x_inod = sf_nd_nb.x_ref_in[inod//nloc, :, inod%nloc]
+            # c[inod] = torch.sin(torch.pi*2*x_inod[0]) \
+            #     * torch.sin(torch.pi*2*x_inod[1]) \
+            #     * torch.sin(torch.pi*2*x_inod[2])
+            c[inod] = torch.exp(-x_inod[0] - x_inod[1] - x_inod[2])
+            # c[inod] = x_inod[1]
+    # right hand side
+    # f = 12*np.pi**2 * np.sin(2*np.pi*x_all[:, 0]) \
+    #                * np.sin(2*np.pi*x_all[:, 1]) \
+    #                * np.sin(2*np.pi*x_all[:, 2])
+    f = -3. * np.exp(-x_all[:, 0] - x_all[:, 1] - x_all[:,2])
+    f = torch.tensor(f, device=dev, dtype=torch.float64)
+    # f *= 0; f += 1
 tstep=int(np.ceil((tend-tstart)/dt))+1
 c = c.reshape(nele,nloc) # reshape doesn't change memory allocation.
 # c = torch.tensor(c, dtype=torch.float64, device=dev).view(-1,1,nloc)
@@ -150,16 +178,7 @@ c = torch.rand_like(c)*0
 c_all=np.empty([tstep,nonods])
 c_all[0,:]=c.view(-1).cpu().numpy()[:]
 print('5. time elapsed, ',time.time()-starttime)
-## surface integral 
 
-# # prepare shape functions ** only once ** store for all future usages
-# [snx, sdetwei, snormal] = sdet_snlx(snlx, x_ref_in, sweight)
-# # with torch.no_grad():
-# #     nx, detwei = Det_nlx.forward(x_ref_in, weight)
-# nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
-
-# put numpy array to torch tensor in expected device
-sn = torch.tensor(sn, dtype=torch.float64, device=dev)
 print('6. time elapsed, ',time.time()-starttime)
 
 if False:  # per element condensation Rotation matrix (diagonal)
@@ -209,6 +228,8 @@ if True:  # from PnDG to P1CG
                                    values=I_cf.data,
                                    size=(cg_nonods, p1dg_nonods),
                                    device=dev)
+    sf_nd_nb.set_data(I_fc=I_fc, I_cf=I_cf)
+    # np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
     # PnDG to P1DG
     # if config.ele_type == 'cubic':
     if False:
@@ -235,7 +256,7 @@ if True:  # from PnDG to P1CG
                               shape=(nonods, p1dg_nonods))
         I_31_big = I_31_big.tocsr()
         I_13_big = bsr_matrix((I_13.repeat(nele, axis=0).reshape(3, nele, 10).transpose((1, 0, 2)),
-                               np.arange(0,nele), np.arange(0,nele+1)),
+                               np.arange(0, nele), np.arange(0, nele + 1)),
                               shape=(p1dg_nonods, nonods))
         I_13_big = I_13_big.tocsr()
         I_31_big = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_31_big.indptr),
@@ -274,19 +295,28 @@ if (config.solver=='iterative') :
         r0 = torch.zeros(config.nonods, device=dev, dtype=torch.float64)
 
         # prepare for MG on SFC-coarse grids
-        RAR = calc_RAR_mf_color(n, nlx, weight,
-                                sn, snlx, sweight,
-                                x_ref_in,
-                                nbele, nbf,
-                                I_fc, I_cf,
+        RAR = calc_RAR_mf_color(I_fc, I_cf,
                                 whichc, ncolor,
                                 fina, cola, ncola)
         print(torch.cuda.mem_get_info(device=dev))
         print('RAR fina cola len: ', RAR.crow_indices().shape, RAR.col_indices().shape)
-        print('finishing getting RAR: ', time.time()-starttime)
+        print('finishing getting RAR: ', time.time() - starttime)
+        if not config.is_sfc:  # we are solving on two-grid, thus direct solve on P1CG.
+            # get RARmat (scipy csr format) for direct solver on P1CG (two-grid cycle)
+            RARmat = sp.sparse.csr_matrix((RAR.values().cpu().numpy(),
+                                           RAR.col_indices().cpu().numpy(),
+                                           RAR.crow_indices().cpu().numpy()),
+                                          shape=(cg_nonods, cg_nonods))
+            sf_nd_nb.set_data(RARmat=RARmat)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
         space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-            multi_grid.mg_on_P0DG_prep(RAR, x_ref_in)
+            multi_grid.mg_on_P1CG_prep(RAR)
+        sf_nd_nb.sfc_data.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
         # del RAR
         # np.savetxt('sfc.txt', space_filling_curve_numbering, delimiter=',')
         print('9. time elapsed, ', time.time()-starttime)
@@ -294,155 +324,15 @@ if (config.solver=='iterative') :
         # fine grid    o   o - o   o - o   o  
         #               \ /     \ /     \ /  ...
         # coarse grid    o       o       o
-        while (r0l2>1e-9 and its<config.jac_its):
-            c_i = c_i.view(-1,1,nloc)
-
-            for its1 in range(config.pre_smooth_its):
-                # on fine grid
-                r0 *= 0
-                r0, c_i = get_residual_and_smooth_once(
-                    r0,
-                    c_i, c_n, c_bc, x_ref_in,
-                    n, nlx, weight,
-                    sn, snlx, sweight,
-                    nbele, nbf)
-
-            # residual on PnDG
-            r0 *= 0
-            r0 = get_residual_only(
-                r0,
-                c_i, c_n, c_bc, x_ref_in,
-                n, nlx, weight,
-                sn, snlx, sweight,
-                nbele, nbf)
-            
-            if False:  # PnDG to P0DG
-                # per element condensation
-                # passing r0 to next level coarse grid and solve Ae=r0
-                r1 = torch.matmul(r0.view(-1,nloc), R.view(nloc,1)) # restrict residual to coarser mesh, (nele, 1)
-            if True:  # P1DG to P1CG
-                r1 = multi_grid.p3dg_to_p1dg_restrictor(r0)
-                r1 = torch.matmul(I_cf, r1)
-            # reordering node according to SFC
-            ncurve = 1  # always use 1 sfc
-            N = len(space_filling_curve_numbering)
-            inverse_numbering = np.zeros((N, ncurve), dtype=int)
-            inverse_numbering[:, 0] = np.argsort(space_filling_curve_numbering[:, 0])
-            r1_sfc = r1[inverse_numbering[:, 0]].view(1, 1, config.cg_nonods)
-
-            e_i = torch.zeros((cg_nonods,1), device=dev, dtype=torch.float64)
-            rr1 = r1_sfc.detach().clone()
-            rr1_l2_0 = torch.linalg.norm(rr1.view(-1),dim=0)
-            rr1_l2 = 10.
-            its1=0
-            # while its1 < config.mg_its[0] and rr1_l2 > config.mg_tol:
-            if True:  # smooth on P1CG
-                for _ in range(config.pre_smooth_its):
-                    # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-                    rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
-
-                    diagA1 = 1. / variables_sfc[0][2]
-                    e_i = e_i.view(cg_nonods, 1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1, 1)
-                # for _ in range(100):
-                if True:  # SFC multi-grid saw-tooth iteration
-                    rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
-                    # use SFC to generate a series of coarse grid
-                    # and iterate there (V-cycle saw-tooth fasion)
-                    # then return a residual on level-1 grid (P1CG)
-                    e_i = multi_grid.mg_on_P0DG(
-                        r1_sfc.view(cg_nonods, 1),
-                        rr1,
-                        e_i,
-                        space_filling_curve_numbering,
-                        variables_sfc,
-                        nlevel,
-                        nodes_per_level)
-
-                else:  # direct solver on first SFC coarsened grid (thus constitutes a 3-level MG)
-                    rr1 = r1_sfc - torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                    rr1_l2 = torch.linalg.norm(rr1.view(-1), dim=0) / rr1_l2_0
-                    level = 1
-
-                    # restrict residual
-                    sfc_restrictor = torch.nn.Conv1d(in_channels=1,
-                                                     out_channels=1, kernel_size=2,
-                                                     stride=2, padding='valid', bias=False)
-                    sfc_restrictor.weight.data = \
-                        torch.tensor([[1., 1.]],
-                                     dtype=torch.float64,
-                                     device=config.dev).view(1, 1, 2)
-                    b = torch.nn.functional.pad(rr1, (0, 1), "constant", 0)  # residual on level1 sfc coarse grid
-                    with torch.no_grad():
-                        b = sfc_restrictor(b)
-                        # np.savetxt('b.txt', b.view(-1).cpu().numpy(), delimiter=',')
-                    # get operator
-                    a_sfc_l1 = variables_sfc[level][0]
-                    cola = a_sfc_l1.col_indices().detach().clone().cpu().numpy()
-                    fina = a_sfc_l1.crow_indices().detach().clone().cpu().numpy()
-                    vals = a_sfc_l1.values().detach().clone().cpu().numpy()
-                    # direct solve on level1 sfc coarse grid
-                    from scipy.sparse import csr_matrix, linalg
-                    # np.savetxt('a_sfc_l0.txt', variables_sfc[0][0].to_dense().cpu().numpy(), delimiter=',')
-                    # np.savetxt('a_sfc_l1.txt', variables_sfc[1][0].to_dense().cpu().numpy(), delimiter=',')
-                    a_on_l1 = csr_matrix((vals, cola, fina), shape=(nodes_per_level[level], nodes_per_level[level]))
-                    # np.savetxt('a_sfc_l1_sp.txt', a_on_l1.todense(), delimiter=',')
-                    e_i_direct = linalg.spsolve(a_on_l1, b.view(-1).cpu().numpy())
-                    # prolongation
-                    e_ip1 = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64).view(1, 1, -1)
-                    CNN1D_prol_odd = torch.nn.Upsample(scale_factor=nodes_per_level[level - 1] / nodes_per_level[level])
-                    e_ip1 = CNN1D_prol_odd(e_ip1.view(1, 1, -1))
-                    e_i += torch.squeeze(e_ip1).view(cg_nonods, 1)
-                    # e_i += e_ip1[0, 0, space_filling_curve_numbering[:, 0] - 1].view(-1,1)
-
-                    for _ in range(config.post_smooth_its):
-                        # smooth (solve) on level 1 coarse grid (R^T A R e = r1)
-                        rr1 = r1_sfc-torch.sparse.mm(variables_sfc[0][0], e_i).view(-1)
-                        rr1_l2 = torch.linalg.norm(rr1.view(-1),dim=0)/rr1_l2_0
-
-                        diagA1 = 1./variables_sfc[0][2]
-                        e_i = e_i.view(cg_nonods,1) + config.jac_wei * torch.mul(diagA1, rr1.view(-1)).view(-1,1)
-
-                its1 += 1
-                # print('its1: %d, residual on P1CG: '%(its1), rr1_l2)
-            # reverse to original order
-            e_i = e_i[space_filling_curve_numbering[:, 0] - 1, 0].view(-1,1)
-
-            if False:  # direc solve on P1CG R^T A R e = r1?
-                e_direct = sp.sparse.linalg.spsolve(RARmat, r1.contiguous().view(-1).cpu().numpy())
-                # np.savetxt('RARmat.txt', RARmat.toarray(), delimiter=',')
-                e_i = e_i.view(-1)
-                # print(e_i - torch.tensor(e_direct, device=dev, dtype=torch.float64))
-                e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-
-            # np.savetxt('e_i_back.txt', e_i.cpu().numpy(), delimiter=',')
-            if False:  # from P0DG to PnDG
-                # pass e_i back to fine mesh
-                e_i0 = torch.sparse.mm(torch.transpose(RTbig, dim0=0, dim1=1), e_i.view(-1,1))
-            if True:  # from P1CG to P1DG
-                e_i0 = torch.mv(I_fc, e_i.view(-1))
-                e_i0 = multi_grid.p1dg_to_p3dg_prolongator(e_i0)
-            c_i = c_i.view(-1) + e_i0.view(-1)
-
-            for _ in range(config.post_smooth_its):
-                # post smooth
-                r0 *= 0
-                r0, c_i = get_residual_and_smooth_once(
-                    r0,
-                    c_i, c_n, c_bc, x_ref_in,
-                    n, nlx, weight,
-                    sn, snlx, sweight,
-                    nbele, nbf)
-            # np.savetxt('c_i.txt', c_i.cpu().numpy(), delimiter=',')
-            # np.savetxt('r0.txt', r0.cpu().numpy(), delimiter=',')
-
-            r0l2 = torch.linalg.norm(r0,dim=0)
-            # print('its=',its,'fine grid residual l2 norm=',r0l2.cpu().numpy())
-            print('P1CG its=', its1, 'its=', its, 'fine grid residual l2 norm=', r0l2.cpu().numpy())
-            r0l2all.append(r0l2.cpu().numpy())
-
-            its+=1
+        if config.linear_solver == 'mg':
+            c_i = solvers.multigrid_solver(c_i, c_n, c_bc, f,
+                                           config.tol)
+        if config.linear_solver == 'gmres-mg':
+            c_i = solvers.gmres_mg_solver(c_i, c_n, c_bc, f,
+                                          config.tol)
+        if config.linear_solver == 'gmres':
+            c_i = solvers.gmres_solver(c_i, c_n, c_bc, f,
+                                       config.tol)
 
         # get final residual after we get back to fine mesh
         # c_i = c_i.view(-1,1,nloc)
@@ -450,10 +340,7 @@ if (config.solver=='iterative') :
         r0 *= 0
         r0 = get_residual_only(
             r0,
-            c_i, c_n, c_bc, x_ref_in,
-            n, nlx, weight,
-            sn, snlx, sweight,
-            nbele, nbf)
+            c_i, c_n, c_bc, f)
 
         r0l2 = torch.linalg.norm(r0,dim=0)
         r0l2all.append(r0l2.cpu().numpy())
@@ -466,126 +353,171 @@ if (config.solver=='iterative') :
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
 if (config.solver=='direct'):
-    [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
-        x_all, nbele, nbf, c_bc.view(-1))
-    # first transfer S and b_bc to scipy csr spM and np array
-    fina = S.crow_indices().cpu().numpy()
-    cola = S.col_indices().cpu().numpy()
-    values = S.values().cpu().numpy()
-    S_sp = sp.sparse.csr_matrix((values, cola, fina), shape=(nonods, nonods))
-    b_bc_np = b_bc.cpu().numpy() 
+    # [diagS, S, b_bc] = S_Minv_sparse(sn, snx, sdetwei, snormal, \
+    #     x_all, nbele, nbf, c_bc.view(-1))
+    # # first transfer S and b_bc to scipy csr spM and np array
+    # fina = S.crow_indices().cpu().numpy()
+    # cola = S.col_indices().cpu().numpy()
+    # values = S.values().cpu().numpy()
+    # S_sp = sp.sparse.csr_matrix((values, cola, fina), shape=(nonods, nonods))
+    # b_bc_np = b_bc.cpu().numpy()
+    #
+    # ### then assemble K as scipy csr spM
+    # # calculate shape functions from element nodes coordinate
+    # nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
+    # # transfer to cpu
+    # nx = nx.cpu().numpy() # (nele, ndim, nloc, ngi)
+    # detwei = detwei.cpu().numpy() # (nele, ngi)
+    # indices = []
+    # values = []
+    # k = np.asarray([[1.,0.], [0.,1.]]) # this is diffusion coefficient | homogeneous, diagonal
+    # for ele in range(nele):
+    #     for iloc in range(nloc):
+    #         glob_iloc = ele*nloc + iloc
+    #         for jloc in range(nloc):
+    #             glob_jloc = ele*nloc + jloc
+    #             nxnx = 0
+    #             for idim in range(ndim):
+    #                 for gi in range(ngi):
+    #                     nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
+    #             indices.append([glob_iloc, glob_jloc])
+    #             values.append(nxnx)
+    #             # print(glob_iloc, glob_jloc, nxnx,';')
+    # values = np.asarray(values)
+    # indices = np.asarray(indices)
+    # print(indices.shape)
+    # K_sp = sp.sparse.coo_matrix((values, (indices[:,0], indices[:,1]) ), shape=(nonods, nonods))
+    # K_sp = K_sp.tocsr()
+    #
+    # ## direct solver in scipy
+    # c_i = sp.sparse.linalg.spsolve(S_sp+K_sp, b_bc_np)
+    #
+    # ## store to c_all to print out
+    # c_all[1,:] = c_i
+    #
+    # if True:  # output a series of matrices for fourier analysis.
+    #     np.savetxt('Amat.txt', (S_sp+K_sp).toarray(), delimiter=',')
+    #
+    #
+    #     # '''
+    #     # Continuous Galerkin discretisation
+    #     # '''
+    #     # # we need cg_ndgln, OK got it.
+    #     # Kcg_idx = []
+    #     # Kcg_val = []
+    #     # for ele in range(nele):
+    #     #     for iloc in range(3):
+    #     #         glob_iloc = cg_ndgln[ele*3 + iloc]
+    #     #         for jloc in range(3):
+    #     #             glob_jloc = cg_ndgln[ele*3 + jloc]
+    #     #             nxnx = 0
+    #     #             for idim in range(ndim):
+    #     #                 for gi in range(3):
+    #     #                     nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
+    #     #             # print(glob_iloc, glob_jloc, nxnx)
+    #     #             Kcg_idx.append([glob_iloc, glob_jloc])
+    #     #             Kcg_val.append(nxnx)
+    #     # Kcg_idx = np.asarray(Kcg_idx)
+    #     # Kcg_val = np.asarray(Kcg_val)
+    #     # Kcg = sp.sparse.coo_matrix((Kcg_val, (Kcg_idx[:,0], Kcg_idx[:,1]) ), shape=(cg_nonods, cg_nonods))
+    #     # Kcg = Kcg.tocsr()
+    #     # # cg boundary condition strongly impose:
+    #     # for bc in cg_bc:
+    #     #     for inod in bc:
+    #     #         Kcg[inod,:] = 0.
+    #     #         Kcg[:,inod] = 0.
+    #     #         Kcg[inod,inod] = 1.
+    #     # np.savetxt('Kmat_cg.txt', Kcg.toarray(), delimiter=',')
+    #
+    #     # # let psi in P1CG, phi in P1DG
+    #     # # compute projection matrix from P1DG to P1CG
+    #     # # [psi_i psi_j]^(-1) * [psi_i phi_k]
+    #     # #     M_psi    ^(-1) *    P_psi_phi
+    #     # M_psi_idx = []
+    #     # M_psi_val = []
+    #     # P_psi_idx = []
+    #     # P_psi_val = []
+    #     # M_phi_idx = []
+    #     # M_phi_val = []
+    #     # for ele in range(nele):
+    #     #     for iloc in range(3):
+    #     #         glob_iloc = cg_ndgln[ele * 3 + iloc]
+    #     #         glob_lloc = ele * 3 + iloc
+    #     #         for jloc in range(3):
+    #     #             kloc = jloc
+    #     #             glob_jloc = cg_ndgln[ele * 3 + jloc]
+    #     #             glob_kloc = ele * 3 + kloc
+    #     #             # print(glob_jloc, glob_kloc)
+    #     #             nn = 0.
+    #     #             for gi in range(3):
+    #     #                 nn += n[iloc,gi] * n[jloc,gi] * detwei[ele,gi]
+    #     #             M_psi_idx.append([glob_iloc, glob_jloc])
+    #     #             M_psi_val.append(nn.cpu())
+    #     #             P_psi_idx.append([glob_iloc, glob_kloc])
+    #     #             P_psi_val.append(nn.cpu())
+    #     #             M_phi_idx.append([glob_lloc, glob_kloc])
+    #     #             M_phi_val.append(nn.cpu())
+    #     # M_psi_idx = np.asarray(M_psi_idx)
+    #     # M_psi_val = np.asarray(M_psi_val)
+    #     # M_psi = sp.sparse.coo_matrix((M_psi_val, (M_psi_idx[:, 0], M_psi_idx[:, 1])), shape=(cg_nonods, cg_nonods))
+    #     # M_psi = M_psi.tocsr()
+    #     # P_psi_idx = np.asarray(P_psi_idx)
+    #     # P_psi_val = np.asarray(P_psi_val)
+    #     # P_psi = sp.sparse.coo_matrix((P_psi_val, (P_psi_idx[:, 0], P_psi_idx[:, 1])), shape=(cg_nonods, p1dg_nonods))
+    #     # P_psi = P_psi.tocsr()
+    #     # M_phi_idx = np.asarray(M_phi_idx)
+    #     # M_phi_val = np.asarray(M_phi_val)
+    #     # M_phi = sp.sparse.coo_matrix((M_phi_val, (M_phi_idx[:, 0], M_phi_idx[:, 1])), shape=(p1dg_nonods, p1dg_nonods))
+    #     # M_phi = M_phi.tocsr()
+    #     # np.savetxt('Mpsimat.txt', M_psi.toarray(), delimiter=',')
+    #     # np.savetxt('Ppsimat.txt', P_psi.toarray(), delimiter=',')
+    #     # np.savetxt('Mphimat.txt', M_phi.toarray(), delimiter=',')
+    #     np.savetxt('cg_ndglno.txt', cg_ndgln, delimiter=',')
 
-    ### then assemble K as scipy csr spM
-    # calculate shape functions from element nodes coordinate
-    nx, detwei = get_det_nlx(nlx, x_ref_in, weight)
-    # transfer to cpu
-    nx = nx.cpu().numpy() # (nele, ndim, nloc, ngi)
-    detwei = detwei.cpu().numpy() # (nele, ngi)
-    indices = []
-    values = []
-    k = np.asarray([[1.,0.], [0.,1.]]) # this is diffusion coefficient | homogeneous, diagonal
-    for ele in range(nele):
-        for iloc in range(nloc):
-            glob_iloc = ele*nloc + iloc 
-            for jloc in range(nloc):
-                glob_jloc = ele*nloc + jloc 
-                nxnx = 0
-                for idim in range(ndim):
-                    for gi in range(ngi):
-                        nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
-                indices.append([glob_iloc, glob_jloc])
-                values.append(nxnx)
-                # print(glob_iloc, glob_jloc, nxnx,';')
-    values = np.asarray(values)
-    indices = np.asarray(indices)
-    print(indices.shape)
-    K_sp = sp.sparse.coo_matrix((values, (indices[:,0], indices[:,1]) ), shape=(nonods, nonods))
-    K_sp = K_sp.tocsr()
+    # # ----- new matrix assemble for direct solver -----
+    # dummy1 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # dummy2 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # dummy3 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # dummy4 = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # Amat = torch.zeros(nonods, nonods, device=dev, dtype=torch.float64)
+    # rhs = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # probe = torch.zeros(nonods, device=dev, dtype=torch.float64)
+    # np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
+    # dummy1 *= 0
+    # dummy2 *= 0
+    # rhs = volume_integral.get_residual_only(r0=rhs,
+    #                                         c_i=dummy1,
+    #                                         c_n=dummy2,
+    #                                         c_bc=c_bc,
+    #                                         f=f)
+    # for inod in tqdm(range(nonods)):
+    #     dummy1 *= 0
+    #     dummy2 *= 0
+    #     dummy3 *= 0
+    #     dummy4 *= 0
+    #     probe *= 0
+    #     probe[inod] = 1.
+    #     Amat[:, inod] -= volume_integral.get_residual_only(r0=dummy1,
+    #                                                        c_i=probe,
+    #                                                        c_n=dummy2,
+    #                                                        c_bc=dummy3,
+    #                                                        f=dummy4)
+    # np.savetxt('Amat.txt', Amat.cpu().numpy(), delimiter=',')
+    # np.savetxt('rhs.txt', rhs.cpu().numpy(), delimiter=',')
+    # Amat_np = sp.sparse.csr_matrix(Amat.cpu().numpy())
+    # rhs_np = rhs.cpu().numpy()
 
-    ## direct solver in scipy
-    c_i = sp.sparse.linalg.spsolve(S_sp+K_sp, b_bc_np)
-
-    ## store to c_all to print out
+    # proper assembly matrix
+    import diffusion_3d_assemble
+    print('im going to assemble', time.time()-starttime)
+    Amat_np, rhs_np = diffusion_3d_assemble.assemble(c_bc, f)
+    print('im going to solve', time.time()-starttime)
+    np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
+    np.savetxt('Amat.txt', Amat_np.toarray(), delimiter=',')
+    np.savetxt('rhs.txt', rhs_np, delimiter=',')
+    c_i = sp.sparse.linalg.spsolve(Amat_np, rhs_np)
+    print('ive done solving', time.time() - starttime)
     c_all[1,:] = c_i
-
-    if True:  # output a series of matrices for fourier analysis.
-        np.savetxt('Amat.txt', (S_sp+K_sp).toarray(), delimiter=',')
-
-
-        # '''
-        # Continuous Galerkin discretisation
-        # '''
-        # # we need cg_ndgln, OK got it.
-        # Kcg_idx = []
-        # Kcg_val = []
-        # for ele in range(nele):
-        #     for iloc in range(3):
-        #         glob_iloc = cg_ndgln[ele*3 + iloc]
-        #         for jloc in range(3):
-        #             glob_jloc = cg_ndgln[ele*3 + jloc]
-        #             nxnx = 0
-        #             for idim in range(ndim):
-        #                 for gi in range(3):
-        #                     nxnx += nx[ele,idim,iloc,gi] * k[idim,idim] * nx[ele,idim,jloc,gi] * detwei[ele,gi]
-        #             # print(glob_iloc, glob_jloc, nxnx)
-        #             Kcg_idx.append([glob_iloc, glob_jloc])
-        #             Kcg_val.append(nxnx)
-        # Kcg_idx = np.asarray(Kcg_idx)
-        # Kcg_val = np.asarray(Kcg_val)
-        # Kcg = sp.sparse.coo_matrix((Kcg_val, (Kcg_idx[:,0], Kcg_idx[:,1]) ), shape=(cg_nonods, cg_nonods))
-        # Kcg = Kcg.tocsr()
-        # # cg boundary condition strongly impose:
-        # for bc in cg_bc:
-        #     for inod in bc:
-        #         Kcg[inod,:] = 0.
-        #         Kcg[:,inod] = 0.
-        #         Kcg[inod,inod] = 1.
-        # np.savetxt('Kmat_cg.txt', Kcg.toarray(), delimiter=',')
-
-        # # let psi in P1CG, phi in P1DG
-        # # compute projection matrix from P1DG to P1CG
-        # # [psi_i psi_j]^(-1) * [psi_i phi_k]
-        # #     M_psi    ^(-1) *    P_psi_phi
-        # M_psi_idx = []
-        # M_psi_val = []
-        # P_psi_idx = []
-        # P_psi_val = []
-        # M_phi_idx = []
-        # M_phi_val = []
-        # for ele in range(nele):
-        #     for iloc in range(3):
-        #         glob_iloc = cg_ndgln[ele * 3 + iloc]
-        #         glob_lloc = ele * 3 + iloc
-        #         for jloc in range(3):
-        #             kloc = jloc
-        #             glob_jloc = cg_ndgln[ele * 3 + jloc]
-        #             glob_kloc = ele * 3 + kloc
-        #             # print(glob_jloc, glob_kloc)
-        #             nn = 0.
-        #             for gi in range(3):
-        #                 nn += n[iloc,gi] * n[jloc,gi] * detwei[ele,gi]
-        #             M_psi_idx.append([glob_iloc, glob_jloc])
-        #             M_psi_val.append(nn.cpu())
-        #             P_psi_idx.append([glob_iloc, glob_kloc])
-        #             P_psi_val.append(nn.cpu())
-        #             M_phi_idx.append([glob_lloc, glob_kloc])
-        #             M_phi_val.append(nn.cpu())
-        # M_psi_idx = np.asarray(M_psi_idx)
-        # M_psi_val = np.asarray(M_psi_val)
-        # M_psi = sp.sparse.coo_matrix((M_psi_val, (M_psi_idx[:, 0], M_psi_idx[:, 1])), shape=(cg_nonods, cg_nonods))
-        # M_psi = M_psi.tocsr()
-        # P_psi_idx = np.asarray(P_psi_idx)
-        # P_psi_val = np.asarray(P_psi_val)
-        # P_psi = sp.sparse.coo_matrix((P_psi_val, (P_psi_idx[:, 0], P_psi_idx[:, 1])), shape=(cg_nonods, p1dg_nonods))
-        # P_psi = P_psi.tocsr()
-        # M_phi_idx = np.asarray(M_phi_idx)
-        # M_phi_val = np.asarray(M_phi_val)
-        # M_phi = sp.sparse.coo_matrix((M_phi_val, (M_phi_idx[:, 0], M_phi_idx[:, 1])), shape=(p1dg_nonods, p1dg_nonods))
-        # M_phi = M_phi.tocsr()
-        # np.savetxt('Mpsimat.txt', M_psi.toarray(), delimiter=',')
-        # np.savetxt('Ppsimat.txt', P_psi.toarray(), delimiter=',')
-        # np.savetxt('Mphimat.txt', M_phi.toarray(), delimiter=',')
-        np.savetxt('cg_ndglno.txt', cg_ndgln, delimiter=',')
 
 #############################################################
 # write output
