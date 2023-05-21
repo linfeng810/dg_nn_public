@@ -403,39 +403,43 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
 
     for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
         # epsilon(u)_ij * 0.5 * C_ijkl v_i n_j
+        # due to the symmetry of C_ijkl, epsilon(u)_kl can be replaced with
+        # (grad u)_kl
         S[..., idim, :, kdim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_i, :, :, :], # v_i
-                0.5*snxj[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*du_k/dx_l of epsilon_kl
+                snxj[dummy_idx, f_i, ldim, :,:,:] ),  # du_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1) \
             * cijkl[idim, jdim, kdim, ldim] * (-0.5)
-        S[..., idim, :, ldim] += \
-            torch.sum(torch.mul(torch.mul(torch.mul(
-                sni[dummy_idx, f_i, :, :, :], # v_i
-                0.5*snxj[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*du_l/dx_k of epsilon_kl
-                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
-                sdetweiv[dummy_idx, f_i, :,:,:]),
-                -1) \
-            * cijkl[idim, jdim, kdim, ldim] * (-0.5)
+        # S[..., idim, :, ldim] += \
+        #     torch.sum(torch.mul(torch.mul(torch.mul(
+        #         sni[dummy_idx, f_i, :, :, :], # v_i
+        #         0.5*snxj[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*du_l/dx_k of epsilon_kl
+        #         snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+        #         sdetweiv[dummy_idx, f_i, :,:,:]),
+        #         -1) \
+        #     * cijkl[idim, jdim, kdim, ldim] * (-0.5)
         # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
+        # due to the symmetry of C_ijkl, epsilon(v)_kl can be replaced with
+        # (grad v)_kl
         S[...,kdim,:,idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 snj[dummy_idx, f_i, :, :, :], # u_i
-                0.5*snxi[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
+                snxi[dummy_idx, f_i, ldim, :,:,:] ),  # dv_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
             * cijkl[idim,jdim,kdim,ldim]*(-0.5)
-        S[..., ldim,:,idim] +=\
-            torch.sum(torch.mul(torch.mul(torch.mul(
-                snj[dummy_idx, f_i, :, :, :], # u_i
-                0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
-                snormalv[dummy_idx,f_i, jdim, :,:,:]), # n_j
-                sdetweiv[dummy_idx,f_i, :,:,:]),
-                -1)\
-            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        # S[..., ldim,:,idim] +=\
+        #     torch.sum(torch.mul(torch.mul(torch.mul(
+        #         snj[dummy_idx, f_i, :, :, :], # u_i
+        #         0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
+        #         snormalv[dummy_idx,f_i, jdim, :,:,:]), # n_j
+        #         sdetweiv[dummy_idx,f_i, :,:,:]),
+        #         -1)\
+        #     * cijkl[idim,jdim,kdim,ldim]*(-0.5)
     # mu * u_i v_i
     for idim in range(ndim):
         S[...,idim,:,idim] += torch.mul(torch.sum(torch.mul(torch.mul(
@@ -461,39 +465,43 @@ def _S_fi(r, f_i: Tensor, E_F_i: Tensor,
         # TODO: We might be able to simplify this computation leveraging
         #   the minor symmetry of C_ijkl.
         # 0.5 C_ijkl epsilon(u)_kl v_i n_j
+        # due to the symmetry of C_ijkl, epsilon(u)_kl can be replaced with
+        # (grad u)_kl
         S[..., idim, :, kdim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_i, :, :, :],  # v_i
-                0.5*snxj_nb[dummy_idx, f_inb, ldim, :,:,:]), # 0.5*du_k/dx_l of epsilon_kl
+                snxj_nb[dummy_idx, f_inb, ldim, :,:,:]),  # du_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
             * cijkl[idim,jdim,kdim,ldim]*(-0.5)
-        S[..., idim, :, ldim] += \
-            torch.sum(torch.mul(torch.mul(torch.mul(
-                sni[dummy_idx, f_i, :, :, :], # v_i
-                0.5*snxj_nb[dummy_idx, f_inb, kdim, :,:,:]), # 0.5*du_l/dx_k of epsilon_kl
-                snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
-                sdetweiv[dummy_idx, f_i, :,:,:]),
-                -1)\
-            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        # S[..., idim, :, ldim] += \
+        #     torch.sum(torch.mul(torch.mul(torch.mul(
+        #         sni[dummy_idx, f_i, :, :, :], # v_i
+        #         0.5*snxj_nb[dummy_idx, f_inb, kdim, :,:,:]), # 0.5*du_l/dx_k of epsilon_kl
+        #         snormalv[dummy_idx, f_i, jdim, :,:,:]), # n_j
+        #         sdetweiv[dummy_idx, f_i, :,:,:]),
+        #         -1)\
+        #     * cijkl[idim,jdim,kdim,ldim]*(-0.5)
         # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
+        # due to the symmetry of C_ijkl, epsilon(v)_kl can be replaced with
+        # (grad v)_kl
         S[..., kdim, :, idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 snj_nb[dummy_idx, f_inb, :, :, :], # u_i
-                0.5*snxi[dummy_idx, f_i, ldim, :,:,:] ), # 0.5*dv_k/dx_l of epsilon_kl
+                snxi[dummy_idx, f_i, ldim, :,:,:] ),  # dv_k/dx_l of epsilon_kl
                 snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
                 sdetweiv[dummy_idx, f_i, :,:,:]),
                 -1)\
             * cijkl[idim,jdim,kdim,ldim]*(-0.5)
-        S[..., ldim, :, idim] += \
-            torch.sum(torch.mul(torch.mul(torch.mul(
-                snj_nb[dummy_idx, f_inb, :, :, :], # u_i
-                0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ), # 0.5*dv_l/dx_k of epsilon_kl
-                snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
-                sdetweiv[dummy_idx, f_i, :,:,:]),
-                -1)\
-            * cijkl[idim,jdim,kdim,ldim]*(-0.5)
+        # S[..., ldim, :, idim] += \
+        #     torch.sum(torch.mul(torch.mul(torch.mul(
+        #         snj_nb[dummy_idx, f_inb, :, :, :], # u_i
+        #         0.5*snxi[dummy_idx, f_i, kdim, :,:,:] ),  # 0.5*dv_l/dx_k of epsilon_kl
+        #         snormalv_nb[dummy_idx, f_inb, jdim, :,:,:]), # n_j
+        #         sdetweiv[dummy_idx, f_i, :,:,:]),
+        #         -1)\
+        #     * cijkl[idim,jdim,kdim,ldim]*(-0.5)
     # mu * u_i v_i
     for idim in range(ndim):
         S[..., idim, :, idim] += torch.mul(torch.sum(torch.mul(torch.mul(
@@ -555,23 +563,25 @@ def _S_fb(
     S = torch.zeros(batch_in, nloc, ndim, nloc, ndim,
                     device=dev, dtype=torch.float64)  # local S matrix
     # u_i n_j * 0.5 * C_ijkl epsilon(v)_kl
+    # due to the symmetry of C_ijkl, epsilon(v)_kl can be replaced with
+    # (grad v)_kl
     for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
         S[..., kdim, :, idim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 snj[dummy_idx, f_b, :, :, :],  # u_i
-                0.5 * snxi[dummy_idx, f_b, ldim, :, :, :]),  # 0.5*dv_k/dx_l of epsilon_kl
+                snxi[dummy_idx, f_b, ldim, :, :, :]),  # dv_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
                 sdetweiv[dummy_idx, f_b, :, :, :]),
                 -1) \
             * cijkl[idim, jdim, kdim, ldim] * (-1.0)
-        S[..., ldim, :, idim] += \
-            torch.sum(torch.mul(torch.mul(torch.mul(
-                snj[dummy_idx, f_b, :, :, :],  # u_i
-                0.5 * snxi[dummy_idx, f_b, kdim, :, :, :]),  # 0.5*dv_l/dx_k of epsilon_kl
-                snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
-                sdetweiv[dummy_idx, f_b, :, :, :]),
-                -1) \
-            * cijkl[idim, jdim, kdim, ldim] * (-1.0)
+        # S[..., ldim, :, idim] += \
+        #     torch.sum(torch.mul(torch.mul(torch.mul(
+        #         snj[dummy_idx, f_b, :, :, :],  # u_i
+        #         0.5 * snxi[dummy_idx, f_b, kdim, :, :, :]),  # 0.5*dv_l/dx_k of epsilon_kl
+        #         snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
+        #         sdetweiv[dummy_idx, f_b, :, :, :]),
+        #         -1) \
+        #     * cijkl[idim, jdim, kdim, ldim] * (-1.0)
     # mu * u_i v_i
     for idim in range(ndim):
         S[..., idim, :, idim] += torch.mul(
@@ -585,23 +595,25 @@ def _S_fb(
     r[E_F_b, :, :] += torch.einsum('...ijkl,...kl->...ij', S, u_bc[E_F_b, :, :])
 
     # 0.5 C_ijkl epsilon(u)_kl v_i n_j
+    # due to the symmetry of C_ijkl, epsilon(v)_kl can be replaced with
+    # (grad v)_kl
     for [idim, jdim, kdim, ldim] in config.ijkldim_nz:
         S[..., idim, :, kdim] += \
             torch.sum(torch.mul(torch.mul(torch.mul(
                 sni[dummy_idx, f_b, :, :, :],  # v_i
-                0.5 * snxj[dummy_idx, f_b, ldim, :, :, :]),  # 0.5*du_k/dx_l of epsilon_kl
+                snxj[dummy_idx, f_b, ldim, :, :, :]),  # du_k/dx_l of epsilon_kl
                 snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
                 sdetweiv[dummy_idx, f_b, :, :, :]),
                 -1) \
             * cijkl[idim, jdim, kdim, ldim] * (-1.0)
-        S[..., idim, :, ldim] += \
-            torch.sum(torch.mul(torch.mul(torch.mul(
-                sni[dummy_idx, f_b, :, :, :],  # v_i
-                0.5 * snxj[dummy_idx, f_b, kdim, :, :, :]),  # 0.5*du_l/dx_k of epsilon_kl
-                snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
-                sdetweiv[dummy_idx, f_b, :, :, :]),
-                -1) \
-            * cijkl[idim, jdim, kdim, ldim] * (-1.0)
+        # S[..., idim, :, ldim] += \
+        #     torch.sum(torch.mul(torch.mul(torch.mul(
+        #         sni[dummy_idx, f_b, :, :, :],  # v_i
+        #         0.5 * snxj[dummy_idx, f_b, kdim, :, :, :]),  # 0.5*du_l/dx_k of epsilon_kl
+        #         snormalv[dummy_idx, f_b, jdim, :, :, :]),  # n_j
+        #         sdetweiv[dummy_idx, f_b, :, :, :]),
+        #         -1) \
+        #     * cijkl[idim, jdim, kdim, ldim] * (-1.0)
     # multiply S and u_i and add to (subtract from) r
     r[E_F_b, :, :] -= torch.einsum('...ijkl,...kl->...ij', S, u_i[E_F_b, :, :])
     diagS[E_F_b - batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc*ndim, nloc*ndim),
