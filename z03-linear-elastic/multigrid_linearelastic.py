@@ -20,99 +20,6 @@ from scipy.sparse import bsr_matrix, linalg
 
 ndim = config.ndim
 
-# mg on p0dg smooth
-def mg_smooth(r1, sfc, variables_sfc, nlevel, nodes_per_level):
-    '''
-    # Multi-grid cycle on P0DG mesh
-
-    This function takes in residual on P0DG mesh, forms 
-    a series of coarse grid via space-filling-curve, then 
-    smooths the residual on each level until it gets a
-    correction :math:`e_1`. Finally, it returns 
-    :math:`r_1 <- r_1 + e_1`.
-
-    # Input 
-
-    r1 : torch tensor, (ndim, nele)
-        residual passed from PnDG mesh via restrictor, 
-
-    ~~e_i1 : torch tensor, (ndim, nele)~~
-        ~~previous computed error on P0DG (level-1 grid).~~
-
-    sfc : numpy list (nele)
-        space filling curve index for ele.
-    variables_sfc : list (nlevel)
-        a list of all ingredients one needs to perform a smoothing
-        step on level-th grid. Each list member is a list of the 
-        following member:
-        a_sfc_sparse : list of torch coo sparse tensor, len= ndim x ndim
-            each member is the (idim,jdim) block of a_sfc_sparse --
-            coarse level grid operator, (nonods_level, nonods_level)
-        diag_weights : torch tensor, (ndim, nonods_level)
-            diagonal of coarse grid operator
-        nonods : integer
-            number of nodes on level-th grid
-    nlevel : scalar, int
-        number of SFC coarse grid levels
-    nodes_per_level : list of int, (nlevel)
-        number of nodes (DOFs) on each level
-
-    # output
-
-    e_i1p1 : torch tensor, (ndim, nele)
-        corrected error on P0DG. To be passed to P0DG 
-        smoother.
-    '''
-
-    ## get residual on each level
-    sfc_restrictor = torch.nn.Conv1d(in_channels=1, \
-        out_channels=1, kernel_size=2, \
-        stride=2, padding='valid', bias=False)
-    sfc_restrictor.weight.data = \
-        torch.tensor([[1., 1.]], \
-        dtype=torch.float64, \
-        device=config.dev).view(1, 1, 2)
-    # ordering node according to SFC
-    ncurve = 1 # always use 1 sfc
-    N = len(sfc)
-    inverse_numbering = np.zeros((N, ncurve), dtype=int)
-    inverse_numbering[:, 0] = np.argsort(sfc[:, 0])
-    
-    r = r1[:,inverse_numbering[:,0]].view(ndim,1,config.nele)
-    r_s = []
-    r_s.append(r)
-    for i in range(1,nlevel):
-        # pad one node with 0 as final node so that odd nodes won't be joined
-        r = F.pad(r, (0,1), "constant", 0)
-        with torch.no_grad():
-            r = sfc_restrictor(r)
-        r_s.append(r)
-
-    ## on 1DOF level
-    # note that from here on, e_i, e_ip1 have a singleton dimension 
-    # between batch-shape (ndim) and node.number (nodes_per_level[level])
-    # this singleton dimension is the "channel_in" for 1D filter (prolongator)
-    e_i = r_s[-1].view(ndim,-1)/variables_sfc[-1][1].view(ndim,-1)
-    CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[-2]/nodes_per_level[-1])
-    e_i = CNN1D_prol_odd(e_i.view(ndim,1,-1)) # prolongate
-    ## mg sweep
-    for level in reversed(range(1,nlevel-1)):
-        for _ in range(config.mg_smooth_its):
-            a_sfc_sparse, diagA, _ = variables_sfc[level]
-            e_ip1 = torch.zeros_like(e_i, device=config.dev, dtype=torch.float64) # error after smooth (at i+1-th smooth step)
-            for idim in range(ndim):
-                for jdim in range(ndim):
-                    e_ip1[idim,:] += torch.matmul(a_sfc_sparse[idim][jdim], e_i[jdim,:,:].view(-1))
-            e_ip1 -= r_s[level].view(ndim,1,-1)
-            e_ip1 *= -1.0 # now its b-Ax
-            e_ip1 = e_ip1 / diagA.view(ndim,1,-1) * config.jac_wei + e_i.view(ndim,1,-1)
-            CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level-1]/nodes_per_level[level])
-            e_i = CNN1D_prol_odd(e_ip1.view(ndim,1,-1))
-    ## map e_i to original order
-    e_i = e_i[:,0,sfc[:,0]-1]
-
-    return e_i
-
 
 def mg_smooth_one_level(level, e_i, b, variables_sfc):
     """
@@ -132,7 +39,6 @@ def mg_smooth_one_level(level, e_i, b, variables_sfc):
     return e_i, rr_i
 
 
-# get a and diag a from best_sfc_map
 def get_a_diaga(level,
             fin_sfc_nonods,
             fina_sfc_all_un,
@@ -273,7 +179,6 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
     return e_s[0].view(ndim, sf_nd_nb.cg_nonods).transpose(0,1).contiguous()
 
 
-# mg on sfc - prep
 def mg_on_P0DG_prep(fina, cola, RARvalues):
     '''
     # Prepare for Multi-grid cycle on P0DG mesh
@@ -391,20 +296,7 @@ def p3dg_to_p1dg_restrictor(x):
     takes in a scaler field on p3dg, do restriction and spit out
     its projection on p1dg.
     '''
-    I_31 = torch.tensor([
-        [1., 0, 0],
-        [0, 1., 0],
-        [0, 0, 1.],
-        [2. / 3, 1. / 3, 0],
-        [1. / 3, 2. / 3, 0],
-        [0, 2. / 3, 1. / 3],
-        [0, 1. / 3, 2. / 3],
-        [1. / 3, 0, 2. / 3],
-        [2. / 3, 0, 1. / 3],
-        [1. / 3, 1. / 3, 1. / 3]
-    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
-    I_13 = torch.transpose(I_31, dim0=0, dim1=1)
-    y = torch.einsum('ij,kj->ki', I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
+    y = torch.einsum('ij,kj->ki', sf_nd_nb.I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
     return y
 
 
@@ -413,19 +305,7 @@ def p1dg_to_p3dg_prolongator(x):
     takes in a scaler field on p1dg, do prolongation and spit out
     its projection on p3dg
     '''
-    I_31 = torch.tensor([
-        [1., 0, 0],
-        [0, 1., 0],
-        [0, 0, 1.],
-        [2. / 3, 1. / 3, 0],
-        [1. / 3, 2. / 3, 0],
-        [0, 2. / 3, 1. / 3],
-        [0, 1. / 3, 2. / 3],
-        [1. / 3, 0, 2. / 3],
-        [2. / 3, 0, 1. / 3],
-        [1. / 3, 1. / 3, 1. / 3]
-    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
-    y = torch.einsum('ij,kj->ki', I_31, x.view(config.nele, 3)).contiguous().view(-1)
+    y = torch.einsum('ij,kj->ki', sf_nd_nb.I_31, x.view(config.nele, p_nloc(1))).contiguous().view(-1)
     return y
 
 
@@ -465,11 +345,12 @@ def p_mg_pre(r0):
     The geometry of the mesh is the same for these
     p multi-grids.
     """
+    ele_p = config.ele_p
     r_p = [r0]  # store residaul on each p level
     e_p = [torch.zeros_like(r0, device=config.dev, dtype=torch.float64)]  # store error on each p level
-    rr_i = r0
-    for p in range(2, 0, -1):
-        ilevel = 3 - p
+    rr_i = r0  # residual of error equation Ae=r. rr_i := r_p - A e_i
+    for p in range(ele_p-1, 0, -1):
+        ilevel = ele_p - p
         # restrict r and e
         r_i = torch.zeros(config.nele*p_nloc(p), ndim, device=config.dev, dtype=torch.float64)
         e_i = torch.zeros(config.nele*p_nloc(p), ndim, device=config.dev, dtype=torch.float64)
@@ -491,8 +372,9 @@ def p_mg_post(e_p, r_p):
     """
     do p-multigrid post-smooth
     """
-    for p in range(1, 3):
-        ilevel = 3-p
+    ele_p = config.ele_p
+    for p in range(1, ele_p):
+        ilevel = ele_p - p
         # post smooth
         for its1 in range(config.post_smooth_its):
             _, e_p[ilevel] = volume_mf_linear_elastic.pmg_get_residual_and_smooth_once(
@@ -577,30 +459,71 @@ def _p_prolongator_1level(p_in):
     """
     retrun element-wise prolongator from p_in level to p_in+1 level
     """
-    if p_in == 2:
-        I = torch.tensor([
-            [1, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0],
-            [0, 0, 1, 0, 0, 0],
-            [2 / 9, -1 / 9, 0, 8 / 9, 0, 0],
-            [-1 / 9, 2 / 9, 0, 8 / 9, 0, 0],
-            [0, 2 / 9, -1 / 9, 0, 0, 8 / 9],
-            [0, -1 / 9, 2 / 9, 0, 0, 8 / 9],
-            [-1 / 9, 0, 2 / 9, 0, 8 / 9, 0],
-            [2 / 9, 0, -1 / 9, 0, 8 / 9, 0],
-            [-1 / 9, -1 / 9, -1 / 9, 4 / 9, 4 / 9, 4 / 9]
-        ], device=config.dev, dtype=torch.float64)  # P2DG to P3DG, element-wise prolongation operator
-    elif p_in == 1:
-        I = torch.tensor([
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1],
-            [1 / 2, 1 / 2, 0],
-            [1 / 2, 0, 1 / 2],
-            [0, 1 / 2, 1 / 2]
-        ], device=config.dev, dtype=torch.float64)  # P1DG to P2DG, element-wise prolongation operator
+    if config.ndim == 3:
+        if p_in == 2:
+            I = torch.tensor([
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                [2 / 9, 0, -1 / 9, 0, 0, 8 / 9, 0, 0, 0, 0],
+                [-1 / 9, 0, 2 / 9, 0, 0, 8 / 9, 0, 0, 0, 0],
+                [2 / 9, -1 / 9, 0, 0, 0, 0, 8 / 9, 0, 0, 0],
+                [-1 / 9, 2 / 9, 0, 0, 0, 0, 8 / 9, 0, 0, 0],
+                [0, 2 / 9, -1 / 9, 0, 8 / 9, 0, 0, 0, 0, 0],
+                [0, -1 / 9, 2 / 9, 0, 8 / 9, 0, 0, 0, 0, 0],
+                [2 / 9, 0, 0, -1 / 9, 0, 0, 0, 8 / 9, 0, 0],
+                [-1 / 9, 0, 0, 2 / 9, 0, 0, 0, 8 / 9, 0, 0],
+                [0, 2 / 9, 0, -1 / 9, 0, 0, 0, 0, 8 / 9, 0],
+                [0, -1 / 9, 0, 2 / 9, 0, 0, 0, 0, 8 / 9, 0],
+                [0, 0, 2 / 9, -1 / 9, 0, 0, 0, 0, 0, 8 / 9],
+                [0, 0, -1 / 9, 2 / 9, 0, 0, 0, 0, 0, 8 / 9],
+                [0, -1 / 9, -1 / 9, -1 / 9, 4 / 9, 0, 0, 0, 4 / 9, 4 / 9],
+                [-1 / 9, -1 / 9, -1 / 9, 0, 4 / 9, 4 / 9, 4 / 9, 0, 0, 0],
+                [-1 / 9, 0, -1 / 9, -1 / 9, 0, 4 / 9, 0, 4 / 9, 0, 4 / 9],
+                [-1 / 9, -1 / 9, 0, -1 / 9, 0, 0, 4 / 9, 4 / 9, 4 / 9, 0],
+            ], device=config.dev, dtype=torch.float64)  # P2DG to P3DG, element-wise prolongation operator
+        elif p_in == 1:
+            I = torch.tensor([
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+                [0, 1 / 2, 1 / 2, 0],
+                [1 / 2, 0, 1 / 2, 0],
+                [1 / 2, 1 / 2, 0, 0],
+                [1 / 2, 0, 0, 1 / 2],
+                [0, 1 / 2, 0, 1 / 2],
+                [0, 0, 1 / 2, 1 / 2],
+            ], device=config.dev, dtype=torch.float64)  # P1DG to P2DG, element-wise prolongation operator
+        else:
+            raise Exception('input order for prolongator should be 1 or 2!')
+    # otherwise its 2D
     else:
-        raise Exception('input order for prolongator should be 1 or 2!')
+        if p_in == 2:
+            I = torch.tensor([
+                [1, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0],
+                [2 / 9, -1 / 9, 0, 8 / 9, 0, 0],
+                [-1 / 9, 2 / 9, 0, 8 / 9, 0, 0],
+                [0, 2 / 9, -1 / 9, 0, 0, 8 / 9],
+                [0, -1 / 9, 2 / 9, 0, 0, 8 / 9],
+                [-1 / 9, 0, 2 / 9, 0, 8 / 9, 0],
+                [2 / 9, 0, -1 / 9, 0, 8 / 9, 0],
+                [-1 / 9, -1 / 9, -1 / 9, 4 / 9, 4 / 9, 4 / 9]
+            ], device=config.dev, dtype=torch.float64)  # P2DG to P3DG, element-wise prolongation operator
+        elif p_in == 1:
+            I = torch.tensor([
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1 / 2, 1 / 2, 0],
+                [1 / 2, 0, 1 / 2],
+                [0, 1 / 2, 1 / 2]
+            ], device=config.dev, dtype=torch.float64)  # P1DG to P2DG, element-wise prolongation operator
+        else:
+            raise Exception('input order for prolongator should be 1 or 2!')
     return I
 
 
@@ -608,23 +531,47 @@ def _p_restrictor_1level(p_in):
     """
     return element-wise restrictor from p_in level to p_in-1 level
     """
-    if p_in == 3:
-        I = torch.tensor([
-            [1, 0, 0, 2 / 9, -1 / 9, 0, 0, -1 / 9, 2 / 9, -1 / 9],
-            [0, 1, 0, -1 / 9, 2 / 9, 2 / 9, -1 / 9, 0, 0, -1 / 9],
-            [0, 0, 1, 0, 0, -1 / 9, 2 / 9, 2 / 9, -1 / 9, -1 / 9],
-            [0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 4 / 9],
-            [0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 4 / 9],
-            [0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 4 / 9]
-        ], device=config.dev, dtype=torch.float64)  # P3DG to P2DG, element-wise restriction operator
-    elif p_in == 2:
-        I = torch.tensor([
-            [1, 0, 0, 1 / 2, 1 / 2, 0],
-            [0, 1, 0, 1 / 2, 0, 1 / 2],
-            [0, 0, 1, 0, 1 / 2, 1 / 2]
-        ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise restriction operator
-    else:
-        raise Exception('input order for restrictor should be 3 or 2!')
+    if config.ndim == 3:
+        if p_in == 3:
+            I = torch.tensor([
+                [1, 0, 0, 0, 2 / 9, -1 / 9, 2 / 9, -1 / 9, 0, 0, 2 / 9, -1 / 9, 0, 0, 0, 0, 0, -1 / 9, -1 / 9, -1 / 9],
+                [0, 1, 0, 0, 0, 0, -1 / 9, 2 / 9, 2 / 9, -1 / 9, 0, 0, 2 / 9, -1 / 9, 0, 0, -1 / 9, -1 / 9, 0, -1 / 9],
+                [0, 0, 1, 0, -1 / 9, 2 / 9, 0, 0, -1 / 9, 2 / 9, 0, 0, 0, 0, 2 / 9, -1 / 9, -1 / 9, -1 / 9, -1 / 9, 0],
+                [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, -1 / 9, 2 / 9, -1 / 9, 2 / 9, -1 / 9, 2 / 9, -1 / 9, 0, -1 / 9, -1 / 9],
+                [0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 0, 0, 4 / 9, 4 / 9, 0, 0],
+                [0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4 / 9, 4 / 9, 0],
+                [0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4 / 9, 0, 4 / 9],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 0, 0, 4 / 9, 4 / 9],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 4 / 9, 0, 0, 4 / 9],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 4 / 9, 0, 4 / 9, 0],
+            ], device=config.dev, dtype=torch.float64)  # P3DG to P2DG, element-wise restriction operator
+        elif p_in == 2:
+            I = torch.tensor([
+                [1, 0, 0, 0, 0, 1 / 2, 1 / 2, 1 / 2, 0, 0],
+                [0, 1, 0, 0, 1 / 2, 0, 1 / 2, 0, 1 / 2, 0],
+                [0, 0, 1, 0, 1 / 2, 1 / 2, 0, 0, 0, 1 / 2],
+                [0, 0, 0, 1, 0, 0, 0, 1 / 2, 1 / 2, 1 / 2],
+            ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise restriction operator
+        else:
+            raise Exception('input order for restrictor should be 3 or 2!')
+    else:  # otherwise its 2D
+        if p_in == 3:
+            I = torch.tensor([
+                [1, 0, 0, 2 / 9, -1 / 9, 0, 0, -1 / 9, 2 / 9, -1 / 9],
+                [0, 1, 0, -1 / 9, 2 / 9, 2 / 9, -1 / 9, 0, 0, -1 / 9],
+                [0, 0, 1, 0, 0, -1 / 9, 2 / 9, 2 / 9, -1 / 9, -1 / 9],
+                [0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 4 / 9],
+                [0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 4 / 9],
+                [0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 4 / 9]
+            ], device=config.dev, dtype=torch.float64)  # P3DG to P2DG, element-wise restriction operator
+        elif p_in == 2:
+            I = torch.tensor([
+                [1, 0, 0, 1 / 2, 1 / 2, 0],
+                [0, 1, 0, 1 / 2, 0, 1 / 2],
+                [0, 0, 1, 0, 1 / 2, 1 / 2]
+            ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise restriction operator
+        else:
+            raise Exception('input order for restrictor should be 3 or 2!')
     return I
 
 
@@ -632,12 +579,9 @@ def p_nloc(p):
     """
     return nloc in p order grid
     """
-    if p == 3:
-        nloc = 10
-    elif p == 2:
-        nloc = 6
-    elif p == 1:
-        nloc = 3
-    else:
-        raise Exception('input order for restrictor should be 3 or 2!')
-    return nloc
+    if config.ndim == 3:
+        nloc = [1, 4, 10, 20]
+        return nloc[p]
+    else:  # its 2D
+        nloc = [1, 3, 6, 10]
+        return nloc[p]

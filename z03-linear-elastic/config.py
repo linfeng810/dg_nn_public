@@ -20,12 +20,12 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='iterative' # 'direct' or 'iterative'
+solver='direct' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='square.msh' # directory to mesh file (gmsh)
+filename='z31-cubc-mesh/cube.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -35,7 +35,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 nele = mesh.n_cells # number of elements
 ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
 print('element order: ', ele_type)
-ndim = 2  # dimesnion of the problem
+ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type == 'cubic':
         nloc = 10  # number of nodes in an element
@@ -129,14 +129,22 @@ print('Lame coefficient: lamda, mu', lam, mu)
 kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
-a = torch.eye(2, device=dev)
+a = torch.eye(ndim, device=dev)
 kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
     +mu*torch.einsum('il,jk->ijkl',a,a)  # c_ijkl elasticity tensor
 
-ijkldim_nz = [[0,0,0,0], [0,0,1,1], [0,1,0,1], [0,1,1,0],
-              [1,0,0,1], [1,0,1,0], [1,1,0,0], [1,1,1,1]]  # non-zero indices of cijkl
+if ndim == 2:
+    ijkldim_nz = [[0, 0, 0, 0], [0, 0, 1, 1], [0, 1, 0, 1], [0, 1, 1, 0],
+                  [1, 0, 0, 1], [1, 0, 1, 0], [1, 1, 0, 0], [1, 1, 1, 1]]  # non-zero indices of cijkl
+else:
+    ijkldim_nz = [[0, 0, 0, 0], [0, 0, 1, 1], [0, 0, 2, 2], [0, 1, 0, 1],
+                  [0, 1, 1, 0], [0, 2, 0, 2], [0, 2, 2, 0], [1, 0, 0, 1],
+                  [1, 0, 1, 0], [1, 1, 0, 0], [1, 1, 1, 1], [1, 1, 2, 2],
+                  [1, 2, 1, 2], [1, 2, 2, 1], [2, 0, 0, 2], [2, 0, 2, 0],
+                  [2, 1, 1, 2], [2, 1, 2, 1], [2, 2, 0, 0], [2, 2, 1, 1], [2, 2, 2, 2]]  # non-zero indices of cijkl
+
 # print('cijkl=', cijkl)
 
 #####################

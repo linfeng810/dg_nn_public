@@ -4,7 +4,8 @@ This file contains matrix assembly for direct solver.
 This is for linear elastic problem.
 The volume integral and surface integral terms are
 taken from `volume_mf_linear_elastic.py` and
-`surface_mf_linear_elastic.py` respectively.
+`surface_mf_linear_elastic.py`(deleted and move to
+ volume_mf_linear) respectively.
 """
 
 import torch
