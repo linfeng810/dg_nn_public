@@ -124,50 +124,54 @@ if ndim == 2:
 else:
     for bci in bc:
         for inod in bci:
-            x_inod = sf_nd_nb.x_ref_in[inod//nloc, :, inod%nloc]
-            u[inod//nloc, inod%nloc, :] = 0.
+            x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
+            # u[inod//nloc, inod%nloc, :] = 0.
+            u[inod // nloc, inod % nloc, :] = torch.exp(-x_inod[0] - x_inod[1] - x_inod[2])
     f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
     mu = config.mu
     lam = config.lam
     x = torch.tensor(x_all[:, 0], device=dev)
     y = torch.tensor(x_all[:, 1], device=dev)
     z = torch.tensor(x_all[:, 2], device=dev)
-    f[:, 0] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-        torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-        torch.pi * (z + 1))) + mu * (
-                          torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-                      torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(
-                      torch.pi * (z + 1)) * torch.sin(torch.pi * (y + 1))) - lam * (
-                          torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-                      torch.pi * (z + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-                      torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
-                      torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-                      torch.pi * (y + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-        torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
-    f[:, 1] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-        torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-        torch.pi * (z + 1))) + mu * (
-                          torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-                      torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (y + 1)) * torch.cos(
-                      torch.pi * (z + 1)) * torch.sin(torch.pi * (x + 1))) - lam * (
-                          torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-                      torch.pi * (z + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-                      torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
-                      torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-                      torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-        torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
-    f[:, 2] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-        torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-        torch.pi * (y + 1))) + mu * (
-                          torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-                      torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (y + 1)) * torch.cos(
-                      torch.pi * (z + 1)) * torch.sin(torch.pi * (x + 1))) - lam * (
-                          torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-                      torch.pi * (y + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-                      torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
-                      torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-                      torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-        torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
+    # f[:, 0] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
+    #     torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
+    #     torch.pi * (z + 1))) + mu * (
+    #                       torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
+    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(
+    #                   torch.pi * (z + 1)) * torch.sin(torch.pi * (y + 1))) - lam * (
+    #                       torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
+    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
+    #                   torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
+    #                   torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
+    #                   torch.pi * (y + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
+    #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
+    # f[:, 1] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
+    #     torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
+    #     torch.pi * (z + 1))) + mu * (
+    #                       torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
+    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (y + 1)) * torch.cos(
+    #                   torch.pi * (z + 1)) * torch.sin(torch.pi * (x + 1))) - lam * (
+    #                       torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
+    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
+    #                   torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
+    #                   torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
+    #                   torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
+    #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
+    # f[:, 2] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
+    #     torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
+    #     torch.pi * (y + 1))) + mu * (
+    #                       torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
+    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (y + 1)) * torch.cos(
+    #                   torch.pi * (z + 1)) * torch.sin(torch.pi * (x + 1))) - lam * (
+    #                       torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
+    #                   torch.pi * (y + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
+    #                   torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
+    #                   torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
+    #                   torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
+    #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
+    f[:, 0] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
+    f[:, 1] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
+    f[:, 2] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
     fNorm = torch.linalg.norm(f.view(-1), dim=0)
     del x, y, z
 
@@ -578,7 +582,9 @@ if (config.solver=='direct'):
     np.savetxt('Amat.txt', Amat.cpu().numpy(), delimiter=',')
     np.savetxt('rhs.txt', rhs.cpu().numpy(), delimiter=',')
     Amat_np = sp.sparse.csr_matrix(Amat.cpu().numpy())
-    rhs_np = rhs.cpu().numpy()
+    rhs_np = rhs.view(-1).cpu().numpy()
+    print('im going to solve', time.time() - starttime)
+    u_i = sp.sparse.linalg.spsolve(Amat_np, rhs_np)
     print('9. (direct solver) done solve, time elapsed: ', time.time()-starttime)
     u_i = np.reshape(u_i, (nele, nloc, ndim))
     # store to c_all to print out

@@ -20,12 +20,12 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='direct' # 'direct' or 'iterative'
+solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cubc-mesh/cube.msh' # directory to mesh file (gmsh)
+filename='z31-cubc-mesh/cube_r1.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -99,7 +99,7 @@ if len(sys.argv) > 3:
     pre_smooth_its = int(sys.argv[3])
     post_smooth_its = int(sys.argv[3])
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
-blk_solver = 'jacobi'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
+blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
 is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
