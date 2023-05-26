@@ -206,6 +206,7 @@ def init():
     for inod in range(nonods):
         if x_all[inod,1]>1.-1e-8 :
             bc4.append(inod)
+    bc = [bc1, bc2, bc3, bc4]
 
     # cg bc
     cg_bc1 = []
@@ -249,7 +250,7 @@ def init():
             [0, 0, 1],
         ], device=config.dev, dtype=torch.float64))
 
-    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc1,bc2,bc3,bc4 , cg_ndglno, cg_nonods, cg_bc
+    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods, cg_bc
 
 
 def init_3d():

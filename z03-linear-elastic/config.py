@@ -147,26 +147,6 @@ else:
 
 # print('cijkl=', cijkl)
 
-#####################
-# rhs body force 
-def rhs_f(x_all, mu):
-    # takes in coordinates numpy array (nonods, ndim)
-    # output body force: torch tensor (nele*nloc, ndim)
-    mu = mu.cpu().numpy()
-    f = np.zeros((nonods, ndim), dtype=np.float64)
-    f[:, 0] += -2.0*mu*np.power(np.pi,3)*\
-        np.cos(np.pi*x_all[:,1]) * np.sin(np.pi*x_all[:,1])\
-        * (2*np.cos(2*np.pi*x_all[:,0])-1)
-    f[:, 1] += 2.0*mu*np.power(np.pi,3)*\
-        np.cos(np.pi*x_all[:,0]) * np.sin(np.pi*x_all[:,0])\
-        * (2*np.cos(2*np.pi*x_all[:,1])-1)
-    f = torch.tensor(f, device=dev, dtype=torch.float64)
-    fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    # f *=0
-    # np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
-    # np.savetxt('x_all.txt', x_all, delimiter=',')
-    return f, fNorm
-
 
 ####################
 # discretisation settings

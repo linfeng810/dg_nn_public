@@ -21,6 +21,7 @@ from shape_function import SHATRInew, det_nlx, sdet_snlx
 import volume_mf_linear_elastic
 from color import color2
 import multigrid_linearelastic as mg
+import bc_f
 import time
 
 starttime = time.time()
@@ -47,7 +48,7 @@ print('nele=', nele)
 
 if ndim == 2:
     x_all, nbf, nbele, alnmt, fina, cola, ncola, \
-        bc1, bc2, bc3, bc4, \
+        bc, \
         cg_ndglno, cg_nonods, cg_bc = mesh_init.init()
 else:
     alnmt: object
@@ -109,72 +110,7 @@ del x_ref_in
 # initical condition
 u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
 
-if ndim == 2:
-    # apply boundary conditions (4 Dirichlet bcs)
-    for inod in bc1:
-        u[int(inod/nloc), inod%nloc, :]=0.
-    for inod in bc2:
-        u[int(inod/nloc), inod%nloc, :]=0.
-    for inod in bc3:
-        u[int(inod/nloc), inod%nloc, :]=0.
-    for inod in bc4:
-        u[int(inod/nloc), inod%nloc, :]=0.
-        # x_inod = x_ref_in[inod//10, 0, inod%10]
-        # u[:,inod]= torch.sin(torch.pi*x_inod)
-    f, fNorm = config.rhs_f(x_all, config.mu) # rhs force
-else:
-    for bci in bc:
-        for inod in bci:
-            x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
-            # u[inod//nloc, inod%nloc, :] = 0.
-            u[inod // nloc, inod % nloc, :] = torch.exp(-x_inod[0] - x_inod[1] - x_inod[2])
-    f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-    mu = config.mu
-    lam = config.lam
-    x = torch.tensor(x_all[:, 0], device=dev)
-    y = torch.tensor(x_all[:, 1], device=dev)
-    z = torch.tensor(x_all[:, 2], device=dev)
-    # f[:, 0] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-    #     torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-    #     torch.pi * (z + 1))) + mu * (
-    #                       torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(
-    #                   torch.pi * (z + 1)) * torch.sin(torch.pi * (y + 1))) - lam * (
-    #                       torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-    #                   torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
-    #                   torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-    #                   torch.pi * (y + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-    #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
-    # f[:, 1] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-    #     torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-    #     torch.pi * (z + 1))) + mu * (
-    #                       torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (y + 1)) * torch.cos(
-    #                   torch.pi * (z + 1)) * torch.sin(torch.pi * (x + 1))) - lam * (
-    #                       torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (y + 1)) * torch.sin(
-    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-    #                   torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
-    #                   torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-    #                   torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-    #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
-    # f[:, 2] = mu * (torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-    #     torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-    #     torch.pi * (y + 1))) + mu * (
-    #                       torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(torch.pi * (y + 1)) * torch.sin(
-    #                   torch.pi * (z + 1)) - torch.pi ** 2 * torch.cos(torch.pi * (y + 1)) * torch.cos(
-    #                   torch.pi * (z + 1)) * torch.sin(torch.pi * (x + 1))) - lam * (
-    #                       torch.pi ** 2 * torch.cos(torch.pi * (x + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-    #                   torch.pi * (y + 1)) - torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-    #                   torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1)) + torch.pi ** 2 * torch.cos(
-    #                   torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
-    #                   torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
-    #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
-    f[:, 0] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
-    f[:, 1] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
-    f[:, 2] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
-    fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    del x, y, z
+u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, 'linear-elastic')
 
 # print(u)
 tstep=int(np.ceil((tend-tstart)/dt))+1
