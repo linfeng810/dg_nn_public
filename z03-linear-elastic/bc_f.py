@@ -96,6 +96,34 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             f[:, 2] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
             del x, y, z
-    if prob == 'hyper-elastic':
-        ...
+    elif prob == 'hyper-elastic':
+        if ndim == 2:
+            raise Exception('2D hyper-elastic problem is not defined in bc_f.py')
+        else:
+            alpha = 0.1
+            gamma = 0.1
+            lam = config.lam
+            mu = config.mu
+            for bci in bc:
+                for inod in bci:
+                    x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
+                    theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
+                    g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
+                    h = 0  # 0
+
+                    u[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
+                    u[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                                                        (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                    u[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+            x = torch.tensor(x_all[:, 0], device=dev)
+            y = torch.tensor(x_all[:, 1], device=dev)
+            z = torch.tensor(x_all[:, 2], device=dev)
+            f = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+            f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * x)
+            f[:, 1] = 0.
+            f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * y)
+            fNorm = torch.linalg.norm(f.view(-1), dim=0)
+            del x, y, z
+    else:
+        raise Exception('the problem ', prob, ' is not defined in bc_f.py')
     return u, f, fNorm
