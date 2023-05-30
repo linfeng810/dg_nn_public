@@ -9,7 +9,8 @@ import numpy as np
 import scipy as sp
 import config
 import multigrid_linearelastic as mg
-from volume_mf_linear_elastic import get_residual_only, get_residual_and_smooth_once
+# from volume_mf_linear_elastic import get_residual_only, get_residual_and_smooth_once
+from volume_mf_he import get_residual_only, get_residual_and_smooth_once
 from config import sf_nd_nb
 
 
@@ -19,29 +20,25 @@ nloc = config.nloc
 ndim = config.ndim
 
 
-def _multigrid_one_cycle(u_i, u_n, u_bc, f, u_rhs=0):
+def _multigrid_one_cycle(u_i, du_i, u_rhs=0):
     """
     given initial vector and right hand side,
     do one MG cycle.
-    TODO: MG determined by config parameters:
-        - pmg?
-        - amg? (SFC)
-        - which levels of SFCs to visit?
-        - pre/post smooth step?
     """
     r0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
     u_i = u_i.view(nonods, ndim)
+    du_i = du_i.view(nonods, ndim)
     cg_nonods = sf_nd_nb.cg_nonods
 
     for its1 in range(config.pre_smooth_its):
         r0 *= 0
-        r0, u_i = get_residual_and_smooth_once(
-            r0, u_i, u_n, u_bc, f, u_rhs)
+        r0, du_i = get_residual_and_smooth_once(
+            r0, u_i, du_i, u_rhs)
     # get residual on PnDG
     r0 *= 0
     r0 = get_residual_only(
         r0,
-        u_i, u_n, u_bc, f, u_rhs)
+        u_i, du_i, u_rhs)
 
     if not config.is_pmg:  # PnDG to P1CG
         r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
@@ -56,7 +53,7 @@ def _multigrid_one_cycle(u_i, u_n, u_bc, f, u_rhs=0):
     if not config.is_sfc:  # two-grid method
         e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
         e_direct = sp.sparse.linalg.spsolve(
-            sf_nd_nb.RAR,
+            sf_nd_nb.RARmat,
             r1.contiguous().view(-1).cpu().numpy())
         e_direct = np.reshape(e_direct, (cg_nonods, ndim))
         e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
@@ -94,18 +91,18 @@ def _multigrid_one_cycle(u_i, u_n, u_bc, f, u_rhs=0):
         r_p, e_p = mg.p_mg_post(e_p, r_p)
         e_i0 = e_p[0]
     # correct fine grid solution
-    u_i += e_i0
+    du_i += e_i0
     # post smooth
     for its1 in range(config.post_smooth_its):
         r0 *= 0
-        r0, u_i = get_residual_and_smooth_once(
-            r0, u_i, u_n, u_bc, f, u_rhs)
+        r0, du_i = get_residual_and_smooth_once(
+            r0, u_i, du_i, u_rhs)
     # r0l2 = torch.linalg.norm(r0.view(-1), dim=0) / r0_init  # fNorm
 
-    return u_i, r0
+    return du_i, r0
 
 
-def multigrid_solver(u_i, u_n, u_bc, f,
+def multigrid_solver(u_i, du_i, u_rhs,
                      tol):
     """
     use multigrid as a solver
@@ -116,36 +113,33 @@ def multigrid_solver(u_i, u_n, u_bc, f,
     # first do one cycle to get initial residual
     r0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
     dummy = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
-    dummy = get_rhs(u_n, u_bc, f)
-    u_n *= 0
-    u_bc *= 0
-    f *= 0
-    u_i, _ = _multigrid_one_cycle(u_i, u_n, u_bc, f, u_rhs=dummy)
+    du_i, _ = _multigrid_one_cycle(u_i, du_i, u_rhs=u_rhs)
     r0 *= 0
     r0 = get_residual_only(r0,
-                           u_i, u_n, u_bc, f, u_rhs=dummy)
+                           u_i, du_i, u_rhs=u_rhs)
     r0l2_init = torch.linalg.norm(r0.view(-1), dim=0)
     r0l2 = torch.tensor([1.], device=dev, dtype=torch.float64)
 
     # now we do MG cycles
     its = 1
     while r0l2 > tol and its < config.jac_its:
-        u_i, r = _multigrid_one_cycle(u_i, u_n, u_bc, f, u_rhs=dummy)
+        du_i, r = _multigrid_one_cycle(u_i, du_i, u_rhs=u_rhs)
         # r0 *= 0
         # r0 = get_residual_only(r0,
         #                        c_i, c_n, c_bc, f, c_rhs=dummy)
         r0l2 = torch.linalg.norm(r.view(-1), dim=0) / r0l2_init
         its += 1
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
-    return u_i
+    return du_i
 
 
-def gmres_mg_solver(u_i, u_n, u_bc, f,
+def gmres_mg_solver(u_i, du_i, u_rhs,
                     tol):
     """
     use mg left preconditioned gmres as a solver
     """
     u_i = u_i.view(-1)
+    du_i = du_i.view(-1)
     m = config.gmres_m
     v_m = torch.zeros(m+1, nonods * ndim, device=dev, dtype=torch.float64)  # V_m
     h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
@@ -160,12 +154,10 @@ def gmres_mg_solver(u_i, u_n, u_bc, f,
         v_m *= 0
         r0 *= 0
         r0 = get_residual_only(r0,
-                               u_i, u_n, u_bc, f)
+                               u_i, du_i, u_rhs)
         r0 = r0.view(nonods, ndim)
-        r0, _ = _multigrid_one_cycle(u_i=torch.zeros(nonods, ndim, device=dev, dtype=torch.float64),
-                                     u_n=dummy,
-                                     u_bc=dummy,
-                                     f=dummy,
+        r0, _ = _multigrid_one_cycle(u_i=u_i,
+                                     du_i=torch.zeros(nonods, ndim, device=dev, dtype=torch.float64),
                                      u_rhs=r0)
         r0 = r0.view(-1)
         beta = torch.linalg.norm(r0)
@@ -174,18 +166,14 @@ def gmres_mg_solver(u_i, u_n, u_bc, f,
         for j in range(0, m):
             w *= 0
             w = get_residual_only(r0=w,
-                                  u_i=v_m[j, :],
-                                  u_n=dummy,
-                                  u_bc=dummy,
-                                  f=dummy,
+                                  u_i=u_i,
+                                  du_i=v_m[j, :],
                                   u_rhs=dummy)  # providing rhs=0, b-Ax is -Ax
             w = w.view(nonods, ndim)
             w *= -1.
-            w, _ = _multigrid_one_cycle(u_i=torch.zeros(nonods, ndim, device=dev, dtype=torch.float64),
+            w, _ = _multigrid_one_cycle(u_i=u_i,
+                                        du_i=torch.zeros(nonods, ndim, device=dev, dtype=torch.float64),
                                         # ↑ here I believe we create another nonods memory usage
-                                        u_n=dummy,
-                                        u_bc=dummy,
-                                        f=dummy,
                                         u_rhs=w)
             w = w.view(-1)
             for i in range(0, j+1):
@@ -199,16 +187,16 @@ def gmres_mg_solver(u_i, u_n, u_bc, f,
         e_1[0] += beta
         y_m = torch.linalg.solve(r[0:m, 0:m], q[0:m+1, 0:m].T @ e_1)  # y_m: m
         # update c_i and get residual
-        u_i += torch.einsum('ji,j->i', v_m[0:m, :], y_m)
+        du_i += torch.einsum('ji,j->i', v_m[0:m, :], y_m)
         r0l2 = torch.linalg.norm(q[:, m:m+1].T @ e_1)
         r0 *= 0
         r0 = get_residual_only(r0,
-                               u_i, u_n, u_bc, f)
+                               u_i, du_i, u_rhs)
         r0 = r0.view(-1)
         r0l2 = torch.linalg.norm(r0)
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
         its += 1
-    return u_i
+    return du_i
 
 
 def gmres_solver(c_i, c_n, c_bc, f,
@@ -216,6 +204,7 @@ def gmres_solver(c_i, c_n, c_bc, f,
     """
     use mg left preconditioned gmres as a solver
     """
+    raise Exception('GMRES solver not implemented!')
     c_i = c_i.view(-1)
     m = config.gmres_m
     v_m = torch.zeros(m+1, nonods, device=dev, dtype=torch.float64)  # V_m
@@ -264,13 +253,3 @@ def gmres_solver(c_i, c_n, c_bc, f,
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
         its += 1
     return c_i
-
-
-def get_rhs(u_n, u_bc, f):
-    """
-    get right-hand side at each time step.
-    """
-    u_rhs = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
-    dummy = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
-    u_rhs = get_residual_only(u_rhs, dummy, u_n, u_bc, f)
-    return u_rhs

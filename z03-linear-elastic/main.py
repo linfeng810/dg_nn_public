@@ -14,11 +14,15 @@ from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
 import solvers
+import volume_mf_he
 from config import sf_nd_nb
 import mesh_init
 # from mesh_init import face_iloc,face_iloc2
 from shape_function import SHATRInew, det_nlx, sdet_snlx
-import volume_mf_linear_elastic
+if config.problem == 'linear-elastic':
+    import volume_mf_linear_elastic as integral_mf
+else:
+    import volume_mf_he as integral_mf
 from color import color2
 import multigrid_linearelastic as mg
 import bc_f
@@ -226,59 +230,130 @@ if (config.solver=='iterative') :
     r0l2all=[]
     # time loop
     r0 = torch.zeros(nele*nloc, ndim, device=dev, dtype=torch.float64)
-    for itime in range(1,tstep):
-        u_n = u.view(nele, nloc, ndim)  # store last timestep value to un
-        u_i = u_n  # jacobi iteration initial value taken as last time step value
+    if config.problem == 'linear-elastic':
+        for itime in range(1,tstep):
+            u_n = u.view(nele, nloc, ndim)  # store last timestep value to un
+            u_i = u_n  # jacobi iteration initial value taken as last time step value
 
-        r0l2 = 1
-        its = 0
-        r0 *= 0
+            r0l2 = 1
+            its = 0
+            r0 *= 0
 
-        # prepare for MG on SFC-coarse grids
-        RARvalues = volume_mf_linear_elastic.calc_RAR_mf_color(
-            I_fc, I_cf,
-            whichc, ncolor,
-            fina, cola, ncola)
-        from scipy.sparse import bsr_matrix
-        if not config.is_sfc:
-            RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim*cg_nonods, ndim*cg_nonods))
-            sf_nd_nb.set_data(RARmat=RAR.tocsr())
-        # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-        RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous()  # (ndim,ndim,ncola)
-        # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-        space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-            mg.mg_on_P0DG_prep(fina, cola, RARvalues)
-        sf_nd_nb.sfc_data.set_data(
-            space_filling_curve_numbering=space_filling_curve_numbering,
-            variables_sfc=variables_sfc,
-            nlevel=nlevel,
-            nodes_per_level=nodes_per_level
-        )
-        print('9. time elapsed, ', time.time()-starttime)
+            # prepare for MG on SFC-coarse grids
+            RARvalues = integral_mf.calc_RAR_mf_color(
+                I_fc, I_cf,
+                whichc, ncolor,
+                fina, cola, ncola)
+            from scipy.sparse import bsr_matrix
+            if not config.is_sfc:
+                RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim*cg_nonods, ndim*cg_nonods))
+                sf_nd_nb.set_data(RARmat=RAR.tocsr())
+            # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
+            RARvalues = torch.permute(RARvalues, (1,2,0)).contiguous()  # (ndim,ndim,ncola)
+            # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+            space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+                mg.mg_on_P0DG_prep(fina, cola, RARvalues)
+            sf_nd_nb.sfc_data.set_data(
+                space_filling_curve_numbering=space_filling_curve_numbering,
+                variables_sfc=variables_sfc,
+                nlevel=nlevel,
+                nodes_per_level=nodes_per_level
+            )
+            print('9. time elapsed, ', time.time()-starttime)
 
-        if config.linear_solver == 'mg':
-            u_i = solvers.multigrid_solver(u_i, u_n, u_bc, f, config.tol)
-        elif config.linear_solver == 'gmres-mg':
-            u_i = solvers.gmres_mg_solver(u_i, u_n, u_bc, f, config.tol)
-        else:
-            raise Exception('choose a valid solver...')
-        # get final residual after we're back to fine grid
-        r0 *= 0
-        r0 = volume_mf_linear_elastic.get_residual_only(
-            r0,
-            u_i, u_n, u_bc, f)
+            if config.linear_solver == 'mg':
+                u_i = solvers.multigrid_solver(u_i, u_n, u_bc, f, config.tol)
+            elif config.linear_solver == 'gmres-mg':
+                u_i = solvers.gmres_mg_solver(u_i, u_n, u_bc, f, config.tol)
+            else:
+                raise Exception('choose a valid solver...')
+            # get final residual after we're back to fine grid
+            r0 *= 0
+            r0 = integral_mf.get_residual_only(
+                r0,
+                u_i, u_n, u_bc, f)
 
-        r0l2 = torch.linalg.norm(r0.view(-1), dim=0)/fNorm
-        r0l2all.append(r0l2.cpu().numpy())
-        print('its=',its,'residual l2 norm=',r0l2.cpu().numpy(),
-              'abs res=',torch.linalg.norm(r0.view(-1),dim=0).cpu().numpy(),
-              'fNorm', fNorm.cpu().numpy())
+            r0l2 = torch.linalg.norm(r0.view(-1), dim=0)/fNorm
+            r0l2all.append(r0l2.cpu().numpy())
+            print('its=',its,'residual l2 norm=',r0l2.cpu().numpy(),
+                  'abs res=',torch.linalg.norm(r0.view(-1),dim=0).cpu().numpy(),
+                  'fNorm', fNorm.cpu().numpy())
 
-        # if jacobi converges,
-        u = u_i.view(nele, nloc, ndim)
+            # if jacobi converges,
+            u = u_i.view(nele, nloc, ndim)
 
-        # combine inner/inter element contribution
-        u_all[itime, :, :, :] = u.cpu().numpy()
+            # combine inner/inter element contribution
+            u_all[itime, :, :, :] = u.cpu().numpy()
+    else:  # config.problem == 'hyper-elastic'
+        du_i = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)
+        for itime in range(1, tstep):  # time loop
+            u_n = u.view(nele, nloc, ndim)  # store last timestep value to un
+            u_i = u_n.detach().clone()  # newton iteration initial value taken as last time step value
+
+            r0l2 = 1  # linear solver residual l2 norm
+            its = 0  # linear solver iteration
+            nr0l2 = 1  # non-linear solver residual l2 norm
+            nits = 0  # newton iteration step
+            r0 *= 0
+
+            while nits < config.n_its_max:
+                u_rhs = volume_mf_he.get_rhs(u=u_i, u_bc=u_bc, f=f, u_n=u_n)
+                nr0l2 = torch.linalg.norm(u_rhs.view(-1))
+                print('nits = ', nits, 'non-linear residual = ', nr0l2.cpu().numpy())
+                if nr0l2 < config.n_tol:
+                    # non-linear iteration converged
+                    break
+                # prepare for MG on SFC-coarse grids
+                RARvalues = volume_mf_he.calc_RAR_mf_color(
+                    I_fc, I_cf,
+                    whichc, ncolor,
+                    fina, cola, ncola,
+                    u_i
+                )
+                from scipy.sparse import bsr_matrix
+
+                if not config.is_sfc:
+                    RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
+                    sf_nd_nb.set_data(RARmat=RAR.tocsr())
+                # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
+                RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
+                # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+                space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+                    mg.mg_on_P0DG_prep(fina, cola, RARvalues)
+                sf_nd_nb.sfc_data.set_data(
+                    space_filling_curve_numbering=space_filling_curve_numbering,
+                    variables_sfc=variables_sfc,
+                    nlevel=nlevel,
+                    nodes_per_level=nodes_per_level
+                )
+                print('9. time elapsed, ', time.time() - starttime)
+
+                du_i *= 0  # solve for delta u_i
+                if config.linear_solver == 'mg':
+                    du_i = solvers.multigrid_solver(u_i, du_i, u_rhs, config.tol)
+                elif config.linear_solver == 'gmres-mg':
+                    du_i = solvers.gmres_mg_solver(u_i, du_i, u_rhs, config.tol)
+                else:
+                    raise Exception('choose a valid solver...')
+                # get final residual after we're back to fine grid
+                r0 *= 0
+                r0 = volume_mf_he.get_residual_only(
+                    r0, u_i, du_i, u_rhs
+                )
+
+                r0l2 = torch.linalg.norm(r0.view(-1), dim=0) / fNorm
+                r0l2all.append(r0l2.cpu().numpy())
+                print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
+                      'abs res=', torch.linalg.norm(r0.view(-1), dim=0).cpu().numpy(),
+                      'fNorm', fNorm.cpu().numpy())
+                u_i += du_i.view(nele, nloc, ndim) * config.relax_coeff
+                nits += 1
+
+            # if jacobi converges,
+            u = u_i.view(nele, nloc, ndim)
+
+            # combine inner/inter element contribution
+            u_all[itime, :, :, :] = u.cpu().numpy()
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
@@ -310,7 +385,7 @@ if (config.solver=='direct'):
     np.savetxt('f.txt', f.cpu().numpy(), delimiter=',')
     dummy1 *= 0
     dummy2 *= 0
-    rhs = volume_mf_linear_elastic.get_residual_only(
+    rhs = integral_mf.get_residual_only(
         r0=rhs,
         u_i=dummy1,
         u_n=dummy2,
@@ -324,7 +399,7 @@ if (config.solver=='direct'):
             dummy4 *= 0
             probe *= 0
             probe[inod, :] = 1.
-            Amat[:, inod + jdim * nonods] -= volume_mf_linear_elastic.get_residual_only(
+            Amat[:, inod + jdim * nonods] -= integral_mf.get_residual_only(
                 r0=dummy1,
                 u_i=probe,
                 u_n=dummy2,

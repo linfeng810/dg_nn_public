@@ -25,7 +25,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cubc-mesh/cube_r1.msh' # directory to mesh file (gmsh)
+filename='z11-cube-mesh/cube.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -33,7 +33,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
+ele_type = 'linear'  # 'linear' or 'cubic' or 'quadratic'
 print('element order: ', ele_type)
 ndim = 3  # dimesnion of the problem
 if ndim == 2:
@@ -81,7 +81,7 @@ else:  # ndim = 3
 nonods = nloc*nele  # number of nodes
 ndglno=np.arange(0,nonods) # local to global
 
-linear_solver = 'mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
+linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-10  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
@@ -102,7 +102,7 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
 print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,
       'with SFC?', is_sfc)
@@ -115,9 +115,15 @@ print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
+# non-linear iteration parameters
+n_its_max = 10
+n_tol = 1.e-10
+relax_coeff = 0.1
+
 ####################
 # material property
 ####################
+problem = 'hyper-elastic'  # 'hyper-elastic' or 'linear-elastic'
 E = 2.5
 nu = 0.25  # or 0.49, or 0.4999
 lam = E*nu/(1.+nu)/(1.-2.*nu)

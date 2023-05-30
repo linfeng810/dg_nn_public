@@ -25,11 +25,11 @@ dev = config.dev
 nele = config.nele
 mesh = config.mesh
 nonods = config.nonods
-ngi = config.ngi
+# ngi = config.ngi
 ndim = config.ndim
 nloc = config.nloc
 nface = config.ndim+1
-sngi = config.sngi
+# sngi = config.sngi
 cijkl = config.cijkl
 lam = config.lam
 mu = config.mu
@@ -44,7 +44,9 @@ mu = config.mu
 def _calc_F(nlx, u, batch_in: int):
     # compute deformation gradient
     # here we assum nx shape is (batch_in, ndim, nloc, ngi)
-    F = torch.einsum('bni,bjng->bijg', u.view(batch_in, nloc, ndim), nlx)
+    F = torch.einsum('bni,bjng->bgij', u.view(batch_in, nloc, ndim), nlx)
+    F += torch.eye(ndim, device=dev, dtype=torch.float64)
+    # output shape is (batch_in, ngi, ndim, ndim)
     return F
 
 
@@ -53,7 +55,8 @@ def _calc_C(F):
     compute right Cauchy-Green tensor
     C = F^T F
     """
-    C = torch.einsum('bikg,bijg->bkjg', F, F)
+    C = torch.einsum('bgik,bgij->bgkj', F, F)
+    # output shape is (batch_in, ngi, ndim, ndim)
     return C
 
 
@@ -63,25 +66,32 @@ def _calc_CC(C, F):
     $\mathbb C = \partial S / \partial C$
     """
     batch_in = C.shape[0]
+    ngi = C.shape[1]
     invC = torch.linalg.inv(C)  # C^{-1}
-    invCinvC = torch.einsum('bijg,bklg->bijklg', invC, invC)  # C^{-1} \otimes C^{-1}
+    invCinvC = torch.einsum('bgij,bgkl->bgijkl', invC, invC)  # C^{-1} \otimes C^{-1}
     J = torch.linalg.det(F)  # this is J = det F, or J^2 = det C
+    if torch.any(J <= 0):
+        raise Exception(f'determinant of some element is negative! ',
+                        f'consider larger relaxation... or there is a bug :/')
     mu_m_lam_lnJ = mu - lam * torch.log(J)
-    CC = torch.zeros(batch_in, ndim, ndim, ndim, ndim, device=dev, dtype=torch.float64)
+    CC = torch.zeros(batch_in, ngi, ndim, ndim, ndim, ndim, device=dev, dtype=torch.float64)
     CC += lam * invCinvC
-    CC += torch.einsum('bg,bikjlg->bijklg', mu_m_lam_lnJ, invCinvC)
-    CC += torch.einsum('bg,biljkg->bijklg', mu_m_lam_lnJ, invCinvC)
+    CC += torch.einsum('bg,bgikjl->bgijkl', mu_m_lam_lnJ, invCinvC)
+    CC += torch.einsum('bg,bgiljk->bgijkl', mu_m_lam_lnJ, invCinvC)
+    # output shape is (batch_in, ngi, ndim, ndim, ndim, ndim)
     return CC
 
 
 def _calc_S(C, F):
     # compute PK2 tensor
     batch_in = C.shape[0]
+    ngi = C.shape[1]
     invC = torch.linalg.inv(C)  # C^{-1}
     lnJ = torch.log(torch.linalg.det(F))  # ln J = ln det F
-    S = torch.zeros(batch_in, ndim, ndim, device=dev, dtype=torch.float64)
-    S += mu * (torch.eye(ndim) - invC)
-    S += lam * torch.einsum('bg,bijg->bijg', lnJ, invC)
+    S = torch.zeros(batch_in, ngi, ndim, ndim, device=dev, dtype=torch.float64)
+    S += mu * (torch.eye(ndim, device=dev, dtype=torch.float64) - invC)
+    S += lam * torch.einsum('bg,bgij->bgij', lnJ, invC)
+    # output shape is (batch_in, ngi, ndim, ndim)
     return S
 
 
@@ -92,7 +102,8 @@ def calc_P(nlx, u, batch_in: int):
     F = _calc_F(nlx, u, batch_in)
     C = _calc_C(F)
     S = _calc_S(C, F)
-    P = torch.einsum('bijg,bjkg->bikg', F, S)
+    P = torch.einsum('bgij,bgjk->bikg', F, S)
+    # output shape is (batch_in, ndim, ndim, ngi)
     return P
 
 
@@ -103,25 +114,33 @@ def calc_AA(nlx, u, batch_in: int):
     \mathbb A = \partial P / \partial F
               = delta S + F F C
     """
+    ngi = nlx.shape[-1]
     F = _calc_F(nlx, u, batch_in)
     C = _calc_C(F)
     S = _calc_S(C, F)
     CC = _calc_CC(C, F)
-    AA = torch.zeros(batch_in, ndim, ndim, ndim, ndim, device=dev, dtype=torch.float64)
-    AA += torch.einsum('biIg,bkKg,bIJKLg->biJkLg', F, F, CC)
-    AA += torch.einsum('ik,bJLg->biJkLg', torch.eye(ndim), S)
+    AA = torch.zeros(batch_in, ndim, ndim, ndim, ndim, ngi, device=dev, dtype=torch.float64)
+    AA += torch.einsum('bgiI,bgkK,bgIJKL->biJkLg', F, F, CC)
+    AA += torch.einsum('ik,bgJL->biJkLg', torch.eye(ndim, device=dev, dtype=torch.float64), S)
+    # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
     return AA
 
 
 def calc_RAR_mf_color(
         I_fc, I_cf,
         whichc, ncolor,
-        fina, cola, ncola
+        fina, cola, ncola,
+        u  # this is the displacement field at current non-linear step,
+        # it's to be used to get lhs.
 ):
     """
     get operator on P1CG grid, i.e. RAR
     where R is prolongator/restrictor,
     via coloring method.
+    NOTE that for non-linear eq.,
+    lhs operator is determined by u at current non-linear step,
+    lhs vector is the color vector.
+    Do not mix use them.
     """
     import time
     start_time = time.time()
@@ -147,8 +166,8 @@ def calc_RAR_mf_color(
                     torch.mv(I_fc, mask[:, idim].view(-1))
                 )  # (p3dg_nonods, ndim)
             ARm *= 0
-            ARm = get_residual_only(ARm,
-                                    Rm, dummy, dummy, dummy)
+            ARm = get_residual_only(ARm, u,
+                                    Rm, dummy)
             ARm *= -1.  # (p3dg_nonods, ndim)
             # RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
             RARm *= 0
@@ -165,7 +184,7 @@ def calc_RAR_mf_color(
 
 
 def get_residual_and_smooth_once(
-        r0, u_i, u_rhs
+        r0, u_i, du_i, u_rhs
 ):
     """
     update residual, then do one (block-) Jacobi smooth.
@@ -184,44 +203,44 @@ def get_residual_and_smooth_once(
         # dummy diagA and bdiagA
         diagA = torch.zeros(batch_in, nloc, ndim, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
-        r0, diagA, bdiagA = _k_res_one_batch(r0, u_i,
+        r0, diagA, bdiagA = _k_res_one_batch(r0, u_i, du_i,
                                              diagA, bdiagA,
                                              idx_in)
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
-        r0, diagA, bdiagA = _s_res_one_batch(r0, u_i,
+        r0, diagA, bdiagA = _s_res_one_batch(r0, u_i, du_i,
                                              diagA, bdiagA,
                                              idx_in_f, brk_pnt[i])
         # smooth once
         if config.blk_solver == 'direct':
             bdiagA = torch.inverse(bdiagA.view(batch_in, nloc * ndim, nloc * ndim))
-            u_i = u_i.view(nele, nloc * ndim)
-            u_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
-                                                            bdiagA,
-                                                            r0.view(nele, nloc * ndim)[idx_in, :])
+            du_i = du_i.view(nele, nloc * ndim)
+            du_i[idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
+                                                             bdiagA,
+                                                             r0.view(nele, nloc * ndim)[idx_in, :])
         if config.blk_solver == 'jacobi':
             new_b = torch.einsum('...ij,...j->...i',
                                  bdiagA.view(batch_in, nloc * ndim, nloc * ndim),
-                                 u_i.view(nele, nloc * ndim)[idx_in, :]) \
+                                 du_i.view(nele, nloc * ndim)[idx_in, :]) \
                     + config.jac_wei * r0.view(nele, nloc * ndim)[idx_in, :]
             new_b = new_b.view(-1)
             diagA = diagA.view(-1)
-            u_i = u_i.view(nele, nloc * ndim)
-            u_i_partial = u_i[idx_in, :]
+            du_i = du_i.view(nele, nloc * ndim)
+            du_i_partial = du_i[idx_in, :]
             for its in range(3):
-                u_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
-                                                      bdiagA.view(batch_in, nloc * ndim, nloc * ndim),
-                                                      u_i_partial).view(-1))
+                du_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
+                                                       bdiagA.view(batch_in, nloc * ndim, nloc * ndim),
+                                                       du_i_partial).view(-1))
                                 / diagA).view(-1, nloc * ndim)
-            u_i[idx_in, :] = u_i_partial.view(-1, nloc * ndim)
+            du_i[idx_in, :] = du_i_partial.view(-1, nloc * ndim)
     r0 = r0.view(nele * nloc, ndim)
-    u_i = u_i.view(nele * nloc, ndim)
-    return r0, u_i
+    du_i = du_i.view(nele * nloc, ndim)
+    return r0, du_i
 
 
 def get_residual_only(
-        r0, u_i, u_rhs
+        r0, u_i, du_i, u_rhs
 ):
     """
     update residual
@@ -229,6 +248,8 @@ def get_residual_only(
     """
     nnn = config.no_batch
     brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele, dtype=int)
+    r0 = r0.view(nonods, ndim)
+    u_rhs = u_rhs.view(nonods, ndim)
     # add pre-computed right hand side to residual
     r0 += u_rhs
     for i in range(nnn):
@@ -239,13 +260,13 @@ def get_residual_only(
         # dummy diagA and bdiagA
         diagA = torch.zeros(batch_in, nloc, ndim, device=dev, dtype=torch.float64)
         bdiagA = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
-        r0, diagA, bdiagA = _k_res_one_batch(r0, u_i, u_rhs,
+        r0, diagA, bdiagA = _k_res_one_batch(r0, u_i, du_i,
                                              diagA, bdiagA,
                                              idx_in)
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
-        r0, diagA, bdiagA = _s_res_one_batch(r0, u_i,
+        r0, diagA, bdiagA = _s_res_one_batch(r0, u_i, du_i,
                                              diagA, bdiagA,
                                              idx_in_f, brk_pnt[i])
     r0 = r0.view(nele * nloc, ndim)
@@ -253,7 +274,7 @@ def get_residual_only(
 
 
 def _k_res_one_batch(
-        r0, u_i,
+        r0, u_i, du_i,
         diagA, bdiagA,
         idx_in
 ):
@@ -261,6 +282,7 @@ def _k_res_one_batch(
     # change view
     r0 = r0.view(-1, nloc, ndim)
     u_i = u_i.view(-1, nloc, ndim)
+    du_i = du_i.view(-1, nloc, ndim)
     diagA = diagA.view(-1, nloc, ndim)
     bdiagA = bdiagA.view(-1, nloc, ndim, nloc, ndim)
     # get shape function and derivatives
@@ -280,7 +302,7 @@ def _k_res_one_batch(
         for idim in range(ndim):
             K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, detwei) / config.dt
     # update residual
-    r0[idx_in, ...] -= torch.einsum('bminj,bnj->bmi', K, u_i[idx_in, ...])
+    r0[idx_in, ...] -= torch.einsum('bminj,bnj->bmi', K, du_i[idx_in, ...])
     # get diagonal
     diagA += torch.diagonal(K.view(batch_in, nloc * ndim, nloc * ndim), dim1=1, dim2=2).view(batch_in, nloc, ndim)
     bdiagA += K
@@ -288,7 +310,7 @@ def _k_res_one_batch(
 
 
 def _s_res_one_batch(
-        r, u_i,
+        r, u_i, du_i,
         diagA, bdiagA,
         idx_in_f: Tensor,
         batch_start_idx
@@ -298,6 +320,7 @@ def _s_res_one_batch(
     alnmt = sf_nd_nb.alnmt
 
     u_i = u_i.view(nele, nloc, ndim)
+    du_i = du_i.view(nele, nloc, ndim)
     r = r.view(nele, nloc, ndim)
 
     # first lets separate nbf to get two list of F_i and F_b
@@ -328,7 +351,7 @@ def _s_res_one_batch(
             r, diagA, bdiagA = _s_res_fi(
                 r, f_i[idx_iface], E_F_i[idx_iface],
                 f_inb[idx_iface], E_F_inb[idx_iface],
-                u_i,
+                u_i, du_i,
                 diagA, bdiagA, batch_start_idx,
                 nb_gi_aln)
 
@@ -339,13 +362,13 @@ def _s_res_one_batch(
             idx_iface = f_b == iface
             r, diagA, bdiagA = _s_res_fb(
                 r, f_b[idx_iface], E_F_b[idx_iface],
-                u_i,
+                u_i, du_i,
                 diagA, bdiagA, batch_start_idx)
     else:
         raise Exception('2D hyper-elasticity not implemented!')
         r, diagA, bdiagA = _S_fb(
             r, f_b, E_F_b,
-            u_i,
+            u_i, du_i,
             diagA, bdiagA, batch_start_idx)
     return r, diagA, bdiagA
 
@@ -353,7 +376,7 @@ def _s_res_one_batch(
 def _s_res_fi(
         r, f_i, E_F_i,
         f_inb, E_F_inb,
-        u_i,
+        u_i, du_i,
         diagA, bdiagA, batch_start_idx,
         nb_gi_aln
 ):
@@ -379,9 +402,8 @@ def _s_res_fi(
     # change gaussian points order on other side
     nb_aln = sf_nd_nb.gi_align[nb_gi_aln, :]
     snx_nb = snx_nb[..., nb_aln]
-    sn_nb = sn[..., nb_aln]
     # get faces we want
-    sn_nb = sn_nb[f_inb, ...]  # (batch_in, nloc, sngi)
+    sn_nb = sf_nd_nb.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
     snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim)
 
@@ -424,7 +446,7 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
     )
     # update residual
-    r[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, u_ith)
+    r[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, du_i[E_F_i, ...])
     # put diagonal of S into diagS
     diagA[E_F_i-batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc*ndim, nloc*ndim),
                                                          dim1=1, dim2=2).view(batch_in, nloc, ndim)
@@ -463,14 +485,14 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
     )
     # update residual
-    r[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, u_inb)
+    r[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, du_i[E_F_inb, ...])
 
     return r, diagA, bdiagA
 
 
 def _s_res_fb(
         r, f_b, E_F_b,
-        u_i,
+        u_i, du_i,
         diagA, bdiagA, batch_start_idx
 ):
     batch_in = f_b.shape[0]
@@ -526,7 +548,7 @@ def _s_res_fb(
         sdetwei,  # (batch_in, sngi)
     )
     # update residual
-    r[E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', S, u_i[E_F_b, ...])
+    r[E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', S, du_i[E_F_b, ...])
     # get diagonal
     diagA[E_F_b - batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc * ndim, nloc * ndim),
                                                            dim1=-2, dim2=-1).view(batch_in, nloc, ndim)
@@ -550,14 +572,15 @@ def get_rhs(u, u_bc, f, u_n=0):
     f = f.view(nele, nloc, ndim)
 
     for i in range(nnn):
-        idx_in *= 0
+        idx_in *= False
         # volume integral
         idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
         rhs = _k_rhs_one_batch(rhs, u, u_n, f, idx_in)
         # surface integral
-        idx_in_f *= 0
+        idx_in_f *= False
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         rhs = _s_rhs_one_batch(rhs, u, u_bc, idx_in_f)
+    rhs = rhs.view(-1, ndim)
     return rhs
 
 
@@ -643,7 +666,6 @@ def _s_rhs_fi(rhs,
     batch_in = f_i.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     # shape function on this side
-    sn = sf_nd_nb.sn  # (nface, ndim, nloc, sngi)
     snx, sdetwei, snormal = sdet_snlx(
         snlx=sf_nd_nb.snlx,
         x_loc=sf_nd_nb.x_ref_in[E_F_i],
@@ -665,7 +687,7 @@ def _s_rhs_fi(rhs,
     snx_nb = snx_nb[..., nb_aln]
     sn_nb = sn[..., nb_aln]
     # fetch faces we want
-    sn_nb = sn_nb[f_inb, ...]  # (batch_in, nloc, sngi)
+    sn_nb = sf_nd_nb.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
     snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim)
 
