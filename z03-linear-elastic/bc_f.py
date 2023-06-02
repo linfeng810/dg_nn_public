@@ -107,21 +107,29 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             for bci in bc:
                 for inod in bci:
                     x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
-                    theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
-                    g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
-                    h = 0  # 0
-
-                    u[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
-                    u[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
-                                                        (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
-                    u[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+                    # # problem 1 Abbas 2018
+                    # theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
+                    # g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
+                    # h = 0  # 0
+                    #
+                    # u[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
+                    # u[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                    #                                     (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                    # u[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+                    # problem 2 Simple shear
+                    u[inod // nloc, inod % nloc, 0] = 0.1 * x_inod[1]
+                    u[inod // nloc, inod % nloc, 1] = 0
+                    u[inod // nloc, inod % nloc, 2] = 0
             x = torch.tensor(x_all[:, 0], device=dev)
             y = torch.tensor(x_all[:, 1], device=dev)
             z = torch.tensor(x_all[:, 2], device=dev)
             f = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
-            f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * x)
-            f[:, 1] = 0.
-            f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * y)
+            # # problem 1 Abbas 2018
+            # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * x)
+            # f[:, 1] = 0.
+            # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * y)
+            # problem 2 Simple shear
+            f *= 0
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
             del x, y, z
     else:

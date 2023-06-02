@@ -30,7 +30,9 @@ for i = 1:nonods
     zi = x_all(i,3);
 
 %     u_ana(:, i) = sin(pi*(xi+1)) * sin(pi*(yi+1)) * sin(pi*(zi+1));
-    u_ana(:, i) = exp(-xi-yi-zi);
+%     u_ana(:, i) = exp(-xi-yi-zi);
+    u_ana(1, i) = 0.1 * yi;
+    u_ana(2:3, i) = 0;
 
     l_inf = max(l_inf, sqrt(...
         + (uxi-u_ana(1,i))^2 ...
