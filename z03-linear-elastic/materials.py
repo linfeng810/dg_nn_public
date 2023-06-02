@@ -27,6 +27,7 @@ class NeoHookean:
         self.dev = dev
         self.mu = mu
         self.lam = lam
+        print('you are choosing Neo Hookean material, good for you.')
 
     def _calc_F(self, nlx, u, batch_in: int):
         # compute deformation gradient
@@ -81,26 +82,26 @@ class NeoHookean:
         # output shape is (batch_in, ngi, ndim, ndim)
         return S
 
-    def calc_P(self, nlx, u, batch_in: int):
+    def calc_P(self, nx, u, batch_in: int):
         """
         compute PK1 tensor from given displacement
         """
-        F = self._calc_F(nlx, u, batch_in)
+        F = self._calc_F(nx, u, batch_in)
         C = self._calc_C(F)
         S = self._calc_S(C, F)
         P = torch.einsum('bgij,bgjk->bikg', F, S)
         # output shape is (batch_in, ndim, ndim, ngi)
         return P
 
-    def calc_AA(self, nlx, u, batch_in: int):
+    def calc_AA(self, nx, u, batch_in: int):
         """
         compute elasticity tensor \mathbb A
         at given intermediate state (displacement)
         \mathbb A = \partial P / \partial F
                   = delta S + F F C
         """
-        ngi = nlx.shape[-1]
-        F = self._calc_F(nlx, u, batch_in)
+        ngi = nx.shape[-1]
+        F = self._calc_F(nx, u, batch_in)
         C = self._calc_C(F)
         S = self._calc_S(C, F)
         CC = self._calc_CC(C, F)
