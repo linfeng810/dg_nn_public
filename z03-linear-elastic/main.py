@@ -114,7 +114,7 @@ del x_ref_in
 # initical condition
 u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
 
-u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, 'linear-elastic')
+u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, prob=config.problem)
 
 # print(u)
 tstep=int(np.ceil((tend-tstart)/dt))+1
@@ -286,6 +286,7 @@ if (config.solver=='iterative') :
             u_all[itime, :, :, :] = u.cpu().numpy()
     else:  # config.problem == 'hyper-elastic'
         du_i = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)
+        u_rhs = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)
         for itime in range(1, tstep):  # time loop
             u_n = u.view(nele, nloc, ndim)  # store last timestep value to un
             u_i = u_n.detach().clone()  # newton iteration initial value taken as last time step value
@@ -297,7 +298,8 @@ if (config.solver=='iterative') :
             r0 *= 0
 
             while nits < config.n_its_max:
-                u_rhs = volume_mf_he.get_rhs(u=u_i, u_bc=u_bc, f=f, u_n=u_n)
+                u_rhs *= 0
+                u_rhs = volume_mf_he.get_rhs(rhs=u_rhs, u=u_i, u_bc=u_bc, f=f, u_n=u_n)
                 nr0l2 = torch.linalg.norm(u_rhs.view(-1))
                 print('nits = ', nits, 'non-linear residual = ', nr0l2.cpu().numpy())
                 if nr0l2 < config.n_tol:
