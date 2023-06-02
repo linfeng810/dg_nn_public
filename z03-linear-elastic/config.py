@@ -25,7 +25,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z11-cube-mesh/cube.msh' # directory to mesh file (gmsh)
+filename='z31-cube-mesh/cube.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -116,9 +116,9 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 10
+n_its_max = 2
 n_tol = 1.e-10
-relax_coeff = 0.1
+relax_coeff = 1.
 
 ####################
 # material property
@@ -135,7 +135,7 @@ print('Lame coefficient: lamda, mu', lam, mu)
 kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
-a = torch.eye(ndim, device=dev)
+a = torch.eye(ndim, device=dev, dtype=torch.float64)
 kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
     +mu*torch.einsum('ik,jl->ijkl',a,a)\
