@@ -374,7 +374,7 @@
         integer jcourse_nod_sfc_all, ifinest_nod_sfc_all, count_all
         logical found
         ! 
-        print *,'2-just inside vector_best_sfc_mapping_to_sfc_matrix_unstructured'
+        ! print *,'2-just inside vector_best_sfc_mapping_to_sfc_matrix_unstructured'
         ! calculate nlevel from nonods
         call calculate_nlevel_sfc(nlevel,nonods)
         ! 

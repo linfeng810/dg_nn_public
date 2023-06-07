@@ -48,7 +48,7 @@ def bc_f(ndim, bc, u, x_all, prob: str):
                 for inod in bci:
                     x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
                     # u[inod//nloc, inod%nloc, :] = 0.
-                    u[inod // nloc, inod % nloc, :] = torch.exp(-x_inod[0] - x_inod[1] - x_inod[2])
+                    u[inod // nloc, inod % nloc, :] = torch.exp(x_inod[0] + x_inod[1] + x_inod[2])
             f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
             mu = config.mu
             lam = config.lam
@@ -91,9 +91,9 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             #                   torch.pi * (y + 1)) * torch.cos(torch.pi * (z + 1)) * torch.sin(
             #                   torch.pi * (x + 1))) + 2 * mu * torch.pi ** 2 * torch.sin(torch.pi * (x + 1)) * torch.sin(
             #     torch.pi * (y + 1)) * torch.sin(torch.pi * (z + 1))
-            f[:, 0] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
-            f[:, 1] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
-            f[:, 2] = - 3 * lam * torch.exp(- x - y - z) - 6 * mu * torch.exp(- x - y - z)
+            f[:, 0] = - 3 * lam * torch.exp(x + y + z) - 6 * mu * torch.exp(x + y + z)
+            f[:, 1] = - 3 * lam * torch.exp(x + y + z) - 6 * mu * torch.exp(x + y + z)
+            f[:, 2] = - 3 * lam * torch.exp(x + y + z) - 6 * mu * torch.exp(x + y + z)
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
             del x, y, z
     elif prob == 'hyper-elastic':
@@ -107,29 +107,39 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             for bci in bc:
                 for inod in bci:
                     x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
-                    # # problem 1 Abbas 2018
-                    # theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
-                    # g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
-                    # h = 0  # 0
-                    #
-                    # u[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
-                    # u[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
-                    #                                     (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
-                    # u[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
-                    # problem 2 Simple shear
-                    u[inod // nloc, inod % nloc, 0] = 0.1 * x_inod[1]
-                    u[inod // nloc, inod % nloc, 1] = 0
-                    u[inod // nloc, inod % nloc, 2] = 0
+                    # problem 1 Abbas 2018
+                    theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
+                    g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
+                    h = 0  # 0
+
+                    u[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
+                    u[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                                                        (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                    u[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+                    # # problem 2 Simple shear
+                    # u[inod // nloc, inod % nloc, 0] = 0.1 * x_inod[1]
+                    # u[inod // nloc, inod % nloc, 1] = 0
+                    # u[inod // nloc, inod % nloc, 2] = 0
+                    # # problem 3 exponential expansion
+                    # u[inod // nloc, inod % nloc, 0] = torch.exp(x_inod[0] + x_inod[1] + x_inod[2])
             x = torch.tensor(x_all[:, 0], device=dev)
             y = torch.tensor(x_all[:, 1], device=dev)
             z = torch.tensor(x_all[:, 2], device=dev)
             f = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
-            # # problem 1 Abbas 2018
-            # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * x)
-            # f[:, 1] = 0.
-            # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * y)
-            # problem 2 Simple shear
-            f *= 0
+            # problem 1 Abbas 2018
+            f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * x)
+            f[:, 1] = 0.
+            f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * y)
+            # # problem 2 Simple shear
+            # f *= 0
+            # # problem 3 exponential expansion
+            # for idim in range(ndim):
+            #     from torch import exp, log
+            #     f[:, idim] = ((3*lam*log(3*exp(x + y + z) + 1) - 9*lam)*exp(x + y + z)
+            #                   - 18*lam*exp(2*x + 2*y + 2*z)
+            #                   - 27*lam*exp(3*x + 3*y + 3*z)) / \
+            #                  (6*exp(x + y + z) + 9*exp(2*x + 2*y + 2*z) + 1)
+
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
             del x, y, z
     else:

@@ -11,7 +11,7 @@ a = 1;
 u = sym(zeros(3,1));
 for i = 1:3
 %     u(i) = a * sin(pi * (x+1)) * sin(pi * (y+1)) * sin(pi * (z+1));
-    u(i) = exp(-x^2-y^2-z^2);
+    u(i) = exp(x+y+z);
 end
 
 gradu = sym(zeros(3,3));

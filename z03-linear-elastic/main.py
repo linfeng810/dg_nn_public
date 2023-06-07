@@ -301,6 +301,7 @@ if (config.solver=='iterative') :
                 u_rhs *= 0
                 u_rhs = volume_mf_he.get_rhs(rhs=u_rhs, u=u_i, u_bc=u_bc, f=f, u_n=u_n)
                 nr0l2 = torch.linalg.norm(u_rhs.view(-1))
+                print('============')
                 print('nits = ', nits, 'non-linear residual = ', nr0l2.cpu().numpy())
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
@@ -328,7 +329,7 @@ if (config.solver=='iterative') :
                     nlevel=nlevel,
                     nodes_per_level=nodes_per_level
                 )
-                print('9. time elapsed, ', time.time() - starttime)
+                # print('9. time elapsed, ', time.time() - starttime)
 
                 du_i *= 0  # solve for delta u_i
                 if config.linear_solver == 'mg':

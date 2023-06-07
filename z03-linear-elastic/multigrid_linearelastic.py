@@ -223,9 +223,9 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
     nele = config.nele # this is the shape of RAR # or should we use RAR.shape[0] for clarity? 
     ncola = cola.shape[0]
     start_time = time.time()
-    print('to get space filling curve...', time.time()-start_time)
+    # print('to get space filling curve...', time.time()-start_time)
     if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
-        print('pre-calculated sfc exists. readin from file...')
+        # print('pre-calculated sfc exists. readin from file...')
         sfc = np.load(config.filename[:-4] + '_sfc.npy')
     else:
         _, sfc = \
@@ -233,7 +233,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
             cola+1, fina+1, starting_node, graph_trim, ncurve, \
             ) # note that fortran array index start from 1, so cola and fina should +1.
         np.save(config.filename[:-4] + '_sfc.npy', sfc)
-    print('to get sfc operators...', time.time()-start_time)
+    # print('to get sfc operators...', time.time()-start_time)
     
     # get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(nele) + 1
@@ -252,7 +252,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
             max_ncola_sfc_all_un=max_ncola_sfc_all_un,
             max_nlevel=max_nlevel,
             ndim=config.ndim, ncola=ncola,nonods=sf_nd_nb.cg_nonods)
-    print('back from sfc operator fortran subroutine,', time.time() - start_time)
+    # print('back from sfc operator fortran subroutine,', time.time() - start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     # print(fin_sfc_nonods.shape)
     a_sfc = a_sfc[:,:,:ncola_sfc_all_un]
@@ -264,7 +264,7 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
         #         config.smooth_start_level = level
         #         break
         config.smooth_start_level += nlevel
-    print('start_level: ', config.smooth_start_level)
+    # print('start_level: ', config.smooth_start_level)
     variables_sfc = []
     for level in range(config.smooth_start_level+1):
         variables_sfc.append(get_a_diaga(
