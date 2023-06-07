@@ -13,6 +13,7 @@ import scipy as sp
 from scipy.sparse import coo_matrix, bsr_matrix
 from tqdm import tqdm
 import config
+import output
 import solvers
 import volume_mf_he
 from config import sf_nd_nb
@@ -114,7 +115,7 @@ del x_ref_in
 # initical condition
 u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
 
-u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, prob=config.problem)
+u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, prob=config.problem)  # 'linear-elastic')
 
 # print(u)
 tstep=int(np.ceil((tend-tstart)/dt))+1
@@ -122,6 +123,10 @@ u = u.reshape(nele, nloc, ndim) # reshape doesn't change memory allocation.
 u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
 u = torch.rand_like(u)*0  # initial guess
+# output to vtk
+vtk = output.File('displacement%d.vtu' % 0, x_all)
+vtk.write(u, 'displacement')
+
 # u = torch.ones_like(u)
 u_all=np.empty([tstep, nele, nloc, ndim])
 u_all[0, :, :, :]=u.view(nele, nloc, ndim).cpu().numpy()
@@ -349,6 +354,8 @@ if (config.solver=='iterative') :
                 print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
                       'abs res=', torch.linalg.norm(r0.view(-1), dim=0).cpu().numpy(),
                       'fNorm', fNorm.cpu().numpy())
+                nr0l2 = torch.linalg.norm(du_i.view(-1))
+                print('norm of delta u ', nr0l2.cpu().numpy())
                 u_i += du_i.view(nele, nloc, ndim) * config.relax_coeff
                 nits += 1
 
@@ -357,6 +364,10 @@ if (config.solver=='iterative') :
 
             # combine inner/inter element contribution
             u_all[itime, :, :, :] = u.cpu().numpy()
+
+            # output to vtk
+            vtk = output.File('displacement%d.vtu' % itime, x_all)
+            vtk.write(u, 'displacement')
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 

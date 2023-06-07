@@ -377,6 +377,13 @@ def init_3d():
     if nloc == 20:
         # generate cubic nodes from element vertices
         x_all = []
+        ref_node_order = [
+            2, 3, 0, 1, 14,
+            15, 11, 10, 4, 5,
+            9, 8, 13, 12, 6,
+            7, 16, 19, 17, 18,
+        ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
+        sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
             idx = mesh.cells[0][1][ele]
@@ -479,6 +486,11 @@ def init_3d():
                  (x_loc[1][2] + x_loc[0][2] + x_loc[3][2]) / 3.])
     elif nloc == 10:  # quadratic element
         x_all = []
+        ref_node_order = [
+            2, 3, 0, 1, 9,
+            7, 5, 4, 8, 6,
+        ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
+        sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
             idx = mesh.cells[0][1][ele]
@@ -538,6 +550,10 @@ def init_3d():
                           x_loc[2][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
     elif nloc == 4:  # linear element
         x_all = []
+        ref_node_order = [
+            2, 3, 0, 1,
+        ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
+        sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
             idx = mesh.cells[0][1][ele]

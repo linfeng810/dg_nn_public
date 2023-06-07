@@ -47,6 +47,7 @@ class SfNdNb:
         self.I_fc = None  # continuous P1CG to discontinuous p1DG restrictor
         self.RARmat = None  # operator on P1CG, type: scipy csr sparse matrix
         self.sfc_data = SFCdata()  # sfc related data
+        self.ref_node_order = None
 
     def set_data(self,
                  n=None,
@@ -66,6 +67,7 @@ class SfNdNb:
                  I_cf=None,  # discontinuous P1DG to continuous P1CG prolongator
                  I_fc=None,  # continuous P1CG to discontinuous p1DG restrictor
                  RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
+                 ref_node_order=None,  # refrence element nodes order
                  ):
         if type(n) != NoneType:
             self.n = n
@@ -102,6 +104,8 @@ class SfNdNb:
             self.I_fc = I_fc
         if type(RARmat) != NoneType:
             self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
+        if type(ref_node_order) != NoneType:
+            self.ref_node_order = ref_node_order
 
 
 class SFCdata:
