@@ -9,6 +9,7 @@ matric-free implementation
 import torch
 from torch import Tensor
 import numpy as np
+from tqdm import tqdm
 import config
 from config import sf_nd_nb
 import materials
@@ -40,8 +41,8 @@ mu = config.mu
 #  g: ngi, or sngi, gaussian points
 #  i,j,k,l: dimension of tensors,
 #  i,j: can also refer to iloc, jloc :-(
-# material = materials.NeoHookean(nloc, ndim, dev, mu, lam)
-material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
+material = materials.NeoHookean(nloc, ndim, dev, mu, lam)
+# material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
 
 
 def calc_RAR_mf_color(
@@ -70,8 +71,8 @@ def calc_RAR_mf_color(
     ARm = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
     RARm = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
     mask = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)  # color vec
-    for color in range(1, ncolor + 1):
-        print('color: ', color)
+    for color in tqdm(range(1, ncolor + 1)):
+        # print('color: ', color)
         for jdim in range(ndim):
             mask *= 0
             mask[:, jdim] += torch.tensor((whichc == color),
@@ -97,7 +98,7 @@ def calc_RAR_mf_color(
                     for count in range(fina[i], fina[i + 1]):
                         j = cola[count]
                         value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
-        print('finishing (another) one color, time comsumed: ', time.time() - start_time)
+        # print('finishing (another) one color, time comsumed: ', time.time() - start_time)
     return value
 
 
@@ -354,27 +355,28 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
     ) * (-0.5)
     # penalty term
-    # # \mu_e [v_i n_j]{A}
-    # S += torch.einsum(
-    #     'b,bmg,bj,bijklg,bng,bl,bg->bmink',
-    #     mu_e,  # (batch_in)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)  # TODO: fix AA shape
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     sdetwei,  # (batch_in, sngi)
-    # )
-    # use same penalty as in linear elastic
-    # mu_e [u_i] [v_i]
+    # \mu_e [v_i n_j]{A}
     S += torch.einsum(
-        'bmg,bng,bg,b,ij->bminj',
-        sn,  # (batch_in, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
+        'b,bmg,bj,bijklg,bng,bl,bg->bmink',
         mu_e,  # (batch_in)
-        torch.eye(3, device=dev, dtype=torch.float64),
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # config.cijkl,
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        sdetwei,  # (batch_in, sngi)
     )
+    # # use same penalty as in linear elastic
+    # # mu_e [u_i] [v_i]
+    # S += torch.einsum(
+    #     'bmg,bng,bg,b,ij->bminj',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    #     mu_e,  # (batch_in)
+    #     torch.eye(3, device=dev, dtype=torch.float64),
+    # )
     # update residual
     r[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, du_i[E_F_i, ...])
     # put diagonal of S into diagS
@@ -403,27 +405,28 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
     ) * (-0.5)
     # penalty term
-    # # \mu_e [v_i n_j]{A}
-    # S -= torch.einsum(  # FIXME: here it should be S-= ... ? Please make sure.
-    #     'b,bmg,bj,bijklg,bng,bl,bg->bmink',
-    #     mu_e,  # (batch_in)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)  # TODO: fix AA shape
-    #     sn_nb,  # (batch_in, nloc, sngi)
-    #     snormal_nb,  # (batch_in, ndim)
-    #     sdetwei,  # (batch_in, sngi)
-    # )
-    # use same penalty as in linear elastic
-    # mu_e [u_i] [v_i]
-    S -= torch.einsum(
-        'bmg,bng,bg,b,ij->bminj',
-        sn,  # (batch_in, nloc, sngi)
-        sn_nb,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
+    # \mu_e [v_i n_j]{A}
+    S += torch.einsum(  # FIXME: here it should be S-= ... ? Please make sure.
+        'b,bmg,bj,bijklg,bng,bl,bg->bmink',
         mu_e,  # (batch_in)
-        torch.eye(3, device=dev, dtype=torch.float64),
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # config.cijkl,
+        sn_nb,  # (batch_in, nloc, sngi)
+        snormal_nb,  # (batch_in, ndim)
+        sdetwei,  # (batch_in, sngi)
     )
+    # # use same penalty as in linear elastic
+    # # mu_e [u_i] [v_i]
+    # S -= torch.einsum(
+    #     'bmg,bng,bg,b,ij->bminj',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sn_nb,  # (batch_in, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    #     mu_e,  # (batch_in)
+    #     torch.eye(3, device=dev, dtype=torch.float64),
+    # )
     # update residual
     r[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, du_i[E_F_inb, ...])
 
@@ -477,27 +480,28 @@ def _s_res_fb(
         sdetwei,  # (batch_in, sngi)
     )
     # penalty term
-    # # \gamma_e [v_i n_j] {A} [u_k n_l]
-    # S += torch.einsum(
-    #     'b,bmg,bj,bijklg,bng,bl,bg->bmink',
-    #     mu_e,  # (batch_in)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)  # TODO: fix AA shape
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     sdetwei,  # (batch_in, sngi)
-    # )
-    # use same penalty as in linear elastic
-    # mu_e [u_i] [v_i]
+    # \gamma_e [v_i n_j] {A} [u_k n_l]
     S += torch.einsum(
-        'bmg,bng,bg,b,ij->bminj',
-        sn,  # (batch_in, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
+        'b,bmg,bj,bijklg,bng,bl,bg->bmink',
         mu_e,  # (batch_in)
-        torch.eye(3, device=dev, dtype=torch.float64)
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # config.cijkl,
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        sdetwei,  # (batch_in, sngi)
     )
+    # # use same penalty as in linear elastic
+    # # mu_e [u_i] [v_i]
+    # S += torch.einsum(
+    #     'bmg,bng,bg,b,ij->bminj',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    #     mu_e,  # (batch_in)
+    #     torch.eye(3, device=dev, dtype=torch.float64)
+    # )
     # update residual
     r[E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', S, du_i[E_F_b, ...])
     # get diagonal
@@ -681,34 +685,35 @@ def _s_rhs_fi(rhs,
     ) * 0.5
 
     # penalty term
-    # # \gamma_e [vi nj] A [uk nl]
-    # # this A is 1/2(A_this + A_nb)
-    # AA += material.calc_AA(nlx=snx_nb, u=u_inb, batch_in=batch_in)  # TODO: fix AA shape
-    # AA *= 0.5
-    # rhs[E_F_i, ...] -= torch.einsum(
-    #     'b,bmg,bj,bijklg,bnklg,bg->bmi',
-    #     mu_e,  # (batch_in)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
-    #     (
-    #         torch.einsum('bnk,bng,bl->bnklg', u_i, sn, snormal)
-    #         + torch.einsum('bnk,bng,bl->bnklg', u_inb, sn_nb, snormal_nb)
-    #     ),  # (batch_in, nloc, ndim, ndim, sngi)
-    #     sdetwei,  # (batch_in, sngi)
-    # )
-    # use same penalty as in linear elastic
-    # mu_e [u_i] [v_i]
+    # \gamma_e [vi nj] A [uk nl]
+    # this A is 1/2(A_this + A_nb)
+    AA += material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    AA *= 0.5
     rhs[E_F_i, ...] -= torch.einsum(
-        'bmg,bg,b,bnig->bmi',
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
+        'b,bmg,bj,bijklg,bnklg,bg->bmi',
         mu_e,  # (batch_in)
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # config.cijkl,
         (
-            torch.einsum('bng,bni->bnig', sn, u_i)
-            - torch.einsum('bng,bni->bnig', sn_nb, u_inb)
-        )  # (batch_in, nloc, ndim, sngi)
+            torch.einsum('bnk,bng,bl->bnklg', u_i, sn, snormal)
+            + torch.einsum('bnk,bng,bl->bnklg', u_inb, sn_nb, snormal_nb)
+        ),  # (batch_in, nloc, ndim, ndim, sngi)
+        sdetwei,  # (batch_in, sngi)
     )
+    # # use same penalty as in linear elastic
+    # # mu_e [u_i] [v_i]
+    # rhs[E_F_i, ...] -= torch.einsum(
+    #     'bmg,bg,b,bnig->bmi',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    #     mu_e,  # (batch_in)
+    #     (
+    #         torch.einsum('bng,bni->bnig', sn, u_i)
+    #         - torch.einsum('bng,bni->bnig', sn_nb, u_inb)
+    #     )  # (batch_in, nloc, ndim, sngi)
+    # )
     return rhs
 
 
@@ -746,28 +751,29 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
         sdetwei,  # (batch, sngi)
     )
     # penalty term
-    # # gamma_e v_i n_j A u_Dk n_l
-    # rhs[E_F_b, ...] += torch.einsum(
-    #     'b,bmg,bj,bijklg,bng,bl,bnk,bg->bmi',  # again could easily be wrong...
-    #     mu_e,  # (batch_in)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)  # TODO: fix AA shape
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     u_bc[E_F_b, ...],  # (batch_in, nloc, ndim)  # TODO: could be u_bc - u_i or sth like that to avoid 2 einsums
-    #     sdetwei,  # (batch_in, sngi
-    # )
-    # use same penalty as in linear elastic
-    # mu_e [u_Di] [v_i]
+    # gamma_e v_i n_j A u_Dk n_l
     rhs[E_F_b, ...] += torch.einsum(
-        'bmg,bng,bg,b,bni->bmi',
-        sn,  # (batch_in, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
+        'b,bmg,bj,bijklg,bng,bl,bnk,bg->bmi',  # again could easily be wrong...
         mu_e,  # (batch_in)
-        u_bc[E_F_b, ...] - u[E_F_b, ...],  # (batch_in, nloc, ndim)
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # config.cijkl,
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        u_bc[E_F_b, ...],  # (batch_in, nloc, ndim)  # TODO: could be u_bc - u_i or sth like that to avoid 2 einsums
+        sdetwei,  # (batch_in, sngi
     )
+    # # use same penalty as in linear elastic
+    # # mu_e [u_Di] [v_i]
+    # rhs[E_F_b, ...] += torch.einsum(
+    #     'bmg,bng,bg,b,bni->bmi',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    #     mu_e,  # (batch_in)
+    #     u_bc[E_F_b, ...] - u[E_F_b, ...],  # (batch_in, nloc, ndim)
+    # )
     # add boundary contribution from lhs. (last 3 terms in eq 60c)
     # u_i n_j A \nabla v_kl
     rhs[E_F_b, ...] += torch.einsum(
@@ -779,19 +785,20 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
         snx,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch, sngi)
     )
-    # # penalty term
-    # # \gamma_e v_i n_j A u_k n_l
-    # rhs[E_F_b, ...] -= torch.einsum(
-    #     'b,bmg,bj,bijklg,bng,bl,bnk,bg->bmi',  # again could easily be wrong...
-    #     mu_e,  # (batch_in)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)  # TODO: fix AA shape
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim)
-    #     u[E_F_b, ...],  # (batch_in, nloc, ndim)
-    #     sdetwei,  # (batch_in, sngi
-    # )
+    # penalty term
+    # \gamma_e v_i n_j A u_k n_l
+    rhs[E_F_b, ...] -= torch.einsum(
+        'b,bmg,bj,bijklg,bng,bl,bnk,bg->bmi',  # again could easily be wrong...
+        mu_e,  # (batch_in)
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # config.cijkl,
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        u[E_F_b, ...],  # (batch_in, nloc, ndim)
+        sdetwei,  # (batch_in, sngi
+    )
     del AA  # no longer need
     P = material.calc_P(nx=snx, u=u[E_F_b, ...], batch_in=batch_in)
     # [v_i n_j] {P_ij}

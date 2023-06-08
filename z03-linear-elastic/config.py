@@ -33,7 +33,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'linear'  # 'linear' or 'cubic' or 'quadratic'
+ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
 print('element order: ', ele_type)
 ndim = 3  # dimesnion of the problem
 if ndim == 2:
@@ -116,18 +116,22 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 2
-n_tol = 1.e-10
+n_its_max = 300
+n_tol = 1.e-12
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
 problem = 'hyper-elastic'  # 'hyper-elastic' or 'linear-elastic'
-E = 2.5
-nu = 0.25  # or 0.49, or 0.4999
-lam = E*nu/(1.+nu)/(1.-2.*nu)
-mu = E/2.0/(1.+nu)
+# E = 2.5
+# nu = 0.25  # or 0.49, or 0.4999
+# lam = E*nu/(1.+nu)/(1.-2.*nu)
+# mu = E/2.0/(1.+nu)
+lam = 10
+mu = 1
+E = mu * (3*lam + 2*mu) / (lam + mu)
+nu = lam + 2. * mu / 3.
 lam = torch.tensor(lam, device=dev, dtype=torch.float64)
 mu = torch.tensor(mu, device=dev, dtype=torch.float64)
 print('Lame coefficient: lamda, mu', lam, mu)
@@ -157,7 +161,7 @@ else:
 ####################
 # discretisation settings
 classicIP = True  # boolean
-eta_e = 36.*E  # penalty coefficient
+eta_e = 100.  # penalty coefficient
 print('Surface jump penalty coefficient eta_e: ', eta_e)
 
 # no of batches in mf volume and surface integral

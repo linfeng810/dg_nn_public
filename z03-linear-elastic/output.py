@@ -16,6 +16,11 @@ class File():
     """
     file handle to write vtu file
     for outputting and visualising
+
+    c.f.
+    https://people.math.sc.edu/Burkardt/data/vtu/vtu.html : ugridex.vtu sample file
+    https://firedrakeproject.org/_modules/firedrake/output.html#File.write
+    http://www.princeton.edu/~efeibush/viscourse/vtk.pdf
     """
     def __init__(self, filename, x_all):
         self.filename = filename
@@ -72,6 +77,8 @@ class File():
             np.savetxt(f, u_np, delimiter=' ')
             f.write(b'</DataArray>\n'
                     b'</PointData>\n')
+
+        with open(self.filename, "ab") as f:
             # finishing
             f.write(b'</Piece>\n'
                     b'</UnstructuredGrid>\n'

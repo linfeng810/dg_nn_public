@@ -124,7 +124,7 @@ u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zer
 
 u = torch.rand_like(u)*0  # initial guess
 # output to vtk
-vtk = output.File('displacement%d.vtu' % 0, x_all)
+vtk = output.File(config.filename+'displacement_%d.vtu' % 0, x_all)
 vtk.write(u, 'displacement')
 
 # u = torch.ones_like(u)
@@ -340,7 +340,7 @@ if (config.solver=='iterative') :
                 if config.linear_solver == 'mg':
                     du_i = solvers.multigrid_solver(u_i, du_i, u_rhs, config.tol)
                 elif config.linear_solver == 'gmres-mg':
-                    du_i = solvers.gmres_mg_solver(u_i, du_i, u_rhs, config.tol)
+                    du_i = solvers.gmres_mg_solver(u_i, du_i, u_rhs, min(1.e-3*nr0l2, 1.e-3))
                 else:
                     raise Exception('choose a valid solver...')
                 # get final residual after we're back to fine grid
@@ -366,7 +366,7 @@ if (config.solver=='iterative') :
             u_all[itime, :, :, :] = u.cpu().numpy()
 
             # output to vtk
-            vtk = output.File('displacement%d.vtu' % itime, x_all)
+            vtk = output.File(config.filename+'displacement_%d.vtu' % itime, x_all)
             vtk.write(u, 'displacement')
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
