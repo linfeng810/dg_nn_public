@@ -333,15 +333,18 @@ def _s_res_fi(
     u_inb = u_i[E_F_inb, ...]  # u^n on the other side (neighbour)
 
     S = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
-    AA_th = material.calc_AA(nx=snx, u=u_ith, batch_in=batch_in)
-    AA_nb = material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # AA_th = material.calc_AA(nx=snx, u=u_ith, batch_in=batch_in)
+    # AA_nb = material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # use AA_ave instead.
+    AA = material.calc_AA_ave(nx=snx, u=u_ith, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
     # this side
     # [vi nj] {A \nabla u_kl}
     S += torch.einsum(
         'bmg,bj,bijklg,blng,bg->bmink',
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
-        AA_th,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # AA_th,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        AA,  # use AA_ave, i.e. A({F})
         snx,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     ) * (-0.5)
@@ -350,7 +353,8 @@ def _s_res_fi(
         'bng,bj,bijklg,blmg,bg->bmkni',
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
-        AA_th,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # AA_th,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        AA,  # use AA_ave, i.e. A({F})
         snx,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     ) * (-0.5)
@@ -361,7 +365,8 @@ def _s_res_fi(
         mu_e,  # (batch_in)
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
-        0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # 0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        AA,  # use AA_ave = A({F}), {F} is average F on the face
         # config.cijkl,
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
@@ -391,7 +396,8 @@ def _s_res_fi(
         'bmg,bj,bijklg,blng,bg->bmink',
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
-        AA_nb,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # AA_nb,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        AA,  # use AA_ave, i.e. A({F})
         snx_nb,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     ) * (-0.5)
@@ -400,7 +406,8 @@ def _s_res_fi(
         'bng,bj,bijklg,blmg,bg->bmkni',
         sn_nb,  # (batch_in, nloc, sngi)
         snormal_nb,  # (batch_in, ndim)
-        AA_th,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # AA_th,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        AA,  # use AA_ave, i.e. A({F})
         snx,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     ) * (-0.5)
@@ -411,7 +418,8 @@ def _s_res_fi(
         mu_e,  # (batch_in)
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
-        0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        # 0.5 * (AA_th + AA_nb),  # (batch_in, ndim, ndim, ndim, ndim, sngi)
+        AA,  # use AA_ave, i.e. A({F})
         # config.cijkl,
         sn_nb,  # (batch_in, nloc, sngi)
         snormal_nb,  # (batch_in, ndim)
@@ -654,11 +662,13 @@ def _s_rhs_fi(rhs,
     u_inb = u[E_F_inb, ...]  # u^n on the other side
 
     # [vi nj]{P^n_kl} term
-    P = material.calc_P(nx=snx, u=u_i, batch_in=batch_in)
-    P_nb = material.calc_P(nx=snx_nb, u=u_inb, batch_in=batch_in)
-    P *= 0.5
-    P_nb *= 0.5
-    P += P_nb  # this is {P^n} = 1/2 (P^1 + P^2)  average on both sides
+    # P = material.calc_P(nx=snx, u=u_i, batch_in=batch_in)
+    # P_nb = material.calc_P(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # P *= 0.5
+    # P_nb *= 0.5
+    # P += P_nb  # this is {P^n} = 1/2 (P^1 + P^2)  average on both sides
+    # new average P = P({F})
+    P = material.calc_P_ave(nx=snx, u=u_i, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
     # this side + other side
     rhs[E_F_i, ...] += torch.einsum(
         'bmg,bj,bijg,bg->bmi',  # i,j is idim/jdim; m, n is mloc/nloc
@@ -668,10 +678,13 @@ def _s_rhs_fi(rhs,
         P,  # (batch_in, ndim, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
     )
-    del P, P_nb
+    # del P, P_nb
+    del P
 
     # [ui nj] {A (\nabla v)_kl] term
-    AA = material.calc_AA(nx=snx, u=u_i, batch_in=batch_in)
+    # AA = material.calc_AA(nx=snx, u=u_i, batch_in=batch_in)
+    # use new AA = A({F})
+    AA = material.calc_AA_ave(nx=snx, u=u_i, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
     # this side + other side
     rhs[E_F_i, ...] += torch.einsum(
         'bnijg,bijklg,blmg,bg->bmk',  # i/j : idim/jdim; m/n: mloc/nloc
@@ -686,9 +699,9 @@ def _s_rhs_fi(rhs,
 
     # penalty term
     # \gamma_e [vi nj] A [uk nl]
-    # this A is 1/2(A_this + A_nb)
-    AA += material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
-    AA *= 0.5
+    # # this A is 1/2(A_this + A_nb)
+    # AA += material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # AA *= 0.5
     rhs[E_F_i, ...] -= torch.einsum(
         'b,bmg,bj,bijklg,bnklg,bg->bmi',
         mu_e,  # (batch_in)

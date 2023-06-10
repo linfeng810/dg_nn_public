@@ -18,9 +18,6 @@ else:
 
 
 class NeoHookean:
-    # FIXME: F, C, CC, P, AA should all have values at nloc nodes,
-    #    and for each node it has values at ngi gaussian points.
-    #    so the shape should be (batch_in, nloc, ..., ngi)
     def __init__(self, nloc, ndim, dev, mu, lam):
         self.nloc = nloc
         self.ndim = ndim
@@ -90,6 +87,32 @@ class NeoHookean:
         C = self._calc_C(F)
         S = self._calc_S(C, F)
         P = torch.einsum('bgij,bgjk->bikg', F, S)
+        # FinvT = torch.transpose(torch.linalg.inv(F), dim0=-2, dim1=-1)
+        # J = torch.linalg.det(F)
+        # if torch.any(J <= 0):
+        #     raise Exception(f'determinant of some element is negative! ',
+        #                     f'consider larger relaxation... or there is a bug :/')
+        # lnJ = torch.log(J)
+        # P = self.mu * (F - FinvT) + self.lam * torch.einsum('bg,bgij->bgij', lnJ, FinvT)
+        # P = torch.permute(P, [0, 2, 3, 1])
+        # output shape is (batch_in, ndim, ndim, ngi)
+        return P
+
+    def calc_P_ave(self, nx, u, nx_nb, u_nb, batch_in: int):
+        """
+        compute PK1 tensor from given displacement
+        """
+        F_this = self._calc_F(nx, u, batch_in)  # this side
+        F_neib = self._calc_F(nx_nb, u_nb, batch_in)  # other side
+        F = 0.5 * (F_this + F_neib)  # averate F, i.e. {F}
+        C = self._calc_C(F)
+        S = self._calc_S(C, F)
+        P = torch.einsum('bgij,bgjk->bikg', F, S)
+        # FinvT = torch.transpose(torch.linalg.inv(F), dim0=-2, dim1=-1)
+        # J = torch.linalg.det(F)
+        # lnJ = torch.log(J)
+        # P = self.mu * (F - FinvT) + self.lam * torch.einsum('bg,bgij->bgij', lnJ, FinvT)
+        # P = torch.permute(P, [0, 2, 3, 1])
         # output shape is (batch_in, ndim, ndim, ngi)
         return P
 
@@ -105,12 +128,55 @@ class NeoHookean:
         C = self._calc_C(F)
         S = self._calc_S(C, F)
         CC = self._calc_CC(C, F)
+        # invF = torch.linalg.inv(F)
+        # lnJ = torch.log(torch.linalg.det(F))
+        # FinvT = torch.transpose(invF, dim0=-2, dim1=-1)
         AA = torch.zeros(batch_in, self.ndim, self.ndim, self.ndim, self.ndim, ngi,
                          device=self.dev, dtype=torch.float64)
         AA += torch.einsum('bgiI,bgkK,bgIJKL->biJkLg', F, F, CC)
         AA += torch.einsum('ik,bgJL->biJkLg',
                            torch.eye(self.ndim, device=self.dev, dtype=torch.float64),
                            S)
+        # I3 = torch.eye(3, device=self.dev, dtype=torch.float64)
+        # AA += self.mu * (
+        #     torch.einsum('ik,jl->ijkl', I3, I3) +
+        #     torch.einsum('bgil,bgjk->bgijkl', FinvT, invF)
+        # ).permute([0, 2, 3, 4, 5, 1])
+        # AA += -self.lam * torch.einsum('bg,bgil,bgjk->bijklg', lnJ, FinvT, invF)
+        # AA += self.lam * torch.einsum('bgij,bgkl->bijklg', FinvT, invF)
+        # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
+        return AA
+
+    def calc_AA_ave(self, nx, u, nx_nb, u_nb, batch_in: int):
+        """
+        calculate average of A on element face, i.e. {A}.
+        It is calculated by A({F}), thus, we need to calculate
+        the averate of F first.
+        """
+        ngi = nx.shape[-1]
+        F_this = self._calc_F(nx, u, batch_in)  # this side
+        F_neib = self._calc_F(nx_nb, u_nb, batch_in)  # other side
+        F = 0.5 * (F_this + F_neib)
+
+        C = self._calc_C(F)
+        S = self._calc_S(C, F)
+        CC = self._calc_CC(C, F)
+        # invF = torch.linalg.inv(F)
+        # lnJ = torch.log(torch.linalg.det(F))
+        # FinvT = torch.transpose(invF, dim0=-2, dim1=-1)
+        AA = torch.zeros(batch_in, self.ndim, self.ndim, self.ndim, self.ndim, ngi,
+                         device=self.dev, dtype=torch.float64)
+        AA += torch.einsum('bgiI,bgkK,bgIJKL->biJkLg', F, F, CC)
+        AA += torch.einsum('ik,bgJL->biJkLg',
+                           torch.eye(self.ndim, device=self.dev, dtype=torch.float64),
+                           S)
+        # I3 = torch.eye(3, device=self.dev, dtype=torch.float64)
+        # AA += self.mu * (
+        #     torch.einsum('ik,jl->ijkl', I3, I3) +
+        #     torch.einsum('bgil,bgjk->bgijkl', FinvT, invF)
+        # ).permute([0, 2, 3, 4, 5, 1])
+        # AA += -self.lam * torch.einsum('bg,bgil,bgjk->bijklg', lnJ, FinvT, invF)
+        # AA += self.lam * torch.einsum('bgij,bgkl->bijklg', FinvT, invF)
         # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
         return AA
 
@@ -164,6 +230,18 @@ class LinearElastic:
         # output shape is (batch_in, ndim, ndim, ngi)
         return P
 
+    def calc_P_ave(self, nx, u, nx_nb, u_nb, batch_in):
+        """
+        compute PK1 tensor from given displacement
+        """
+        nabla_u_this = torch.einsum('bjng,bni->bijg', nx, u.view(batch_in, self.nloc, self.ndim))  # this side
+        nabla_u_neib = torch.einsum('bjng,bni->bijg', nx_nb, u_nb.view(batch_in, self.nloc, self.ndim))  # other side
+        nabla_u = 0.5 * (nabla_u_this + nabla_u_neib)
+        CC = self._calc_CC()
+        P = torch.einsum('ijkl,bklg->bijg', CC, nabla_u)
+        # output shape is (batch_in, ndim, ndim, ngi)
+        return P
+
     def calc_AA(self, nx, u, batch_in):
         """
         compute elasticity tensor \mathbb A
@@ -186,3 +264,11 @@ class LinearElastic:
                                                                 ngi)
         # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
         return AA
+
+    def calc_AA_ave(self, nx, u, nx_nb, ux, batch_in):
+        """
+        calculate average of A on element face, i.e. {A}.
+        However, in linear elastic, A is constant everywhere,
+        so it doesn't matter.
+        """
+        return self.calc_AA(nx, u, batch_in)
