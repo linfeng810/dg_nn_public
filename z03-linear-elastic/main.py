@@ -124,7 +124,7 @@ u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zer
 
 u = torch.rand_like(u)*0  # initial guess
 # output to vtk
-vtk = output.File(config.filename+'displacement_%d.vtu' % 0, x_all)
+vtk = output.File(config.filename+config.case_name+'_%d.vtu' % 0, x_all)
 vtk.write(u, 'displacement')
 
 # u = torch.ones_like(u)
@@ -366,7 +366,7 @@ if (config.solver=='iterative') :
             u_all[itime, :, :, :] = u.cpu().numpy()
 
             # output to vtk
-            vtk = output.File(config.filename+'displacement_%d.vtu' % itime, x_all)
+            vtk = output.File(config.filename+config.case_name+'_%d.vtu' % itime, x_all)
             vtk.write(u, 'displacement')
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')

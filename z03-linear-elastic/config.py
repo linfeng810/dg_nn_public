@@ -26,6 +26,7 @@ solver='iterative' # 'direct' or 'iterative'
 # read mesh and build connectivity
 #####################################################
 filename='z31-cube-mesh/cube.msh' # directory to mesh file (gmsh)
+case_name = 'cubic-ele-bonet-AA'  # this is used in output vtk.
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -102,7 +103,7 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
 print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,
       'with SFC?', is_sfc)
@@ -117,7 +118,7 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
 
 # non-linear iteration parameters
 n_its_max = 300
-n_tol = 1.e-12
+n_tol = 1.e-10
 relax_coeff = 1.
 
 ####################
