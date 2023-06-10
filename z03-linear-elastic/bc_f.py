@@ -122,24 +122,36 @@ def bc_f(ndim, bc, u, x_all, prob: str):
                     # u[inod // nloc, inod % nloc, 2] = 0
                     # # problem 3 exponential expansion
                     # u[inod // nloc, inod % nloc, 0] = torch.exp(x_inod[0] + x_inod[1] + x_inod[2])
+                    # # problem 4 Eyck 2008 (Indentation)
+                    # u[inod // nloc, inod % nloc, 0] = \
+                    #     -1.75 * x_inod[1] * (1 - x_inod[1]) * x_inod[2] * (1 - x_inod[2]) \
+                    #     * torch.cos(torch.pi * x_inod[0])
+                    # u[inod // nloc, inod % nloc, 1] = \
+                    #     -1.75 * x_inod[0] * (1 - x_inod[0]) * x_inod[2] * (1 - x_inod[2]) \
+                    #     * torch.cos(torch.pi * x_inod[1])
+                    # u[inod // nloc, inod % nloc, 2] = \
+                    #     -0.12 * x_inod[2] ** 2 * (1 - torch.cos(2 * torch.pi * x_inod[0])) \
+                    #     * (1 - torch.cos(2 * torch.pi * x_inod[1])) + 0.15 * x_inod[2]
             x = torch.tensor(x_all[:, 0], device=dev)
             y = torch.tensor(x_all[:, 1], device=dev)
             z = torch.tensor(x_all[:, 2], device=dev)
             f = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
             # problem 1 Abbas 2018
-            f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * x)
+            f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
             f[:, 1] = 0.
-            f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * y)
+            f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
             # # problem 2 Simple shear
             # f *= 0
             # # problem 3 exponential expansion
             # for idim in range(ndim):
             #     from torch import exp, log
-            #     f[:, idim] = ((3*lam*log(3*exp(x + y + z) + 1) - 9*lam)*exp(x + y + z)
+            #     f[:, idim] = -(3*exp(x + y + z)*(lam + 2*mu + 9*mu*exp(2*x + 2*y + 2*z) - lam*log(3*exp(x + y + z) + 1) + 6*mu*exp(x + y + z)))/(3*exp(x + y + z) + 1)^2
+            #     ((3*lam*log(3*exp(x + y + z) + 1) - 9*lam)*exp(x + y + z)
             #                   - 18*lam*exp(2*x + 2*y + 2*z)
             #                   - 27*lam*exp(3*x + 3*y + 3*z)) / \
             #                  (6*exp(x + y + z) + 9*exp(2*x + 2*y + 2*z) + 1)
-
+            # # problem 4 Eyck 2008 (Indentation)
+            # ...
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
             del x, y, z
     else:
