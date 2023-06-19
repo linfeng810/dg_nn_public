@@ -9,9 +9,9 @@ import numpy as np
 import config
 from config import sf_nd_nb
 
-nloc = config.nloc
+# nloc = config.nloc
 dev = config.dev
-nonods = config.nonods
+# nonods = config.nonods
 
 
 def bc_f(ndim, bc, u, x_all, prob: str):
@@ -156,4 +156,54 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             del x, y, z
     else:
         raise Exception('the problem ', prob, ' is not defined in bc_f.py')
+    return u, f, fNorm
+
+
+def vel_bc_f(ndim, bc, u, x_all, prob: str):
+    nloc = sf_nd_nb.vel_func_space.element.nloc
+    nonods = sf_nd_nb.vel_func_space.nonods
+    if prob == 'stokes':
+        if ndim == 2:
+            # apply boundary conditions (4 Dirichlet bcs)
+            for bci in bc:
+                for inod in bci:
+                    x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
+                    # u[inod//nloc, inod%nloc, :] = 0.
+                    u[inod // nloc, inod % nloc, 0] = -torch.exp(x_inod[0]) * \
+                                                      (x_inod[1] * torch.cos(x_inod[1]) + torch.sin(x_inod[1]))
+                    u[inod // nloc, inod % nloc, 1] = torch.exp(x_inod[0]) * x_inod[1] * torch.sin(x_inod[1])
+
+            f = np.zeros((nonods, ndim), dtype=np.float64)
+
+            f = torch.tensor(f, device=dev, dtype=torch.float64)
+            fNorm = torch.linalg.norm(f.view(-1), dim=0)
+
+        else:  # ndim == 3
+            for bci in bc:
+                for inod in bci:
+                    x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                    # u[inod//nloc, inod%nloc, :] = 0.
+                    u[inod // nloc, inod % nloc, 0] = -2./3. * torch.sin(x_inod[0])**3
+                    u[inod // nloc, inod % nloc, 1] = torch.sin(x_inod[0])**2 * \
+                                                      (x_inod[1] * torch.cos(x_inod[0])
+                                                       - x_inod[2] * torch.sin(x_inod[0]))
+                    u[inod // nloc, inod % nloc, 2] = torch.sin(x_inod[0])**2 * \
+                                                      (x_inod[2] * torch.cos(x_inod[0])
+                                                       + x_inod[1] * torch.sin(x_inod[0]))
+            f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+            x = torch.tensor(x_all[:, 0], device=dev)
+            y = torch.tensor(x_all[:, 1], device=dev)
+            z = torch.tensor(x_all[:, 2], device=dev)
+
+            f[:, 0] = torch.cos(x) - 2*torch.sin(x) + 6*torch.cos(x)**2 * torch.sin(x)
+            f[:, 1] = 7*y*torch.cos(x) - 9*y*torch.cos(x)**3 \
+                      - 3*z*torch.sin(x) + 9*z*torch.cos(x)**2*torch.sin(x)
+            f[:, 2] = 7*z*torch.cos(x) - 9*z*torch.cos(x)**3 \
+                      + 3*y*torch.sin(x) - 9*y*torch.cos(x)**2*torch.sin(x)
+
+            fNorm = torch.linalg.norm(f.view(-1), dim=0)
+            del x, y, z
+    else:
+        raise Exception('the problem '+prob+' is not defined in bc_f.py')
     return u, f, fNorm
