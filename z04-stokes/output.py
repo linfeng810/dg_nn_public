@@ -1,12 +1,13 @@
 import numpy as np
 
 import config
-from config import sf_nd_nb
+# from config import sf_nd_nb
+from function_space import FuncSpace
 
 
-nele = config.nele
-nonods = config.nonods
-nloc = config.nloc
+# nele = config.nele
+# nonods = config.nonods
+# nloc = config.nloc
 ndim = config.ndim
 
 VTK_LAGRANGE_TETRAHEDRON = 71
@@ -22,7 +23,7 @@ class File():
     https://firedrakeproject.org/_modules/firedrake/output.html#File.write
     http://www.princeton.edu/~efeibush/viscourse/vtk.pdf
     """
-    def __init__(self, filename, x_all):
+    def __init__(self, filename):
         self.filename = filename
         with open(self.filename, "wb") as f:
             f.write(b'<?xml version="1.0" ?>\n')
@@ -30,6 +31,25 @@ class File():
                     b'byte_order="BigEndian" '
                     b'header_type="UInt32">\n')
             f.write(b'<UnstructuredGrid>\n')
+            # then we wait user to call write_vector or write_scaler
+            # to write points coordinates and field values and xml file endings
+
+    def write_vector(self, u, name, func_space: FuncSpace):
+        # write a vector field (e.g. displacement)
+        x_all = func_space.x_all
+        nonods = func_space.nonods
+        nloc = func_space.element.nloc
+        perm = func_space.ref_node_order
+        nele = func_space.nele
+
+        u_np = u.view(nonods, ndim).cpu().numpy()
+        typ = {np.dtype("float32"): "Float32",
+               np.dtype("float64"): "Float64",
+               np.dtype("int32"): "Int32",
+               np.dtype("int64"): "Int64",
+               np.dtype("uint8"): "UInt8"}[u_np.dtype]
+        ncmp = 3  # vector has 3 components [MUST. if in 2D, append 0]
+        with open(self.filename, "ab") as f:
             f.write(('<Piece NumberOfPoints="%d" '
                      'NumberOfCells="%d">\n' % (nonods, nele)).encode('ascii'))
 
@@ -45,44 +65,87 @@ class File():
                     b'<DataArray type="Int32" Name="connectivity" Format="ascii">\n')
             pndg_glbno = np.arange(0, nonods, dtype=np.int32)
             pndg_glbno = pndg_glbno.reshape((nele, nloc))
-            perm = sf_nd_nb.ref_node_order
+            # perm = sf_nd_nb.ref_node_order
             pndg_glbno = pndg_glbno[:, perm]
             np.savetxt(f, pndg_glbno, fmt='%d')
             f.write(b'</DataArray>\n'
                     b'<DataArray type="Int32" Name="offsets" Format="ascii">\n')
-            offsets = np.arange(nloc, nonods+nloc, nloc, dtype=np.int32)
+            offsets = np.arange(nloc, nonods + nloc, nloc, dtype=np.int32)
             np.savetxt(f, offsets, fmt='%d')
             f.write(b'</DataArray>\n'
                     b'<DataArray type="Int32" Name="types" Format="ascii">\n')
             np.savetxt(f, np.full(nele, VTK_LAGRANGE_TETRAHEDRON, dtype="uint8"), fmt='%d')
             f.write(b'</DataArray>\n'
                     b'</Cells>\n')
-
-            # then we wait user to call write to write field values and xml file endings
-
-    def write(self, u, name):
-        # write a vector field (e.g. displacement)
-        u_np = u.view(nonods, ndim).cpu().numpy()
-        typ = {np.dtype("float32"): "Float32",
-               np.dtype("float64"): "Float64",
-               np.dtype("int32"): "Int32",
-               np.dtype("int64"): "Int64",
-               np.dtype("uint8"): "UInt8"}[u_np.dtype]
-        ncmp = 3  # vector has 3 components [MUST. if in 2D, append 0]
-        with open(self.filename, "ab") as f:
             f.write(('<PointData Vectors="%s">\n' % name).encode('ascii'))
             f.write(('<DataArray Name="%s" type="%s" '
                      'NumberOfComponents="%s" '
                      'format="ascii">\n' % (name, typ, ncmp)).encode('ascii'))
             np.savetxt(f, u_np, delimiter=' ')
             f.write(b'</DataArray>\n'
-                    b'</PointData>\n')
+                    b'</PointData>\n'
+                    b'</Piece>\n')
+        return self.filename
 
+    def write_end(self):
         with open(self.filename, "ab") as f:
             # finishing
-            f.write(b'</Piece>\n'
-                    b'</UnstructuredGrid>\n'
+            f.write(b'</UnstructuredGrid>\n'
                     b'</VTKFile>\n')
+        return self.filename
+
+    def write_scaler(self, p, name, func_space: FuncSpace):
+        # write a scaler field (e.g. pressure)
+        x_all = func_space.x_all
+        nonods = func_space.nonods
+        nloc = func_space.element.nloc
+        perm = func_space.ref_node_order
+        nele = func_space.nele
+
+        p_np = p.view(nonods).cpu().numpy()
+        typ = {np.dtype("float32"): "Float32",
+               np.dtype("float64"): "Float64",
+               np.dtype("int32"): "Int32",
+               np.dtype("int64"): "Int64",
+               np.dtype("uint8"): "UInt8"}[p_np.dtype]
+        # ncmp = 3  # vector has 3 components [MUST. if in 2D, append 0]
+        ncmp = 1
+        with open(self.filename, "ab") as f:
+            f.write(('<Piece NumberOfPoints="%d" '
+                     'NumberOfCells="%d">\n' % (nonods, nele)).encode('ascii'))
+
+            # write points coordinates
+            f.write(b'<Points>\n')
+            f.write(b'<DataArray type="Float64" NumberOfComponents="3" Format="ascii">\n')
+            np.savetxt(f, x_all, delimiter=' ')
+            f.write(b'</DataArray>\n'
+                    b'</Points>\n')
+
+            # write cell connectivity
+            f.write(b'<Cells>\n'
+                    b'<DataArray type="Int32" Name="connectivity" Format="ascii">\n')
+            pndg_glbno = np.arange(0, nonods, dtype=np.int32)
+            pndg_glbno = pndg_glbno.reshape((nele, nloc))
+            # perm = sf_nd_nb.ref_node_order
+            pndg_glbno = pndg_glbno[:, perm]
+            np.savetxt(f, pndg_glbno, fmt='%d')
+            f.write(b'</DataArray>\n'
+                    b'<DataArray type="Int32" Name="offsets" Format="ascii">\n')
+            offsets = np.arange(nloc, nonods + nloc, nloc, dtype=np.int32)
+            np.savetxt(f, offsets, fmt='%d')
+            f.write(b'</DataArray>\n'
+                    b'<DataArray type="Int32" Name="types" Format="ascii">\n')
+            np.savetxt(f, np.full(nele, VTK_LAGRANGE_TETRAHEDRON, dtype="uint8"), fmt='%d')
+            f.write(b'</DataArray>\n'
+                    b'</Cells>\n')
+            f.write(('<PointData Scalers="%s">\n' % name).encode('ascii'))
+            f.write(('<DataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" '
+                     'format="ascii">\n' % (name, typ, ncmp)).encode('ascii'))
+            np.savetxt(f, p_np, delimiter=' ')
+            f.write(b'</DataArray>\n'
+                    b'</PointData>\n'
+                    b'</Piece>\n')
         return self.filename
 
 

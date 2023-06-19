@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 from types import NoneType
-
 import torch
 
 
@@ -14,98 +13,51 @@ class SfNdNb:
     2) nodes coordinates on finest grid (highest p) (x_ref_in)
     3) neighouring face and elements list (nbele, nbf)
     """
-    def __init__(self,
-                 n=None,
-                 nlx=None,
-                 weight=None,  # volume shape function on ref. element
-                 sn=None,
-                 snlx=None,
-                 sweight=None,  # surface shape function on ref. element
-                 x_ref_in=None,  # nodes coordinate on PnDG (finest mesh)
-                 nbele=None,  # neighbour element list
-                 nbf=None,  # neighbour face list
-                 cg_ndglno=None,  # P1CG connectivity matrix
-                 cg_nonods=None,  # number of nodes on P1CG
-                 alnmt=None,  # face alignment in 3D
-                 ):
-        self.n = n
-        self.nlx = nlx
-        self.weight = weight
-        self.sn = sn
-        self.snlx = snlx
-        self.sweight = sweight
-        self.x_ref_in = x_ref_in
-        self.nbele = nbele
-        self.nbf = nbf
-        self.cg_ndglno = cg_ndglno
-        self.cg_nonods = cg_nonods
-        self.alnmt = alnmt
-        self.I_31 = None
-        self.I_13 = None
-        self.gi_align = None  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
-        self.I_cf = None  # discontinuous P1DG to continuous P1CG prolongator
-        self.I_fc = None  # continuous P1CG to discontinuous p1DG restrictor
-        self.RARmat = None  # operator on P1CG, type: scipy csr sparse matrix
-        self.sfc_data = SFCdata()  # sfc related data
-        self.ref_node_order = None
+    def __init__(self):
+        self.vel_func_space = None
+        self.pre_func_space = None
+        self.p1cg_nonods = None
+        self.vel_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
+        self.vel_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
+        self.pre_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
+        self.pre_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
+        self.I_dc = None  # prolongator from P1CG to P1DG
+        self.I_cd = None  # restrictor from P1DG to P1CG
+        self.RAR_vel_mat = None  # velocity block on P1CG level
+        self.RAR_pre_mat = None  # pressure block on P1CG level ?? Don't know
+        # how to do this but whatever...
 
     def set_data(self,
-                 n=None,
-                 nlx=None,
-                 weight=None,  # volume shape function on ref. element
-                 sn=None,
-                 snlx=None,
-                 sweight=None,  # surface shape function on ref. element
-                 x_ref_in=None,  # nodes coordinate on PnDG (finest mesh)
-                 nbele=None,  # neighbour element list
-                 nbf=None,  # neighbour face list
-                 cg_ndglno=None,  # P1CG connectivity matrix
-                 cg_nonods=None,  # number of nodes on P1CG
-                 alnmt=None,  # face alignment in 3D
-                 I_31=None,
-                 gi_align=None,  # gaussian points alignment (3 possibilities in 3D and 2 in 2D)
-                 I_cf=None,  # discontinuous P1DG to continuous P1CG prolongator
-                 I_fc=None,  # continuous P1CG to discontinuous p1DG restrictor
-                 RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
-                 ref_node_order=None,  # refrence element nodes order
+                 vel_func_space = None,
+                 pre_func_space = None,
+                 p1cg_nonods = None,
+                 vel_I_prol = None,
+                 pre_I_prol = None,
+                 I_cd=None,  # discontinuous P1DG to continuous P1CG prolongator
+                 I_dc=None,  # continuous P1CG to discontinuous p1DG restrictor
+                 RAR_vel_mat=None,  # operator on P1CG, type: scipy csr sparse matrix
+                 RAR_pre_mat=None,  # operator on P1CG, type: scipy csr sparse matrix
                  ):
-        if type(n) != NoneType:
-            self.n = n
-        if type(nlx) != NoneType:
-            self.nlx = nlx
-        if type(weight) != NoneType:
-            self.weight = weight
-        if type(sn) != NoneType:
-            self.sn = sn
-        if type(snlx) != NoneType:
-            self.snlx = snlx
-        if type(sweight) != NoneType:
-            self.sweight = sweight
-        if type(x_ref_in) != NoneType:
-            self.x_ref_in = x_ref_in
-        if type(nbele) != NoneType:
-            self.nbele = nbele
-        if type(nbf) != NoneType:
-            self.nbf = nbf
-        if type(cg_ndglno) != NoneType:
-            self.cg_ndglno = cg_ndglno
-        if type(cg_nonods) != NoneType:
-            self.cg_nonods = cg_nonods
-        if type(alnmt) != NoneType:
-            self.alnmt = alnmt
-        if type(I_31) != NoneType:
-            self.I_31 = I_31
-            self.I_13 = torch.transpose(I_31, dim0=0, dim1=1)
-        if type(gi_align) != NoneType:
-            self.gi_align = gi_align
-        if type(I_cf) != NoneType:
-            self.I_cf = I_cf
-        if type(I_fc) != NoneType:
-            self.I_fc = I_fc
-        if type(RARmat) != NoneType:
-            self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
-        if type(ref_node_order) != NoneType:
-            self.ref_node_order = ref_node_order
+        if type(vel_func_space) != NoneType:
+            self.vel_func_space = vel_func_space
+        if type(pre_func_space) != NoneType:
+            self.pre_func_space = pre_func_space
+        if type(p1cg_nonods) != NoneType:
+            self.p1cg_nonods = p1cg_nonods
+        if type(vel_I_prol) != NoneType:
+            self.vel_I_prol = vel_I_prol
+            self.vel_I_rest = torch.transpose(vel_I_prol, dim0=0, dim1=1)
+        if type(pre_I_prol) != NoneType:
+            self.pre_I_prol = pre_I_prol
+            self.pre_I_rest = torch.transpose(pre_I_prol, dim0=0, dim1=1)
+        if type(I_cd) != NoneType:
+            self.I_cd = I_cd
+        if type(I_dc) != NoneType:
+            self.I_dc = I_dc
+        if type(RAR_vel_mat) != NoneType:
+            self.RAR_vel_mat = RAR_vel_mat  # operator on P1CG, type: scipy csr sparse matrix
+        if type(RAR_pre_mat) != NoneType:
+            self.RAR_pre_mat = RAR_pre_mat  # operator on P1CG, type: scipy csr sparse matrix
 
 
 class SFCdata:

@@ -6,14 +6,10 @@ from config import sf_nd_nb
 from get_nb import getfinele, getfin_p1cg
 
 
-def init():
+def init(mesh, nele, nonods, nloc):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
-    nele = config.nele 
-    mesh = config.mesh 
-    nonods = config.nonods 
-    nloc = config.nloc
 
     # check and make sure triangle vertices are ordered anti-clockwisely
     for ele in range(nele):
@@ -253,15 +249,10 @@ def init():
     return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods, cg_bc
 
 
-def init_3d():
+def init_3d(mesh, nele, nonods, nloc, nface):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
-    nele = config.nele
-    mesh = config.mesh
-    nonods = config.nonods
-    nloc = config.nloc
-    nface = config.nface
 
     # check and make sure tetrahedron are ordered left-handed
     for ele in range(nele):
@@ -303,7 +294,7 @@ def init_3d():
     #     for iloc in range(4):
     #         cg_ndglno[ele * 4 + iloc] = mesh.cells[0][1][ele][iloc]
     cg_ndglno = mesh.cells[0][1].reshape((nele * 4))
-    sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
+    # sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
@@ -332,7 +323,7 @@ def init_3d():
     nbf = np.zeros(len(faces), dtype=np.int64) - 1
     alnmt = np.ones(len(faces), dtype=np.int64) * - 1
     found = np.zeros(len(faces), dtype=np.bool)
-    for ele in range(config.nele):
+    for ele in range(nele):
         for iface in range(nface):
             glb_iface = ele * nface + iface
             if found[glb_iface]:
@@ -383,7 +374,7 @@ def init_3d():
             9, 8, 13, 12, 6,
             7, 16, 19, 17, 18,
         ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
-        sf_nd_nb.set_data(ref_node_order=ref_node_order)
+        # sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
             idx = mesh.cells[0][1][ele]
@@ -490,7 +481,7 @@ def init_3d():
             2, 3, 0, 1, 9,
             7, 5, 4, 8, 6,
         ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
-        sf_nd_nb.set_data(ref_node_order=ref_node_order)
+        # sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
             idx = mesh.cells[0][1][ele]
@@ -553,7 +544,7 @@ def init_3d():
         ref_node_order = [
             2, 3, 0, 1,
         ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
-        sf_nd_nb.set_data(ref_node_order=ref_node_order)
+        # sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
             idx = mesh.cells[0][1][ele]
@@ -570,7 +561,7 @@ def init_3d():
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
     np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
-    sf_nd_nb.set_data(cg_nonods=cg_nonods)
+    # sf_nd_nb.set_data(cg_nonods=cg_nonods)
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
 
@@ -603,7 +594,7 @@ def init_3d():
     bc = [bc1, bc2, bc3, bc4, bc5, bc6]
 
     # store P3DG from/to P1DG restrictor/prolongator
-    sf_nd_nb.set_data(I_31=torch.tensor([
+    sf_nd_nb.set_data(vel_I_prol=torch.tensor([
         [1, 0, 0, 0],
         [0, 1, 0, 0],
         [0, 0, 1, 0],
@@ -625,15 +616,27 @@ def init_3d():
         [1 / 3, 0, 1 / 3, 1 / 3],
         [1 / 3, 1 / 3, 0, 1 / 3]
     ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator
+    sf_nd_nb.set_data(pre_I_prol=torch.tensor([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+        [0, 1 / 2, 1 / 2, 0],
+        [1 / 2, 0, 1 / 2, 0],
+        [1 / 2, 1 / 2, 0, 0],
+        [1 / 2, 0, 0, 1 / 2],
+        [0, 1 / 2, 0, 1 / 2],
+        [0, 0, 1 / 2, 1 / 2],
+    ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
     if nloc == 4:  # linear element
-        sf_nd_nb.set_data(I_31=torch.tensor([
+        sf_nd_nb.set_data(vel_I_prol=torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
         ], device=config.dev, dtype=torch.float64))  # P1DG to P1DG, element-wise prolongation operator
     elif nloc == 10:  # quadratic element
-        sf_nd_nb.set_data(I_31=torch.tensor([
+        sf_nd_nb.set_data(vel_I_prol=torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 1, 0],
@@ -645,6 +648,12 @@ def init_3d():
             [0, 1 / 2, 0, 1 / 2],
             [0, 0, 1 / 2, 1 / 2],
         ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
+        sf_nd_nb.set_data(pre_I_prol=torch.tensor([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ], device=config.dev, dtype=torch.float64))  # P1DG to P1DG, element-wise prolongation operator
         # sf_nd_nb.I_13 = torch.tensor([
         #     [1 / 5, -2 / 15, -2 / 15, -2 / 15, -2 / 15, 8 / 15, 8 / 15, 8 / 15, -2 / 15, -2 / 15],
         #     [-2 / 15, 1 / 5, -2 / 15, -2 / 15, 8 / 15, -2 / 15, 8 / 15, -2 / 15, 8 / 15, -2 / 15],
@@ -663,7 +672,7 @@ def init_3d():
         #     [0, 0, 0, 0],
         #     [0, 0, 0, 0],
         # ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
-    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods
+    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods, ref_node_order
 
 
 def connectivity(nbele):
@@ -744,17 +753,19 @@ def sgi2(sgi):
     return order_on_other_side[sgi]
 
 
-def p1cg_sparsity(cg_ndglbno):
+def p1cg_sparsity(vel_func_space):
     '''
     get P1CG sparsity from node-global-number list
     '''
     import time
+    cg_ndglbno = vel_func_space.cg_ndglno
+    nele = vel_func_space.nele
     start_time = time.time()
     print('im in get p1cg sparsity, time:', time.time()-start_time)
-    nele = config.nele
-    cg_nonods = sf_nd_nb.cg_nonods
-    p1dg_nonods = config.p1dg_nonods
-    nloc = config.p1cg_nloc
+    # nele = config.nele
+    cg_nonods = vel_func_space.cg_nonods
+    p1dg_nonods = vel_func_space.p1dg_nonods
+    nloc = vel_func_space.p1cg_nloc
     idx = []
     val = []
     import scipy.sparse as sp

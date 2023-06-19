@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import sys
 import cmmn_data
+import random
+# from function_space import FuncSpace, Element
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -25,8 +27,8 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube.msh' # directory to mesh file (gmsh)
-case_name = 'cubic-ele-bonet-AA'  # this is used in output vtk.
+filename='z31-cube-mesh/cube_r2.msh' # directory to mesh file (gmsh)
+
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = toughio.read_mesh(filename) # mesh object
@@ -34,53 +36,53 @@ sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
 nele = mesh.n_cells # number of elements
-ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
-print('element order: ', ele_type)
+ele_p = 3  # velocity element order (2 or higher)
+print('element order: ', ele_p)
 ndim = 3  # dimesnion of the problem
-if ndim == 2:
-    if ele_type == 'cubic':
-        nloc = 10  # number of nodes in an element
-        ngi = 13 # number of quadrature points
-        sngi = 4 # number of surface quadrature
-        snloc = 4  # number of nodes per face
-        ele_p = 3  # order of elements
-    elif ele_type == 'linear':
-        nloc = 3
-        ngi = 3
-        sngi = 2
-        snloc = 2
-        ele_p = 1  # order of elements
-    else:
-        raise Exception("Element type is not acceptable.")
-    p1dg_nonods = 3*nele  # number of nodes on P1DG grid
-    nface = 3 # number of element faces
-    p1cg_nloc = 3
-else:  # ndim = 3
-    if ele_type == 'cubic':
-        nloc = 20
-        ngi = 24
-        snloc = 10
-        sngi = 9
-        ele_p = 3  # order of elements
-    elif ele_type == 'linear':
-        nloc = 4
-        ngi = 4
-        snloc = 3
-        sngi = 3
-        ele_p = 2  # order of elements
-    elif ele_type == 'quadratic':
-        nloc = 10
-        ngi = 11
-        snloc = 6
-        sngi = 6
-        ele_p = 1  # order of elements
-    else:
-        raise Exception("Element type is not acceptable.")
-    p1dg_nonods = 4*nele
-    nface = 4
-    p1cg_nloc = 4
-nonods = nloc*nele  # number of nodes
-ndglno=np.arange(0,nonods) # local to global
+# if ndim == 2:
+#     if ele_type == 'cubic':
+#         nloc = 10  # number of nodes in an element
+#         ngi = 13 # number of quadrature points
+#         sngi = 4 # number of surface quadrature
+#         snloc = 4  # number of nodes per face
+#         ele_p = 3  # order of elements
+#     elif ele_type == 'linear':
+#         nloc = 3
+#         ngi = 3
+#         sngi = 2
+#         snloc = 2
+#         ele_p = 1  # order of elements
+#     else:
+#         raise Exception("Element type is not acceptable.")
+#     p1dg_nonods = 3*nele  # number of nodes on P1DG grid
+#     nface = 3 # number of element faces
+#     p1cg_nloc = 3
+# else:  # ndim = 3
+#     if ele_type == 'cubic':
+#         nloc = 20
+#         ngi = 24
+#         snloc = 10
+#         sngi = 9
+#         ele_p = 3  # order of elements
+#     elif ele_type == 'linear':
+#         nloc = 4
+#         ngi = 4
+#         snloc = 3
+#         sngi = 3
+#         ele_p = 2  # order of elements
+#     elif ele_type == 'quadratic':
+#         nloc = 10
+#         ngi = 11
+#         snloc = 6
+#         sngi = 6
+#         ele_p = 1  # order of elements
+#     else:
+#         raise Exception("Element type is not acceptable.")
+#     p1dg_nonods = 4*nele
+#     nface = 4
+#     p1cg_nloc = 4
+# nonods = nloc*nele  # number of nodes
+# ndglno=np.arange(0,nonods) # local to global
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-10  # convergence tolerance for linear solver (e.g. MG)
@@ -124,7 +126,7 @@ relax_coeff = 1.
 ####################
 # material property
 ####################
-problem = 'hyper-elastic'  # 'hyper-elastic' or 'linear-elastic'
+problem = 'stokes'  # 'hyper-elastic' or 'linear-elastic' or 'stokes'
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -168,3 +170,5 @@ print('Surface jump penalty coefficient eta_e: ', eta_e)
 # no of batches in mf volume and surface integral
 no_batch = 1
 print('No of batch: ', no_batch)
+
+case_name = '_'+problem+'_p'+str(ele_p)+'_'+'%06x' % random.randrange(16**6)  # this is used in output vtk.

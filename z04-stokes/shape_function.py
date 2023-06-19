@@ -3,13 +3,13 @@
 
 import numpy as np 
 import config
-from config import sf_nd_nb
+# from config import sf_nd_nb
 import torch
 from torch.nn import Conv1d,Sequential,Module
 
-nele = config.nele 
+# nele = config.nele
 mesh = config.mesh 
-nonods = config.nonods
+# nonods = config.nonods
 ndim = config.ndim
 dev = config.dev
 
@@ -452,7 +452,8 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             # if sngi != 9:
             #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
+            # sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
+            gi_align = torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 3-2-4, l1 = 0
             SL[0, :, 0] = 0
@@ -603,9 +604,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
 
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                    device=dev,
-                                                    dtype=torch.int64).view(ndim, sngi))
+            # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+            #                                         device=dev,
+            #                                         dtype=torch.int64).view(ndim, sngi))
+            gi_align = torch.tensor(alignment,
+                                    device=dev,
+                                    dtype=torch.int64).view(ndim, sngi)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 2-1-3, l1 = 0
             SL[0, :, 0] = 0
@@ -687,9 +691,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             # if sngi != 3:
             #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                    device=dev,
-                                                    dtype=torch.int64).view(ndim, sngi))
+            # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+            #                                         device=dev,
+            #                                         dtype=torch.int64).view(ndim, sngi))
+            gi_align = torch.tensor(alignment,
+                                    device=dev,
+                                    dtype=torch.int64).view(ndim, sngi)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 2-1-3, l1 = 0
             SL[0, :, 0] = 0
@@ -746,7 +753,7 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             raise Exception('snloc %d is not accpted in 3D' % snloc)
         nlx_all = np.stack([nlx, nly, nlz], axis=0)
         snlx_all = np.stack([snlx, snly, snlz], axis=1)
-        return n, nlx_all, weight, sn, snlx_all, sweight
+        return n, nlx_all, weight, sn, snlx_all, sweight, gi_align
     # ================== FROM here on, its 2D shape functions.==============================
     l1=np.zeros(ngi)
     l2=np.zeros(ngi)
@@ -815,9 +822,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             [0, 1, 2, 3],
             [3, 2, 1, 0],
         ]
-        sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                device=dev,
-                                                dtype=torch.int64).view(ndim, sngi))
+        # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+        #                                         device=dev,
+        #                                         dtype=torch.int64).view(ndim, sngi))
+        gi_align = torch.tensor(alignment,
+                                device=dev,
+                                dtype=torch.int64).view(ndim, sngi)
         # face 1
         sl1[0,:] = np.asarray([b2,a2,a1,b1])
         sl2[0,:] = 1-sl1[0,:]
@@ -839,9 +849,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             [0, 1],
             [1, 0],
         ]
-        sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                device=dev,
-                                                dtype=torch.int64).view(ndim, sngi))
+        # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+        #                                         device=dev,
+        #                                         dtype=torch.int64).view(ndim, sngi))
+        gi_align = torch.tensor(alignment,
+                                device=dev,
+                                dtype=torch.int64).view(ndim, sngi)
         # face 1
         sl1[0, :] = np.asarray([b, a])
         sl2[0, :] = 1 - sl1[0, :]
@@ -1000,7 +1013,7 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
 
     snlx_all=np.stack([snlx,snly],axis=1)
 
-    return n, nlx_all, weight, sn, snlx_all, sweight
+    return n, nlx_all, weight, sn, snlx_all, sweight, gi_align
 
 
 # local shape function
@@ -1056,7 +1069,7 @@ class det_nlx(Module):
     :detwei, weights * determinant |J|, 
             torch tensor (batch_in, ngi) on dev
     """
-    def __init__(self, nlx, nloc=config.nloc, ngi=config.ngi):
+    def __init__(self, nlx, nloc, ngi):
         super(det_nlx, self).__init__()
 
         # calculate jacobian
@@ -1104,7 +1117,7 @@ class det_nlx(Module):
         
         self.nlx = nlx
         
-    def forward(self, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
+    def forward(self, x_loc, weight, nloc, ngi):
         '''
         
         # input 
@@ -1215,7 +1228,7 @@ class det_nlx(Module):
 # local shape function at surface(s)
 # can pass in multiple elements in a batch
 # 
-def sdet_snlx(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
+def sdet_snlx(snlx, x_loc, sweight, nloc, sngi):
     """
     # local shape function on element face
     can pass in multiple elements in a batch
@@ -1372,7 +1385,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
     return snx, sdetwei, snormal
 
 
-def get_det_nlx(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
+def get_det_nlx(nlx, x_loc, weight, nloc, ngi):
     '''
     take in element nodes coordinates, spit out
     detwei and local shape function derivative
@@ -1459,7 +1472,7 @@ def get_det_nlx(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
     return nx, detwei
 
 
-def get_det_nlx_3d(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
+def get_det_nlx_3d(nlx, x_loc, weight, nloc, ngi):
     """
     take in element nodes coordinates, spit out
     detwei and local shape function derivative
@@ -1549,8 +1562,8 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc=config.nloc, ngi=config.ngi):
     return nx, detwei
 
 
-def sdet_snlx_3d(snlx, x_loc, sweight, nloc=config.nloc, sngi=config.sngi):
-    """ TODO: not implemented!
+def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi):
+    """
     # local shape function on element face
     can pass in multiple elements in a batch
 
