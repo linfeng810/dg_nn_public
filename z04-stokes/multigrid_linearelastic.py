@@ -291,22 +291,33 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
     return sfc, variables_sfc, nlevel, nodes_per_level
 
 
-def p3dg_to_p1dg_restrictor(x):
-    '''
-    takes in a scaler field on p3dg, do restriction and spit out
-    its projection on p1dg.
-    '''
-    y = torch.einsum('ij,kj->ki', sf_nd_nb.I_13, x.view(config.nele, config.nloc)).contiguous().view(-1)
+def vel_pndg_to_p1dg_restrictor(x):
+    y = torch.einsum('ij,kj->ki',
+                     sf_nd_nb.vel_I_rest,
+                     x.view(config.nele, sf_nd_nb.vel_func_space.element.nloc)).contiguous().view(-1)
     return y
 
 
-def p1dg_to_p3dg_prolongator(x):
-    '''
-    takes in a scaler field on p1dg, do prolongation and spit out
-    its projection on p3dg
-    '''
-    y = torch.einsum('ij,kj->ki', sf_nd_nb.I_31, x.view(config.nele, p_nloc(1))).contiguous().view(-1)
+def vel_p1dg_to_pndg_prolongator(x):
+    y = torch.einsum('ij,kj->ki',
+                     sf_nd_nb.vel_I_prol,
+                     x.view(config.nele, p_nloc(1))).contiguous().view(-1)
     return y
+
+
+def pre_pndg_to_p1dg_restrictor(x):
+    y = torch.einsum('ij,kj->ki',
+                     sf_nd_nb.pre_I_rest,
+                     x.view(config.nele, sf_nd_nb.pre_func_space.element.nloc)).contiguous().view(-1)
+    return y
+
+
+def pre_p1dg_to_pndg_prolongator(x):
+    y = torch.einsum('ij,kj->ki',
+                     sf_nd_nb.pre_I_prol,
+                     x.view(config.nele, p_nloc(1))).contiguous().view(-1)
+    return y
+
 
 
 def get_p1cg_lumped_mass(x_ref_in):

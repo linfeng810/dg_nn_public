@@ -1,10 +1,10 @@
 import torch
 from mesh_init import init, init_3d
 from shape_function import SHATRInew
-import config
+# import config
 
 
-dev = config.dev
+# dev = config.dev
 
 
 class Element(object):
@@ -14,7 +14,7 @@ class Element(object):
     n, nlx, weight, sn, snlx, sweight at reference element
     ele_order
     """
-    def __init__(self, ele_order: int, gi_order: int, edim: int = config.ndim):
+    def __init__(self, ele_order: int, gi_order: int, edim: int, dev):
         self.ele_order = ele_order
         self.gi_order = gi_order
         self.ndim = edim
@@ -33,7 +33,7 @@ class Element(object):
                 self.sngi = 3
             else:
                 raise ValueError("the chosen gaussian integration order %d isn't accepted." % gi_order)
-        elif self.ndim ==2:
+        elif self.ndim == 2:
             self.nloc = int(1/2*(ele_order+2)*(ele_order+1))
             self.snloc = ele_order+1
         else:
@@ -52,7 +52,6 @@ class Element(object):
         self.sweight = torch.tensor(self.sweight, device=dev, dtype=torch.float64)
 
 
-
 class FuncSpace(object):
     """
     this is a function space object that stores:
@@ -66,7 +65,7 @@ class FuncSpace(object):
     cg_ndglno
     cg_nonods
     """
-    def __init__(self, element: Element, mesh, name: str = ""):
+    def __init__(self, element: Element, mesh, dev, name: str = ""):
         self.name = name
         print('initalising '+name+' function space')
         self.mesh = mesh
@@ -92,8 +91,8 @@ class FuncSpace(object):
         # converse to torch.tensor
         self.x_ref_in = torch.tensor(
             self.x_all.reshape((self.nele, self.element.nloc, self.element.ndim)).transpose((0, 2, 1)),
-            device=config.dev, dtype=torch.float64
+            device=dev, dtype=torch.float64
         )
-        self.nbele = torch.tensor(self.nbele, device=config.dev)
-        self.nbf = torch.tensor(self.nbf, device=config.dev)
-        self.alnmt = torch.tensor(self.alnmt, device=config.dev)
+        self.nbele = torch.tensor(self.nbele, device=dev)
+        self.nbf = torch.tensor(self.nbf, device=dev)
+        self.alnmt = torch.tensor(self.alnmt, device=dev)

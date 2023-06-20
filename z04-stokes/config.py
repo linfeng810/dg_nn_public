@@ -160,6 +160,8 @@ else:
 
 # print('cijkl=', cijkl)
 
+if problem == 'stokes':
+    mu = 1.  # this is diffusion coefficient (viscosity)
 
 ####################
 # discretisation settings

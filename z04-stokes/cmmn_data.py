@@ -2,6 +2,7 @@
 
 from types import NoneType
 import torch
+# from function_space import FuncSpace
 
 
 class SfNdNb:
@@ -13,6 +14,7 @@ class SfNdNb:
     2) nodes coordinates on finest grid (highest p) (x_ref_in)
     3) neighouring face and elements list (nbele, nbf)
     """
+
     def __init__(self):
         self.vel_func_space = None
         self.pre_func_space = None
@@ -28,11 +30,11 @@ class SfNdNb:
         # how to do this but whatever...
 
     def set_data(self,
-                 vel_func_space = None,
-                 pre_func_space = None,
-                 p1cg_nonods = None,
-                 vel_I_prol = None,
-                 pre_I_prol = None,
+                 vel_func_space=None,
+                 pre_func_space=None,
+                 p1cg_nonods=None,
+                 vel_I_prol=None,
+                 pre_I_prol=None,
                  I_cd=None,  # discontinuous P1DG to continuous P1CG prolongator
                  I_dc=None,  # continuous P1CG to discontinuous p1DG restrictor
                  RAR_vel_mat=None,  # operator on P1CG, type: scipy csr sparse matrix
@@ -68,6 +70,7 @@ class SFCdata:
     nlevel
     nodes_per_level
     """
+
     def __init__(self,
                  space_filling_curve_numbering=None,
                  variables_sfc=None,
