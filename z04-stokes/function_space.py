@@ -86,8 +86,9 @@ class FuncSpace(object):
                 self.nbf, self.nbele, self.alnmt, \
                 self.fina, self.cola, self.ncola, \
                 self.bc, self.cg_ndglno, self.cg_nonods, \
-                self.ref_node_order = \
+                self.ref_node_order, self.prolongator_from_p1dg = \
                 init_3d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim+1)
+            self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
         # converse to torch.tensor
         self.x_ref_in = torch.tensor(
             self.x_all.reshape((self.nele, self.element.nloc, self.element.ndim)).transpose((0, 2, 1)),

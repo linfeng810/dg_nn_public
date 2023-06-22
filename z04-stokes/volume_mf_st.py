@@ -77,7 +77,7 @@ def calc_RAR_mf_color(
                     torch.mv(I_dc, mask[:, idim].view(-1))
                 )  # (p3dg_nonods, ndim)
             Rm_p += mg_le.pre_p1dg_to_pndg_prolongator(
-                torch.mv(I_cd, mask[:, -1].view(-1))
+                torch.mv(I_dc, mask[:, -1].view(-1))
             )
             ARm_u *= 0
             ARm_p *= 0
@@ -111,6 +111,13 @@ def get_residual_and_smooth_once(r0, x_i, x_rhs):
     # retrive func space / element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
+
+    r0[0] = r0[0].view(nele * u_nloc, ndim)
+    r0[1] = r0[1].view(-1)
+    x_i[0] = x_i[0].view(nele * u_nloc, ndim)
+    x_i[1] = x_i[1].view(-1)
+    x_rhs[0] = x_rhs[0].view(nele * u_nloc, ndim)
+    x_rhs[1] = x_rhs[1].view(-1)
     # add precalculated rhs to residual
     for i in range(2):
         r0[i] += x_rhs[i]
@@ -166,6 +173,11 @@ def get_residual_only(r0, x_i, x_rhs):
     # retrive func space / element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
+
+    r0[0] = r0[0].view(nele * u_nloc, ndim)
+    r0[1] = r0[1].view(nele, p_nloc)
+    x_rhs[0] = x_rhs[0].view(nele * u_nloc, ndim)
+    x_rhs[1] = x_rhs[1].view(nele, p_nloc)
     # add precalculated rhs to residual
     for i in range(2):
         r0[i] += x_rhs[i]
@@ -215,7 +227,7 @@ def _k_res_one_batch(
     x_i[1] = x_i[1].view(-1, p_nloc)
     diagK = diagK.view(-1, u_nloc, ndim)
     bdiagK = bdiagK.view(-1, u_nloc, ndim, u_nloc, ndim)
-    diagS = diagS.view(-1, p_nloc, ndim)
+    diagS = diagS.view(-1, p_nloc, p_nloc)
 
     # get shape function and derivatives
     n = sf_nd_nb.vel_func_space.element.n
@@ -321,7 +333,7 @@ def _s_res_one_batch(
     # for interior faces
     for iface in range(nface):
         for nb_gi_aln in range(nface - 1):
-            idx_iface = (f_i == iface) & (sf_nd_nb.alnmt[F_i] == nb_gi_aln)
+            idx_iface = (f_i == iface) & (sf_nd_nb.vel_func_space.alnmt[F_i] == nb_gi_aln)
             if idx_iface.sum() < 1:
                 # there is nothing to do here, go on
                 continue
@@ -377,9 +389,9 @@ def _s_res_fi(
 
     # shape function on the other side
     snx_nb, _, snormal_nb = sdet_snlx(
-        snlx=sf_nd_nb.snlx,
-        x_loc=sf_nd_nb.x_ref_in[E_F_inb],
-        sweight=sf_nd_nb.sweight,
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
         sngi=sf_nd_nb.vel_func_space.element.sngi
     )
@@ -398,8 +410,8 @@ def _s_res_fi(
 
     gamma_e = config.eta_e / torch.sum(sdetwei, -1)
     u_ith = x_i[0][E_F_i, ...]
-    u_inb = x_i[1][E_F_inb, ...]
-    dp_ith = x_i[0][E_F_i, ...]
+    u_inb = x_i[0][E_F_inb, ...]
+    dp_ith = x_i[1][E_F_i, ...]
     dp_inb = x_i[1][E_F_inb, ...]
 
     # K block
@@ -604,12 +616,12 @@ def _s_res_fb(
 
     # block G^T
     # update pressure residual from velocity divergence
-    r[1][E_F_b, :, :] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
+    r[1][E_F_b, :] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
 
     return r, diagK, bdiagK
 
 
-def get_rhs(x_rhs, x_i, p_i, u_bc, f, u_n=0):
+def get_rhs(x_rhs, p_i, u_bc, f, u_n=0):
     """get right-hand side"""
     nnn = config.no_batch
     brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele, dtype=int)
@@ -621,8 +633,8 @@ def get_rhs(x_rhs, x_i, p_i, u_bc, f, u_n=0):
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
     x_rhs[0] = x_rhs[0].view(nele, u_nloc, ndim)
     x_rhs[1] = x_rhs[1].view(nele, p_nloc)
-    x_i[0] = x_i[0].view(nele, u_nloc, ndim)  # this is u
-    x_i[1] = x_i[1].view(nele, p_nloc)  # this is dp
+    # x_i[0] = x_i[0].view(nele, u_nloc, ndim)  # this is u
+    # x_i[1] = x_i[1].view(nele, p_nloc)  # this is dp
     p_i = p_i.view(nele, p_nloc)
     u_bc = u_bc.view(nele, u_nloc, ndim)
     f = f.view(nele, u_nloc, ndim)
@@ -647,10 +659,10 @@ def _k_rhs_one_batch(
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    rhs[0] = rhs[0].view(-1, u_nloc, ndim)
-    rhs[1] = rhs[1].view(-1, p_nloc)
-    p_i = p_i.view(-1, p_nloc)
-    f = f.view(-1, u_nloc, ndim)
+    # rhs[0] = rhs[0].view(-1, u_nloc, ndim)
+    # rhs[1] = rhs[1].view(-1, p_nloc)
+    # p_i = p_i.view(-1, p_nloc)
+    # f = f.view(-1, u_nloc, ndim)
 
     # get shape functions
     n = sf_nd_nb.vel_func_space.element.n
@@ -672,9 +684,9 @@ def _k_rhs_one_batch(
 
     # f . v contribution to vel rhs
     rhs[0][idx_in, ...] += torch.einsum(
-        'bmg,bng,bg,ij,bnj->bmi',
-        n,  # (batch_in, u_nloc, ngi)
-        n,  # (batch_in, u_nloc, ngi)
+        'mg,ng,bg,ij,bnj->bmi',
+        n,  # (u_nloc, ngi)
+        n,  # (u_nloc, ngi)
         ndetwei,  # (batch_in, ngi)
         torch.eye(3, device=dev, dtype=torch.float64),  # (ndim, ndim)
         f[idx_in, ...],  # (batch_in, u_nloc, ndim)
@@ -682,6 +694,7 @@ def _k_rhs_one_batch(
 
     # if transient, add rho/dt * u_n to vel rhs
     if config.isTransient:
+        u_n = u_n.view(-1, u_nloc, ndim)
         rhs[0][idx_in, ...] += torch.einsum(
             'bmg,bng,bg,ij,bnj->bmi',
             n,
@@ -713,10 +726,10 @@ def _s_rhs_one_batch(
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    rhs[0] = rhs[0].view(-1, u_nloc, ndim)
-    rhs[1] = rhs[1].view(-1, p_nloc)
-    u_bc = u_bc.view(-1, u_nloc, ndim)
-    p_i = p_i.view(-1, p_nloc)
+    # rhs[0] = rhs[0].view(-1, u_nloc, ndim)
+    # rhs[1] = rhs[1].view(-1, p_nloc)
+    # u_bc = u_bc.view(-1, u_nloc, ndim)
+    # p_i = p_i.view(-1, p_nloc)
 
     # separate nbf to get internal face list and boundary face list
     F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
@@ -737,7 +750,7 @@ def _s_rhs_one_batch(
     # for interior faces
     for iface in range(nface):
         for nb_gi_aln in range(nface - 1):
-            idx_iface = (f_i == iface) & (sf_nd_nb.alnmt[F_i] == nb_gi_aln)
+            idx_iface = (f_i == iface) & (sf_nd_nb.vel_func_space.alnmt[F_i] == nb_gi_aln)
             if idx_iface.sum() < 1:
                 # there is nothing to do here, go on
                 continue
@@ -802,7 +815,7 @@ def _s_rhs_fi(
 
     # other side {p} [v_i n_i]  (Gradient of p)
     rhs[0][E_F_i, ...] -= torch.einsum(
-        '',
+        'bmg,bi,bng,bg,bn->bmi',
         sn,  # (batch_in, u_nloc, sngi)
         snormal,  # (batch_in, ndim)
         sq_nb,  # (batch_in, p_nloc, sngi)
@@ -900,4 +913,233 @@ def get_r0_l2_norm(r0):
     r0 is a list of velocity residual and pressure residual
     """
     return torch.linalg.norm(torch.cat((r0[0].view(-1), r0[1].view(-1)), 0))
-    
+
+
+def update_rhs(x_rhs, p_i):
+    """update right-hand side due to pressure correction
+    i.e.
+    add -G*dp to rhs
+    """
+    nnn = config.no_batch
+    brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele, dtype=int)
+    idx_in = torch.zeros(nele, dtype=torch.bool)
+    idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
+
+    # change view
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    x_rhs[0] = x_rhs[0].view(nele, u_nloc, ndim)
+    x_rhs[1] = x_rhs[1].view(nele, p_nloc)
+    # x_i[0] = x_i[0].view(nele, u_nloc, ndim)  # this is u
+    # x_i[1] = x_i[1].view(nele, p_nloc)  # this is dp
+    p_i = p_i.view(nele, p_nloc)
+
+    for i in range(nnn):
+        idx_in *= False
+        # volume integral
+        idx_in[brk_pnt[i]:brk_pnt[i+1]] = True
+        x_rhs = _k_update_rhs_one_batch(x_rhs, p_i, idx_in)
+        # surface integral
+        idx_in_f *= False
+        idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
+        x_rhs = _s_update_rhs_one_batch(x_rhs, p_i, idx_in_f)
+
+    return x_rhs
+
+
+def _k_update_rhs_one_batch(
+        rhs, p_i, idx_in
+):
+    batch_in = int(torch.sum(idx_in))
+    # change view
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    # rhs[0] = rhs[0].view(-1, u_nloc, ndim)
+    # rhs[1] = rhs[1].view(-1, p_nloc)
+    # p_i = p_i.view(-1, p_nloc)
+    # f = f.view(-1, u_nloc, ndim)
+
+    # get shape functions
+    n = sf_nd_nb.vel_func_space.element.n
+    nx, ndetwei = get_det_nlx(
+        nlx=sf_nd_nb.vel_func_space.element.nlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[idx_in],
+        weight=sf_nd_nb.vel_func_space.element.weight,
+        nloc=u_nloc,
+        ngi=sf_nd_nb.vel_func_space.element.ngi
+    )
+    q = sf_nd_nb.pre_func_space.element.n
+    _, qdetwei = get_det_nlx(
+        nlx=sf_nd_nb.pre_func_space.element.nlx,
+        x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
+        weight=sf_nd_nb.pre_func_space.element.weight,
+        nloc=p_nloc,
+        ngi=sf_nd_nb.pre_func_space.element.ngi
+    )
+
+    # p \nabla.v contribution to vel rhs
+    rhs[0][idx_in, ...] += torch.einsum(
+        'bimg,ng,bg,bn->bmi',
+        nx,  # (batch_in, ndim, u_nloc, ngi)
+        q,  # (p_nloc, ngi)
+        ndetwei,  # (batch_in, ngi)
+        p_i[idx_in, ...],  # (batch_in, p_nloc)
+    )
+
+    return rhs
+
+
+def _s_update_rhs_one_batch(
+        rhs, p_i, idx_in_f
+):
+    # get essential data
+    nbf = sf_nd_nb.vel_func_space.nbf
+    alnmt = sf_nd_nb.vel_func_space.alnmt
+
+    # change view
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    # rhs[0] = rhs[0].view(-1, u_nloc, ndim)
+    # rhs[1] = rhs[1].view(-1, p_nloc)
+    # u_bc = u_bc.view(-1, u_nloc, ndim)
+    # p_i = p_i.view(-1, p_nloc)
+
+    # separate nbf to get internal face list and boundary face list
+    F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
+    F_b = torch.where(torch.logical_and(alnmt < 0, idx_in_f))[0]  # boundary face
+    F_inb = nbf[F_i]  # neighbour list of interior face
+    F_inb = F_inb.type(torch.int64)
+
+    # create two lists of which element f_i / f_b is in
+    E_F_i = torch.floor_divide(F_i, nface)
+    E_F_b = torch.floor_divide(F_b, nface)
+    E_F_inb = torch.floor_divide(F_inb, nface)
+
+    # local face number
+    f_i = torch.remainder(F_i, nface)
+    f_b = torch.remainder(F_b, nface)
+    f_inb = torch.remainder(F_inb, nface)
+
+    # for interior faces
+    for iface in range(nface):
+        for nb_gi_aln in range(nface - 1):
+            idx_iface = (f_i == iface) & (sf_nd_nb.vel_func_space.alnmt[F_i] == nb_gi_aln)
+            if idx_iface.sum() < 1:
+                # there is nothing to do here, go on
+                continue
+            rhs = _s_update_rhs_fi(
+                rhs, f_i[idx_iface], E_F_i[idx_iface],
+                f_inb[idx_iface], E_F_inb[idx_iface],
+                p_i,
+                nb_gi_aln)
+
+    # update residual for boundary faces
+    if ndim == 3:
+        for iface in range(nface):
+            idx_iface = f_b == iface
+            rhs = _s_update_rhs_fb(
+                rhs, f_b[idx_iface], E_F_b[idx_iface],
+                p_i)
+    else:
+        raise Exception('2D stokes not implemented!')
+
+    return rhs
+
+
+def _s_update_rhs_fi(
+        rhs, f_i, E_F_i,
+        f_inb, E_F_inb,
+        p_i,
+        nb_gi_aln
+):
+    batch_in = f_i.shape[0]
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
+
+    # shape function on this side
+    snx, sdetwei, snormal = sdet_snlx(
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
+        sngi=sf_nd_nb.vel_func_space.element.sngi
+    )
+    sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    sq = sf_nd_nb.pre_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
+    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim)
+
+    # get faces we want
+    sq_nb = sf_nd_nb.pre_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+    # change gaussian points order on other side
+    nb_aln = sf_nd_nb.pre_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for pressure element
+    # don't forget to change gaussian points order on sn_nb!
+    sq_nb = sq_nb[..., nb_aln]
+
+    # this side {p} [v_i n_i]  (Gradient of p)
+    rhs[0][E_F_i, ...] -= torch.einsum(
+        'bmg,bi,bng,bg,bn->bmi',
+        sn,  # (batch_in, u_nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        sq,  # (batch_in, p_nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        p_i[E_F_i, ...],  # (batch_in, p_nloc)
+    ) * (0.5)
+
+    # other side {p} [v_i n_i]  (Gradient of p)
+    rhs[0][E_F_i, ...] -= torch.einsum(
+        'bmg,bi,bng,bg,bn->bmi',
+        sn,  # (batch_in, u_nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        sq_nb,  # (batch_in, p_nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        p_i[E_F_inb, ...],  # (batch_in, p_nloc)
+    ) * (0.5)
+
+    return rhs
+
+
+def _s_update_rhs_fb(
+        rhs, f_b, E_F_b,
+        p_i
+):
+    """
+    contains contribution of
+    . gradient of p on boundary to velocith rhs
+    """
+    batch_in = f_b.shape[0]
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
+    if batch_in < 1:  # nothing to do here.
+        return rhs
+
+    # get element parameters
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+
+    # shape function
+    snx, sdetwei, snormal = sdet_snlx(
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
+        sngi=sf_nd_nb.vel_func_space.element.sngi
+    )
+    sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
+    sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
+    snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
+    sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
+    gamma_e = config.eta_e / torch.sum(sdetwei, -1)
+
+    p_i_th = p_i[E_F_b, ...]
+
+    # 4. grad p: {p} [v_i n_i]
+    rhs[0][E_F_b, ...] -= torch.einsum(
+        'bmg,bi,bng,bg,bn->bmi',
+        sn,  # (batch_in, u_nloc, sngi)
+        snormal,  # (batch_in, ndim)
+        sq,  # (batch_in, p_nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        p_i_th,  # (batch_in, p_nloc)
+    )
+
+    return rhs

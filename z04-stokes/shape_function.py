@@ -1595,7 +1595,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi):
             torch tensor (batch_in, nface, sngi) on dev
     """
 
-    nface = config.nface
+    nface = ndim + 1
     # input : x_loc
     # (batch_size , ndim, nloc), coordinate info of local nodes
     # reference coordinate: (xi, eta)

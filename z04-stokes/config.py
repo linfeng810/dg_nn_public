@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import sys
 import cmmn_data
-import random
+import time
 # from function_space import FuncSpace, Element
 
 torch.set_printoptions(precision=16)
@@ -27,7 +27,7 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube_r2.msh' # directory to mesh file (gmsh)
+filename='z31-cube-mesh/cube.msh' # directory to mesh file (gmsh)
 
 if len(sys.argv) > 1:
     filename = sys.argv[1]
@@ -84,7 +84,7 @@ ndim = 3  # dimesnion of the problem
 # nonods = nloc*nele  # number of nodes
 # ndglno=np.arange(0,nonods) # local to global
 
-linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
+linear_solver = 'mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-10  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
@@ -119,7 +119,7 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 300
+n_its_max = 1
 n_tol = 1.e-10
 relax_coeff = 1.
 
@@ -173,4 +173,4 @@ print('Surface jump penalty coefficient eta_e: ', eta_e)
 no_batch = 1
 print('No of batch: ', no_batch)
 
-case_name = '_'+problem+'_p'+str(ele_p)+'_'+'%06x' % random.randrange(16**6)  # this is used in output vtk.
+case_name = '_'+problem+'_p'+str(ele_p)+'_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.

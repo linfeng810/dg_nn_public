@@ -594,7 +594,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     bc = [bc1, bc2, bc3, bc4, bc5, bc6]
 
     # store P3DG from/to P1DG restrictor/prolongator
-    sf_nd_nb.set_data(vel_I_prol=torch.tensor([
+    prolongator_from_p1dg = torch.tensor([
         [1, 0, 0, 0],
         [0, 1, 0, 0],
         [0, 0, 1, 0],
@@ -615,28 +615,16 @@ def init_3d(mesh, nele, nonods, nloc, nface):
         [1 / 3, 1 / 3, 1 / 3, 0],
         [1 / 3, 0, 1 / 3, 1 / 3],
         [1 / 3, 1 / 3, 0, 1 / 3]
-    ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator
-    sf_nd_nb.set_data(pre_I_prol=torch.tensor([
-        [1, 0, 0, 0],
-        [0, 1, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 1],
-        [0, 1 / 2, 1 / 2, 0],
-        [1 / 2, 0, 1 / 2, 0],
-        [1 / 2, 1 / 2, 0, 0],
-        [1 / 2, 0, 0, 1 / 2],
-        [0, 1 / 2, 0, 1 / 2],
-        [0, 0, 1 / 2, 1 / 2],
-    ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
+    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
     if nloc == 4:  # linear element
-        sf_nd_nb.set_data(vel_I_prol=torch.tensor([
+        prolongator_from_p1dg = torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
-        ], device=config.dev, dtype=torch.float64))  # P1DG to P1DG, element-wise prolongation operator
+        ], device=config.dev, dtype=torch.float64)  # P1DG to P1DG, element-wise prolongation operator
     elif nloc == 10:  # quadratic element
-        sf_nd_nb.set_data(vel_I_prol=torch.tensor([
+        prolongator_from_p1dg = torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 1, 0],
@@ -647,32 +635,11 @@ def init_3d(mesh, nele, nonods, nloc, nface):
             [1 / 2, 0, 0, 1 / 2],
             [0, 1 / 2, 0, 1 / 2],
             [0, 0, 1 / 2, 1 / 2],
-        ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
-        sf_nd_nb.set_data(pre_I_prol=torch.tensor([
-            [1, 0, 0, 0],
-            [0, 1, 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1],
-        ], device=config.dev, dtype=torch.float64))  # P1DG to P1DG, element-wise prolongation operator
-        # sf_nd_nb.I_13 = torch.tensor([
-        #     [1 / 5, -2 / 15, -2 / 15, -2 / 15, -2 / 15, 8 / 15, 8 / 15, 8 / 15, -2 / 15, -2 / 15],
-        #     [-2 / 15, 1 / 5, -2 / 15, -2 / 15, 8 / 15, -2 / 15, 8 / 15, -2 / 15, 8 / 15, -2 / 15],
-        #     [-2 / 15, -2 / 15, 1 / 5, -2 / 15, 8 / 15, 8 / 15, -2 / 15, -2 / 15, -2 / 15, 8 / 15],
-        #     [-2 / 15, -2 / 15, -2 / 15, 1 / 5, -2 / 15, -2 / 15, -2 / 15, 8 / 15, 8 / 15, 8 / 15],
-        # ], device=config.dev, dtype=torch.float64)
-        # sf_nd_nb.set_data(I_31=torch.tensor([
-        #     [1, 0, 0, 0],
-        #     [0, 1, 0, 0],
-        #     [0, 0, 1, 0],
-        #     [0, 0, 0, 1],
-        #     [0, 0, 0, 0],
-        #     [0, 0, 0, 0],
-        #     [0, 0, 0, 0],
-        #     [0, 0, 0, 0],
-        #     [0, 0, 0, 0],
-        #     [0, 0, 0, 0],
-        # ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
-    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods, ref_node_order
+        ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise prolongation operator
+    return x_all, nbf, nbele, alnmt, \
+        finele, colele, ncolele, \
+        bc, cg_ndglno, cg_nonods, ref_node_order,\
+        prolongator_from_p1dg
 
 
 def connectivity(nbele):

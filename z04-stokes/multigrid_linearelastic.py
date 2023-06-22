@@ -2,15 +2,15 @@
 '''
 This file has functions related  to 
 multi-grid cycle on SFC level 
-coarsened grids for linear elastic problems
-(where operators are (ndim, ndim) tensors)
+coarsened grids for Stokes problems
+(where operators are (ndim+1, ndim+1) tensors)
 '''
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import config
-import volume_mf_linear_elastic
+# import volume_mf_linear_elastic
 from config import sf_nd_nb
 import sfc as sf # to be compiled ...
 import map_to_sfc_matrix as map_sfc
@@ -25,17 +25,17 @@ def mg_smooth_one_level(level, e_i, b, variables_sfc):
     """
     do one smooth step on mg level = level
     """
-    e_i = e_i.view(ndim,variables_sfc[level][2])
+    e_i = e_i.view(ndim+1,variables_sfc[level][2])
     rr_i = torch.zeros_like(e_i, device=config.dev, dtype=torch.float64)
     a_sfc_sparse, diagA, _ = variables_sfc[level]
-    for idim in range(ndim):
-        for jdim in range(ndim):
+    for idim in range(ndim+1):
+        for jdim in range(ndim+1):
             rr_i[idim,:] += torch.mv(a_sfc_sparse[idim][jdim], e_i[jdim,:])
     rr_i *= -1
-    rr_i += b.view(ndim, -1)
-    e_i += rr_i / diagA.view(ndim,-1) * config.jac_wei
-    e_i = e_i.view(ndim,1,-1)
-    rr_i = rr_i.view(ndim,1,-1)
+    rr_i += b.view(ndim+1, -1)
+    e_i += rr_i / diagA.view(ndim+1,-1) * config.jac_wei
+    e_i = e_i.view(ndim+1,1,-1)
+    rr_i = rr_i.view(ndim+1,1,-1)
     return e_i, rr_i
 
 
@@ -82,7 +82,7 @@ def get_a_diaga(level,
     end_index = fin_sfc_nonods[level + 1] - 1
     nonods = end_index - start_index
 
-    diagonal = torch.zeros((config.ndim,nonods), dtype=torch.float64, device=config.dev)
+    diagonal = torch.zeros((config.ndim+1, nonods), dtype=torch.float64, device=config.dev)
     a_indices = []
     a_values = []
     for i in range(start_index, end_index):
@@ -90,14 +90,14 @@ def get_a_diaga(level,
             a_indices.append([i-start_index, cola_sfc_all_un[j]-1-start_index])
             a_values.append(a_sfc[:,:,j])
     a_indices = np.asarray(a_indices).transpose()
-    a_values = np.asarray(a_values) # now a_values has shape (nonods, ndim, ndim)
+    a_values = np.asarray(a_values) # now a_values has shape (nonods, ndim+1, ndim+1)
     a_values = torch.tensor(a_values, dtype=torch.float64, device=config.dev)
     # convert to sparse
-    a_sfc_level_sparse = [[] for _ in range(ndim)]
+    a_sfc_level_sparse = [[] for _ in range(ndim+1)]
         # see https://stackoverflow.com/questions/240178/list-of-lists-changes-reflected-across-sublists-unexpectedly 
         # about the reason why we cannot use list([[]*ndim]*ndim)
-    for idim in range(ndim):
-        for jdim in range(ndim):
+    for idim in range(ndim+1):
+        for jdim in range(ndim+1):
             a_sfc_level_sparse[idim].append( torch.sparse_coo_tensor(
                 a_indices,
                 a_values[:,idim,jdim],
@@ -109,7 +109,7 @@ def get_a_diaga(level,
         i += start_index
         for j in range(fina_sfc_all_un[i]-1, fina_sfc_all_un[i+1]-1):
             if (i==cola_sfc_all_un[j]-1):
-                for idim in range(ndim):
+                for idim in range(ndim+1):
                     diagonal[idim,i-start_index] = a_sfc[idim,idim,j]
     
     return a_sfc_level_sparse, diagonal, nonods 
@@ -122,7 +122,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
     do 1 mg cycle on the SFC levels, then spit out an error correction on
     P1CG mesh (add it to the input e_i0).
     """
-
+    cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
     # get residual on each level
     sfc_restrictor = torch.nn.Conv1d(in_channels=1,
                                      out_channels=1, kernel_size=2,
@@ -132,10 +132,10 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
                                               device=config.dev).view(1, 1, 2)
 
     smooth_start_level = config.smooth_start_level
-    r0 = r0.view(sf_nd_nb.cg_nonods, ndim).transpose(dim0=0, dim1=1).view(ndim, 1, sf_nd_nb.cg_nonods)
-    # r = r0.view(ndim, 1, sf_nd_nb.cg_nonods)  # residual r in error equation, Ae=r
+    r0 = r0.view(cg_nonods, ndim+1).transpose(dim0=0, dim1=1).view(ndim+1, 1, cg_nonods)
+    # r = r0.view(ndim, 1, cg_nonods)  # residual r in error equation, Ae=r
     r_s = [r0]  # collection of r
-    e_s = [torch.zeros(ndim, 1, sf_nd_nb.cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
+    e_s = [torch.zeros(ndim+1, 1, cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
     for level in range(0,smooth_start_level):
         # pre-smooth
         for its1 in range(config.pre_smooth_its):
@@ -151,24 +151,24 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
             b=r_s[level],
             variables_sfc=variables_sfc)
         # restriction
-        rr = F.pad(rr.view(ndim,1,-1), (0,1), "constant", 0)
-        e_i = F.pad(e_s[level].view(ndim,1,-1), (0,1), "constant", 0)
+        rr = F.pad(rr.view(ndim+1,1,-1), (0,1), "constant", 0)
+        e_i = F.pad(e_s[level].view(ndim+1,1,-1), (0,1), "constant", 0)
         with torch.no_grad():
             rr = sfc_restrictor(rr)
-            r_s.append(rr.view(ndim,1,-1))
+            r_s.append(rr.view(ndim+1,1,-1))
             e_i = sfc_restrictor(e_i)
-            e_s.append(e_i.view(ndim,1,-1))
+            e_s.append(e_i.view(ndim+1,1,-1))
     for level in range(smooth_start_level, -1, -1):
         if level == smooth_start_level:
             # direct solve on smooth_start_level
             a_on_l = variables_sfc[level][0]
             e_i_direct = linalg.spsolve(a_on_l.tocsr(),
-                                        r_s[level].view(ndim,-1).transpose(0,1).view(-1).cpu().numpy())
+                                        r_s[level].view(ndim+1,-1).transpose(0,1).view(-1).cpu().numpy())
             e_s[level] = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64)
         else:  # smooth
             # prolongation
             CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level]/nodes_per_level[level+1])
-            e_s[level] += CNN1D_prol_odd(e_s[level+1].view(ndim,1,-1))
+            e_s[level] += CNN1D_prol_odd(e_s[level+1].view(ndim+1,1,-1))
             # post smooth
             for its1 in range(config.post_smooth_its):
                 e_s[level], _ = mg_smooth_one_level(
@@ -176,7 +176,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
                     e_i=e_s[level],
                     b=r_s[level],
                     variables_sfc=variables_sfc)
-    return e_s[0].view(ndim, sf_nd_nb.cg_nonods).transpose(0,1).contiguous()
+    return e_s[0].view(ndim+1, cg_nonods).transpose(0,1).contiguous()
 
 
 def mg_on_P0DG_prep(fina, cola, RARvalues):
@@ -215,12 +215,13 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
         number of nodes (DOFs) on each level
     '''
 
-    dummy = np.zeros((config.ndim, sf_nd_nb.cg_nonods))
+    cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
+    dummy = np.zeros((config.ndim+1, cg_nonods))
 
-    starting_node = 1 # setting according to BY
+    starting_node = 1  # setting according to BY
     graph_trim = -10  # ''
     ncurve = 1        # '' 
-    nele = config.nele # this is the shape of RAR # or should we use RAR.shape[0] for clarity? 
+    # nele = config.nele # this is the shape of RAR # or should we use RAR.shape[0] for clarity?
     ncola = cola.shape[0]
     start_time = time.time()
     # print('to get space filling curve...', time.time()-start_time)
@@ -236,8 +237,8 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
     # print('to get sfc operators...', time.time()-start_time)
     
     # get coarse grid info
-    max_nlevel = sf.calculate_nlevel_sfc(nele) + 1
-    max_nonods_sfc_all_grids = 5*config.nele 
+    max_nlevel = sf.calculate_nlevel_sfc(config.nele) + 1
+    max_nonods_sfc_all_grids = 5 * config.nele
     max_ncola_sfc_all_un = 10*ncola
     a_sfc, fina_sfc_all_un, cola_sfc_all_un, ncola_sfc_all_un, b_sfc, \
         ml_sfc, fin_sfc_nonods, nonods_sfc_all_grids, nlevel = \
@@ -251,11 +252,11 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
             max_nonods_sfc_all_grids=max_nonods_sfc_all_grids,
             max_ncola_sfc_all_un=max_ncola_sfc_all_un,
             max_nlevel=max_nlevel,
-            ndim=config.ndim, ncola=ncola,nonods=sf_nd_nb.cg_nonods)
+            ndim=config.ndim+1, ncola=ncola,nonods=cg_nonods)
     # print('back from sfc operator fortran subroutine,', time.time() - start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i-1] for i in range(1, nlevel+1)]
     # print(fin_sfc_nonods.shape)
-    a_sfc = a_sfc[:,:,:ncola_sfc_all_un]
+    a_sfc = a_sfc[: ,: , :ncola_sfc_all_un]
     del b_sfc, ml_sfc 
     # choose a level to directly solve on. then we'll iterate from there and levels up
     if config.smooth_start_level < 0:
@@ -278,43 +279,43 @@ def mg_on_P0DG_prep(fina, cola, RARvalues):
     # on smooth_start_level, we use direct solve. Therefore, A is replaced with a
     # scipy bsr_matrix.
     level = config.smooth_start_level
-    a_sfc_l = variables_sfc[level][0]  # this is a ndim x ndim list of torch csr tensors.
+    a_sfc_l = variables_sfc[level][0]  # this is a ndim+1 x ndim+1 list of torch csr tensors.
     cola = a_sfc_l[0][0].col_indices().detach().clone().cpu().numpy()
     fina = a_sfc_l[0][0].crow_indices().detach().clone().cpu().numpy()
-    vals = np.zeros((cola.shape[0], ndim, ndim), dtype=np.float64)
-    for idim in range(ndim):
-        for jdim in range(ndim):
+    vals = np.zeros((cola.shape[0], ndim+1, ndim+1), dtype=np.float64)
+    for idim in range(ndim+1):
+        for jdim in range(ndim+1):
             vals[:, idim, jdim] += a_sfc_l[idim][jdim].values().detach().clone().cpu().numpy()
     a_on_l = bsr_matrix((vals, cola, fina),
-                        shape=(nodes_per_level[level] * ndim, nodes_per_level[level] * ndim))
+                        shape=(nodes_per_level[level] * (ndim+1), nodes_per_level[level] * (ndim+1)))
     variables_sfc[level] = (a_on_l, 0, nodes_per_level[level])
     return sfc, variables_sfc, nlevel, nodes_per_level
 
 
 def vel_pndg_to_p1dg_restrictor(x):
     y = torch.einsum('ij,kj->ki',
-                     sf_nd_nb.vel_I_rest,
+                     sf_nd_nb.vel_func_space.restrictor_to_p1dg,
                      x.view(config.nele, sf_nd_nb.vel_func_space.element.nloc)).contiguous().view(-1)
     return y
 
 
 def vel_p1dg_to_pndg_prolongator(x):
     y = torch.einsum('ij,kj->ki',
-                     sf_nd_nb.vel_I_prol,
+                     sf_nd_nb.vel_func_space.prolongator_from_p1dg,
                      x.view(config.nele, p_nloc(1))).contiguous().view(-1)
     return y
 
 
 def pre_pndg_to_p1dg_restrictor(x):
     y = torch.einsum('ij,kj->ki',
-                     sf_nd_nb.pre_I_rest,
+                     sf_nd_nb.pre_func_space.restrictor_to_p1dg,
                      x.view(config.nele, sf_nd_nb.pre_func_space.element.nloc)).contiguous().view(-1)
     return y
 
 
 def pre_p1dg_to_pndg_prolongator(x):
     y = torch.einsum('ij,kj->ki',
-                     sf_nd_nb.pre_I_prol,
+                     sf_nd_nb.pre_func_space.prolongator_from_p1dg,
                      x.view(config.nele, p_nloc(1))).contiguous().view(-1)
     return y
 

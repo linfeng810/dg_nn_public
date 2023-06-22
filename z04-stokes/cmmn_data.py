@@ -19,26 +19,24 @@ class SfNdNb:
         self.vel_func_space = None
         self.pre_func_space = None
         self.p1cg_nonods = None
-        self.vel_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
-        self.vel_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
-        self.pre_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
-        self.pre_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
+        # self.vel_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
+        # self.vel_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
+        # self.pre_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
+        # self.pre_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
         self.I_dc = None  # prolongator from P1CG to P1DG
         self.I_cd = None  # restrictor from P1DG to P1CG
-        self.RAR_vel_mat = None  # velocity block on P1CG level
-        self.RAR_pre_mat = None  # pressure block on P1CG level ?? Don't know
-        # how to do this but whatever...
+        self.RARmat = None  # operator on P1CG (velocity and pressure both here. they are same shape on P1CG)
+        self.sfc_data = SFCdata()
 
     def set_data(self,
                  vel_func_space=None,
                  pre_func_space=None,
                  p1cg_nonods=None,
-                 vel_I_prol=None,
-                 pre_I_prol=None,
+                 # vel_I_prol=None,
+                 # pre_I_prol=None,
                  I_cd=None,  # discontinuous P1DG to continuous P1CG prolongator
                  I_dc=None,  # continuous P1CG to discontinuous p1DG restrictor
-                 RAR_vel_mat=None,  # operator on P1CG, type: scipy csr sparse matrix
-                 RAR_pre_mat=None,  # operator on P1CG, type: scipy csr sparse matrix
+                 RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -46,20 +44,18 @@ class SfNdNb:
             self.pre_func_space = pre_func_space
         if type(p1cg_nonods) != NoneType:
             self.p1cg_nonods = p1cg_nonods
-        if type(vel_I_prol) != NoneType:
-            self.vel_I_prol = vel_I_prol
-            self.vel_I_rest = torch.transpose(vel_I_prol, dim0=0, dim1=1)
-        if type(pre_I_prol) != NoneType:
-            self.pre_I_prol = pre_I_prol
-            self.pre_I_rest = torch.transpose(pre_I_prol, dim0=0, dim1=1)
+        # if type(vel_I_prol) != NoneType:
+        #     self.vel_I_prol = vel_I_prol
+        #     self.vel_I_rest = torch.transpose(vel_I_prol, dim0=0, dim1=1)
+        # if type(pre_I_prol) != NoneType:
+        #     self.pre_I_prol = pre_I_prol
+        #     self.pre_I_rest = torch.transpose(pre_I_prol, dim0=0, dim1=1)
         if type(I_cd) != NoneType:
             self.I_cd = I_cd
         if type(I_dc) != NoneType:
             self.I_dc = I_dc
-        if type(RAR_vel_mat) != NoneType:
-            self.RAR_vel_mat = RAR_vel_mat  # operator on P1CG, type: scipy csr sparse matrix
-        if type(RAR_pre_mat) != NoneType:
-            self.RAR_pre_mat = RAR_pre_mat  # operator on P1CG, type: scipy csr sparse matrix
+        if type(RARmat) != NoneType:
+            self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
 
 
 class SFCdata:
