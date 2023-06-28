@@ -22,7 +22,7 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='iterative' # 'direct' or 'iterative'
+solver='direct' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
@@ -37,6 +37,7 @@ sf_nd_nb = cmmn_data.SfNdNb()
 # mesh info
 nele = mesh.n_cells # number of elements
 ele_p = 3  # velocity element order (2 or higher)
+ele_p_pressure = ele_p - 1  # pressure element order
 print('element order: ', ele_p)
 ndim = 3  # dimesnion of the problem
 # if ndim == 2:
@@ -166,11 +167,12 @@ if problem == 'stokes':
 ####################
 # discretisation settings
 classicIP = True  # boolean
-eta_e = 100.  # penalty coefficient
+eta_e = 36.  # penalty coefficient
 print('Surface jump penalty coefficient eta_e: ', eta_e)
 
 # no of batches in mf volume and surface integral
 no_batch = 1
 print('No of batch: ', no_batch)
 
-case_name = '_'+problem+'_p'+str(ele_p)+'_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
+case_name = '_'+problem+'_p'+str(ele_p)+'p'+str(ele_p_pressure)+\
+            '_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.

@@ -22,13 +22,8 @@ import solvers
 from config import sf_nd_nb
 import mesh_init
 # from mesh_init import face_iloc,face_iloc2
-from shape_function import SHATRInew, det_nlx, sdet_snlx
-if config.problem == 'linear-elastic':
-    import volume_mf_linear_elastic as integral_mf
-elif config.problem == 'hyper-elastic':
-    import volume_mf_he as integral_mf
-elif config.problem == 'stokes':
-    import volume_mf_st as integral_mf
+# from shape_function import SHATRInew, det_nlx, sdet_snlx
+import volume_mf_st as integral_mf
 from color import color2
 import multigrid_linearelastic as mg
 import bc_f
@@ -57,7 +52,8 @@ print('computation on ',dev)
 
 # define element
 vel_ele = Element(ele_order=config.ele_p, gi_order=config.ele_p*2, edim=ndim, dev=dev)
-pre_ele = Element(ele_order=config.ele_p-1, gi_order=config.ele_p*2, edim=ndim,dev=dev)
+pre_ele = Element(ele_order=config.ele_p_pressure, gi_order=config.ele_p*2, edim=ndim,dev=dev)
+print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order)
 # define function space
 # if ndim == 2:
 #     x_all, nbf, nbele, alnmt, fina, cola, ncola, \
@@ -329,7 +325,93 @@ if (config.solver=='iterative') :
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
 if config.solver == 'direct':
-    raise NotImplemented('Direct solver for Stokes problem is not implemented!')
+    # raise NotImplemented('Direct solver for Stokes problem is not implemented!')
+    u_nonods = vel_ele.nloc * nele
+    p_nonods = pre_ele.nloc * nele
+    # # let build the lhs matrix column by column...
+    #
+    # # a bunch of dummies...
+    # x_dummy = torch.zeros(u_nonods * ndim + p_nonods,
+    #                       device=dev, dtype=torch.float64)
+    # u_dummy = x_dummy[0:u_nonods*ndim]
+    # p_dummy = x_dummy[u_nonods*ndim:u_nonods*ndim+p_nonods]
+    # x_list = [u_dummy, p_dummy]
+    # rhs_dummy = torch.zeros(u_nonods*ndim+p_nonods, device=dev, dtype=torch.float64)
+    # rhs_dummy_list = [rhs_dummy[0:u_nonods*ndim],
+    #                   rhs_dummy[u_nonods*ndim:u_nonods*ndim+p_nonods]]
+    # # assemble column by column
+    # Amat = torch.zeros(u_nonods * ndim + p_nonods, u_nonods * ndim + p_nonods,
+    #                    device=dev, dtype=torch.float64)
+    # rhs = torch.zeros(u_nonods * ndim + p_nonods,
+    #                   device=dev, dtype=torch.float64)
+    # probe = torch.zeros(u_nonods * ndim + p_nonods,
+    #                     device=dev, dtype=torch.float64)
+    # probe_list = [probe[0:u_nonods*ndim],
+    #               probe[u_nonods*ndim:u_nonods*ndim+p_nonods]]
+    # rhs_list = [rhs[0:u_nonods*ndim],
+    #             rhs[u_nonods*ndim:u_nonods*ndim+p_nonods]]
+    # rhs_list = integral_mf.get_rhs(
+    #     x_rhs=rhs_list,
+    #     p_i=p_dummy,
+    #     u_bc=u_bc,
+    #     f=f
+    # )
+    # rhs_np = rhs.cpu().numpy()
+    #
+    # for inod in tqdm(range(u_nonods)):
+    #     for jdim in range(ndim):
+    #         u_dummy *= 0
+    #         p_dummy *= 0
+    #         rhs_dummy *= 0
+    #         probe *= 0
+    #         probe[jdim * u_nonods + inod] += 1.
+    #         x_list = integral_mf.get_residual_only(
+    #             r0=x_list,
+    #             x_i=probe_list,
+    #             x_rhs=rhs_dummy_list,
+    #         )
+    #         # add to Amat
+    #         Amat[:, jdim*u_nonods + inod] -= x_dummy
+    # # get pressure columns
+    # for inod in tqdm(range(p_nonods)):
+    #     u_dummy *= 0
+    #     p_dummy *= 0
+    #     rhs_dummy *= 0
+    #     probe *= 0
+    #     probe[ndim * u_nonods + inod] += 1.
+    #     x_list = integral_mf.get_residual_only(
+    #         r0=x_list,
+    #         x_i=probe_list,
+    #         x_rhs=rhs_dummy_list,
+    #     )
+    #     # put in Amat
+    #     Amat[:, ndim*u_nonods + inod] -= x_dummy
+    # Amat_np = Amat.cpu().numpy()
+    # Amat_sp = sp.sparse.csr_matrix(Amat_np)
+
+    import stokes_assemble
+    print('im going to assemble', time.time()-starttime)
+    Amat_sp, rhs_np = stokes_assemble.assemble(u_bc, f)
+    print('done assemble, going to write', time.time()-starttime)
+    Amat_np = Amat_sp.todense()
+    print('Amat cond number is: ', np.linalg.cond(Amat_np))
+    # print('Amat rank is: ', np.linalg.matrix_rank(Amat_np))
+    # np.savetxt('rhs_assemble.txt', rhs_np, delimiter=',')
+    # np.savetxt('Amat_assemble.txt', Amat_np, delimiter=',')
+    print('doing writing. im goingt o solve', time.time()-starttime)
+    x_sol = sp.sparse.linalg.spsolve(Amat_sp, rhs_np)
+    u_sol = x_sol[0:ndim*u_nonods]
+    p_sol = x_sol[ndim*u_nonods:ndim*u_nonods+p_nonods]
+    u_all[1, ...] = u_sol.reshape(u_all[1, ...].shape)
+    p_all[1, ...] = p_sol.reshape(p_all[1, ...].shape)
+    # output to vtk
+    vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % 1)
+    vtk.write_vector(torch.tensor(u_sol, dtype=torch.float64), 'velocity', sf_nd_nb.vel_func_space)
+    vtk.write_end()
+    vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % 1)
+    vtk.write_scaler(torch.tensor(p_sol, dtype=torch.float64), 'pressure', sf_nd_nb.pre_func_space)
+    vtk.write_end()
+
 
 #############################################################
 # write output
