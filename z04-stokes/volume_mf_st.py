@@ -250,9 +250,11 @@ def _k_res_one_batch(
     # local K
     K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim, device=dev, dtype=torch.float64)
     # Nx_i Nx_j
-    K += torch.einsum('bimg,bing,bg->bmn', nx, nx, ndetwei
-                      ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)\
+    K += torch.einsum('bimg,bing,bg,jk->bmjnk', nx, nx, ndetwei,
+                      torch.eye(ndim, device=dev, dtype=torch.float64)
+                      ) \
         * config.mu
+        # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)\
     if config.isTransient:
         # ni nj
         for idim in range(ndim):
@@ -276,8 +278,11 @@ def _k_res_one_batch(
 
     # local S
     S = torch.zeros(batch_in, p_nloc, p_nloc, device=dev, dtype=torch.float64)
-    # mu / dx^2 p q, here we use dx = sqrt(area of element), so dx is area of element
-    dx2 = 1. / torch.sum(ndetwei, dim=-1)
+    # mu / dx^2 p q, here we use dx =
+    # (in 2D) sqrt(area of element)
+    # (in 3D) (volume of element)^(1/3)
+    # so dx^2 = (volume of element)^(2/ndim)
+    dx2 = 1. / torch.sum(ndetwei, dim=-1)**(2/ndim)
     S += torch.einsum(
         'b,mg,ng,bg->bmn',
         dx2,  # (batch_in)
@@ -419,22 +424,22 @@ def _s_res_fi(
     # this side
     # [v_i n_j] {du_i / dx_j}  consistent term
     K += torch.einsum(
-        'bmg,bj,bjng,bg->bmn',
+        'bmg,bj,bjng,bg,kl->bmknl',
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
         snx,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
-    ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-        * (-0.5)
+        torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
     # {dv_i / dx_j} [u_i n_j]  symmetry term
     K += torch.einsum(
-        'bjmg,bng,bj,bg->bmn',
+        'bjmg,bng,bj,bg,kl->bmknl',
         snx,  # (batch_in, ndim, nloc, sngi)
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
         sdetwei,  # (batch_in, sngi)
-    ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-        * (-0.5)
+        torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
     # \gamma_e * [v_i][u_i]  penalty term
     K += torch.einsum(
         'bmg,bng,bg,b,ij->bminj',
@@ -442,7 +447,7 @@ def _s_res_fi(
         sn,  # (batch_in, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
-        torch.eye(3, device=dev, dtype=torch.float64),
+        torch.eye(ndim, device=dev, dtype=torch.float64),
     )
     K *= config.mu
     # update residual
@@ -456,22 +461,22 @@ def _s_res_fi(
     K *= 0
     # [v_i n_j] {du_i / dx_j}  consistent term
     K += torch.einsum(
-        'bmg,bj,bjng,bg->bmn',
+        'bmg,bj,bjng,bg,kl->bmknl',
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
         snx_nb,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
-    ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-        * (-0.5)
+        torch.eye(ndim, device=dev, dtype=torch.float64)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
     # {dv_i / dx_j} [u_i n_j]  symmetry term
     K += torch.einsum(
-        'bjmg,bng,bj,bg->bmn',
+        'bjmg,bng,bj,bg,kl->bmknl',
         snx,  # (batch_in, ndim, nloc, sngi)
         sn_nb,  # (batch_in, nloc, sngi)
         snormal_nb,  # (batch_in, ndim)
         sdetwei,  # (batch_in, sngi)
-    ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-        * (-0.5)
+        torch.eye(ndim, device=dev, dtype=torch.float64)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
     # \gamma_e * [v_i][u_i]  penalty term
     K += torch.einsum(
         'bmg,bng,bg,b,ij->bminj',
@@ -479,11 +484,11 @@ def _s_res_fi(
         sn_nb,  # (batch_in, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
-        torch.eye(3, device=dev, dtype=torch.float64),
-    )
+        torch.eye(ndim, device=dev, dtype=torch.float64),
+    ) * (-1.)  # because n2 \cdot n1 = -1
     K *= config.mu
     # update residual
-    r[0][E_F_i-batch_start_idx, ...] -= torch.einsum('bminj,bnj->bmi', K, u_inb)
+    r[0][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_inb)
 
     # G block
     del K
@@ -498,9 +503,9 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
     ) * (0.5)
     # update velocity residual from pressure gradient
-    r[0][E_F_i-batch_start_idx, ...] -= torch.einsum('bmin,bn->bmi', G, dp_ith)
+    r[0][E_F_i, ...] -= torch.einsum('bmin,bn->bmi', G, dp_ith)
     # update pressure residual from velocity divergence
-    r[1][E_F_i-batch_start_idx, ...] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
+    r[1][E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
 
     # other side
     G *= 0
@@ -513,19 +518,19 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
     ) * (0.5)
     # update velocity residual from pressure gradient
-    r[0][E_F_i-batch_start_idx, ...] -= torch.einsum('bmin,bn->bmi', G, dp_inb)
+    r[0][E_F_i, ...] -= torch.einsum('bmin,bn->bmi', G, dp_inb)
     # G^T
     G *= 0
     # {q} [u_j n_j]
     G += torch.einsum(
         'bmg,bng,bj,bg->bnjm',
-        sq_nb,  # (batch_in, p_nloc, sngi)
+        sq,  # (batch_in, p_nloc, sngi)
         sn_nb,  # (batch_in, u_nloc, sngi)
         snormal_nb,  # (batch_in, ndim)
         sdetwei,  # (batch_in, sngi)
     ) * (0.5)
     # update pressure residual from velocity divergence
-    r[1][E_F_i - batch_start_idx, ...] -= torch.einsum('bnjm,bnj->bm', G, u_inb)
+    r[1][E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_inb)
     # this concludes surface integral on interior faces.
     return r, diagK, bdiagK
 
@@ -568,20 +573,22 @@ def _s_res_fb(
                     device=dev, dtype=torch.float64)
     # [vi nj] {du_i / dx_j}  consistent term
     K -= torch.einsum(
-        'bmg,bj,bjng,bg->bmn',
+        'bmg,bj,bjng,bg,kl->bmknl',
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
         snx,  # (batch_in, ndim, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
-    ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+        torch.eye(ndim, device=dev, dtype=torch.float64)
+    )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
     # {dv_i / dx_j} [ui nj]  symmetry term
     K -= torch.einsum(
-        'bjmg,bng,bj,bg->bmn',
+        'bjmg,bng,bj,bg,kl->bmknl',
         snx,  # (batch_in, ndim, nloc, sngi)
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim)
         sdetwei,  # (batch_in, sngi)
-    ).unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+        torch.eye(ndim, device=dev, dtype=torch.float64)
+    )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
     # \gamma_e [v_i] [u_i]  penalty term
     K += torch.einsum(
         'bmg,bng,bg,b,ij->bminj',
@@ -589,7 +596,7 @@ def _s_res_fb(
         sn,  # (batch_in, nloc, sngi)
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
-        torch.eye(3, device=dev, dtype=torch.float64)
+        torch.eye(ndim, device=dev, dtype=torch.float64)
     )
     K *= config.mu
     # update residual
@@ -688,7 +695,7 @@ def _k_rhs_one_batch(
         n,  # (u_nloc, ngi)
         n,  # (u_nloc, ngi)
         ndetwei,  # (batch_in, ngi)
-        torch.eye(3, device=dev, dtype=torch.float64),  # (ndim, ndim)
+        torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
         f[idx_in, ...],  # (batch_in, u_nloc, ndim)
     )
 
@@ -700,7 +707,7 @@ def _k_rhs_one_batch(
             n,
             n,
             ndetwei,
-            torch.eye(3, device=dev, dtype=torch.float64),  # (ndim, ndim)
+            torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
             u_n[idx_in, ...],
         ) * config.rho / config.dt
 
