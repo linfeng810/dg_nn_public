@@ -1,17 +1,17 @@
-% calculate l2 norm of error in 3d stokes model problem
+% calc l2 norm of error in 2D stokes model problem
 
-% clear;
+clear;
 
 ux_all = readmatrix('x_all.txt');
 u_allt = readmatrix('u_all.txt');
 p_allt = readmatrix('p_all.txt');
 px_all = readmatrix('p_x_all.txt');
-u_nloc = 20;
-p_nloc = 10;
+u_nloc = 10;
+p_nloc = 6;
 u_nonods = size(ux_all,1);
 p_nonods = size(px_all,1);
 nele = u_nonods/u_nloc;
-ndim = 3;
+ndim = 2;
 sq_sum = 0;
 l_inf = 0;
 
@@ -27,26 +27,21 @@ p_ana = zeros(p_nonods, 1);
 for i = 1:u_nonods
     uxi = u_all(1,i);
     uyi = u_all(2,i);
-    uzi = u_all(3,i);
 
     xi = ux_all(i,1);
     yi = ux_all(i,2);
-    zi = ux_all(i,3);
 
-    u_ana(1, i) = -2/3*sin(xi)^3;
-    u_ana(2, i) = sin(xi)^2 * (yi*cos(xi) - zi*sin(xi));
-    u_ana(3, i) = sin(xi)^2 * (zi*cos(xi) + yi*sin(xi));
+    u_ana(1,i) = -exp(xi) * (yi*cos(yi) + sin(yi));
+    u_ana(2,i) = exp(xi) * yi * sin(yi);
 
     l_inf = max(l_inf, sqrt(...
         + (uxi-u_ana(1,i))^2 ...
-        + (uyi-u_ana(2,i))^2 ...
-        + (uzi-u_ana(3,i))^2) );
+        + (uyi-u_ana(2,i))^2) );
     sq_sum = sq_sum ...
         + (uxi-u_ana(1,i))^2 ...
-        + (uyi-u_ana(2,i))^2 ...
-        + (uzi-u_ana(3,i))^2;
-%     disp(sq_sum)
+        + (uyi-u_ana(2,i))^2;
 end
+
 
 fprintf('%d elements appximation, velocity error:\n', nele);
 l2norm = sqrt(sq_sum)/u_nonods/3;
@@ -67,26 +62,19 @@ for i = 1:p_nonods
 
     xi = px_all(i,1);
     yi = px_all(i,2);
-    zi = px_all(i,3);
-
-    p_ana(i) = sin(xi);
-%     p_ana(i) = xi;
-
-%     l_inf = max(l_inf, abs(p_ana(i) - pi) );
-%     sq_sum = sq_sum ...
-%         +(p_ana(i) - pi)^2;
-%     disp(sq_sum)
+    
+    p_ana(i) = 2*exp(xi)*sin(yi);
 end
 
-% % remove average of pressure then compare
+% remove average of pressure then compare
 p_num_ave = sum(p_all) / p_nonods
-p_ana_ave = sum(p_ana) / p_nonods
-p_ave_diff = p_ana_ave - p_num_ave
+p_ana_ave = sum(p_ana) / p_nonods;
+p_ave_diff = p_ana_ave - p_num_ave;
 p_all = p_all + p_ave_diff;
-% p_ana = p_ana - sum(p_ana) / p_nonods;
 % now compute error
 l_inf = max(abs(p_ana - p_all'));
 l2norm = norm(p_ana - p_all')/p_nonods;
+
 
 fprintf('pressure error:\n');
 
