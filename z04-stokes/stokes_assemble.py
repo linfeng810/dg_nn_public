@@ -4,8 +4,14 @@ Assemble 3D stokes problem for direct solver
 import numpy as np
 import scipy as sp
 from tqdm import tqdm
-import config, shape_function
+import config
 from config import sf_nd_nb
+if config.ndim == 2:
+    from shape_function import get_det_nlx as get_det_nlx
+    from shape_function import sdet_snlx as sdet_snlx
+else:
+    from shape_function import get_det_nlx_3d as get_det_nlx
+    from shape_function import sdet_snlx_3d as sdet_snlx
 
 
 def assemble(u_bc, f):
@@ -36,18 +42,18 @@ def assemble(u_bc, f):
     q = sf_nd_nb.pre_func_space.element.n.cpu().numpy()
     sn = sf_nd_nb.vel_func_space.element.sn.cpu().numpy()
     sq = sf_nd_nb.pre_func_space.element.sn.cpu().numpy()
-    nx, detwei = shape_function.get_det_nlx_3d(
+    nx, detwei = get_det_nlx(
         nlx=sf_nd_nb.vel_func_space.element.nlx,
         x_loc=sf_nd_nb.vel_func_space.x_ref_in,
         weight=sf_nd_nb.vel_func_space.element.weight,
         nloc=u_nloc,
         ngi=sf_nd_nb.vel_func_space.element.ngi,
     )
-    snx, sdetwei, snormal = shape_function.sdet_snlx_3d(
+    snx, sdetwei, snormal = sdet_snlx(
         snlx=sf_nd_nb.vel_func_space.element.snlx,
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         x_loc=sf_nd_nb.vel_func_space.x_ref_in,
-        nloc=sf_nd_nb.vel_func_space.element.snloc,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
         sngi=sf_nd_nb.vel_func_space.element.sngi,
     )
     nx = nx.cpu().numpy()
@@ -72,23 +78,28 @@ def assemble(u_bc, f):
         for iloc in range(u_nloc):
             for idim in range(ndim):
                 glb_iloc = ele*u_nloc*ndim + iloc * ndim + idim
+                # print('glb_iloc', glb_iloc)
                 # K
                 for jloc in range(u_nloc):
                     jdim = idim
                     glb_jloc = ele*u_nloc*ndim + jloc * ndim + jdim
+                    # print('     glb_jloc', glb_jloc)
                     indices.append([glb_iloc, glb_jloc])
                     values.append(nxnx[ele, iloc, jloc])
                 # G
                 for jloc in range(p_nloc):
                     glb_jloc = nele*u_nloc*ndim + p_nloc*ele + jloc
+                    # print('     glb_jloc', glb_jloc)
                     indices.append([glb_iloc, glb_jloc])
                     values.append(-nxq[ele, iloc, idim, jloc])
         # G^T
         for iloc in range(p_nloc):
             glb_iloc = nele*u_nloc*ndim + p_nloc*ele + iloc
+            # print('glb_iloc', glb_iloc)
             for jloc in range(u_nloc):
                 for jdim in range(ndim):
                     glb_jloc = ele*u_nloc*ndim + jloc * ndim + jdim
+                    # print('     glb_jloc', glb_jloc)
                     indices.append([glb_iloc, glb_jloc])
                     values.append(-qnx[ele, iloc, jloc, jdim])
 
@@ -99,13 +110,15 @@ def assemble(u_bc, f):
     alnmt = sf_nd_nb.vel_func_space.alnmt.cpu().numpy()
     u_gi_align = sf_nd_nb.vel_func_space.element.gi_align.cpu().numpy()
     q_gi_align = sf_nd_nb.pre_func_space.element.gi_align.cpu().numpy()
-    for ele in tqdm(range(nele)):
+    for ele in (range(nele)):
         for iface in range(nface):
-            mu_e = eta_e/np.sum(sdetwei[ele, iface, :])
             glb_iface = ele*nface + iface
             if alnmt[glb_iface] < 0:
                 # this is boundary face
                 # K and G
+                mu_e = eta_e/np.power(np.sum(detwei[ele, :]), 1./ndim)
+                # mu_e = 1.  # TOOO: temporarily change to 1 to debug (compare to other code)
+                # print('ele, iface, mu_e', ele, iface, mu_e)
                 for inod in range(u_nloc):
                     for idim in range(ndim):
                         glb_inod = ele*u_nloc*ndim + inod*ndim + idim
@@ -123,6 +136,7 @@ def assemble(u_bc, f):
                                                snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
                             nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
                                          sdetwei[ele, iface, :]) * mu_e
+                            # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
                             values.append(-vnux - vxun + nn)
                             # add boundary contribution to rhs
@@ -135,6 +149,7 @@ def assemble(u_bc, f):
                             vnq = 0  # [vi ni] {q}
                             vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
                                           sq[iface, jnod, :] * sdetwei[ele, iface, :])
+                            # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
                             values.append(vnq)
                             # # add pressure bc as well since we integrate by once
@@ -147,6 +162,7 @@ def assemble(u_bc, f):
                             glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
                             qun = np.sum(sq[iface, inod, :] * sn[iface, jnod, :] *
                                          snormal[ele, iface, jdim] * sdetwei[ele, iface, :])
+                            # print('    inod, jnod, jdim, glbi, glbj', inod, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
                             values.append(qun)
                             # add boundary contribution to rhs
@@ -154,6 +170,10 @@ def assemble(u_bc, f):
             else:
                 # this is interior / internal face
                 ele2 = nbele[glb_iface]
+                mu_e = 2. * eta_e / (np.power(np.sum(detwei[ele, :]), 1./ndim) +
+                                     np.power(np.sum(detwei[ele2, :]), 1./ndim))
+                # mu_e = 1  # TOOO: temporarily change to 1 to debug (compare to other code)
+                # print('ele, iface, mu_e, ele2', ele, iface, mu_e, ele2)
                 glb_iface2 = nbf[glb_iface]
                 iface2 = glb_iface2 % nface
                 # K and G
@@ -175,6 +195,7 @@ def assemble(u_bc, f):
                                                snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
                             nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
                                          sdetwei[ele, iface, :]) * mu_e
+                            # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
                             values.append(-0.5*vnux - 0.5*vxun + nn)
                         # G
@@ -183,6 +204,7 @@ def assemble(u_bc, f):
                             vnq = 0  # [vi ni] {q}
                             vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
                                           sq[iface, jnod, :] * sdetwei[ele, iface, :])
+                            # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
                             values.append(0.5*vnq)
                         # other side
@@ -202,6 +224,7 @@ def assemble(u_bc, f):
                                                snormal[ele2, iface2, kdim] * sdetwei[ele, iface, :])
                             nn += np.sum(sn[iface, inod, :] * sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
                                          sdetwei[ele, iface, :]) * mu_e * (-1.)
+                            # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
                             indices.append([glb_inod, glb_jnod2])
                             values.append(-0.5 * vnux - 0.5 * vxun + nn)
                         # G
@@ -211,6 +234,7 @@ def assemble(u_bc, f):
                             vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
                                           sq[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
                                           sdetwei[ele, iface, :])
+                            # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod2, glb_inod, glb_jnod2)
                             indices.append([glb_inod, glb_jnod2])
                             values.append(0.5 * vnq)
                 # G^T
@@ -222,6 +246,7 @@ def assemble(u_bc, f):
                             glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
                             qun = np.sum(sq[iface, inod, :] * sn[iface, jnod, :] *
                                          snormal[ele, iface, jdim] * sdetwei[ele, iface, :])
+                            # print('    inod, jnod, jdim, glbi, glbj', inod, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
                             values.append(0.5*qun)
                     # other side
@@ -231,12 +256,22 @@ def assemble(u_bc, f):
                             qun = np.sum(sq[iface, inod, :] *
                                          sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
                                          snormal[ele2, iface2, jdim2] * sdetwei[ele, iface, :])
+                            # print('    inod, jnod2, jdim2, glbi, glbj', inod, jnod2, jdim2, glb_inod, glb_jnod2)
                             indices.append([glb_inod, glb_jnod2])
                             values.append(0.5 * qun)
     # remove null space
-    # indices.append([nele*u_nloc*ndim + nele*p_nloc - 1, nele*u_nloc*ndim + nele*p_nloc - 1])
-    indices.append([nele*u_nloc*ndim, nele*u_nloc*ndim])
-    values.append(1.)
+    # if True:
+    #     # indices.append([nele*u_nloc*ndim + nele*p_nloc - 1, nele*u_nloc*ndim + nele*p_nloc - 1])
+    #     indices.append([nele*u_nloc*ndim, nele*u_nloc*ndim])
+    #     values.append(1.)
+    else:  # enforce average pressure over whole domain is 0
+        for ele in range(nele):
+            glb_inod = u_nonods*ndim
+            for jnod in range(p_nloc):
+                glb_jnod = u_nonods*ndim + ele*p_nloc + jnod
+                int_q = np.sum(q[jnod, :] * detwei[ele, :])
+                indices.append([glb_inod, glb_jnod])
+                values.append(int_q)
     # convert to np csr sparse mat
     values = np.asarray(values)
     indices = np.transpose(np.asarray(indices))

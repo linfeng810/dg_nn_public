@@ -116,7 +116,7 @@ def _gi_pnts_tri(sngi):
     (0,0) - (0,1) - (1,0)
     """
     if sngi == 9:
-        # 9 pnts triangle quadrature rule, 6 degree precision
+        # 9 pnts triangle quadrature rule, 5 degree precision
         # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
         # strang8
         a = 0.437525248383384
@@ -147,6 +147,44 @@ def _gi_pnts_tri(sngi):
                      2, 1, 0, 8, 7, 6, 5, 4, 3]
         sweight = np.asarray(sweight, dtype=np.float64)
         sweight *= 0.5
+    elif sngi == 12:
+        # strang9, 12 points, degree of precision 6
+        pnts = np.asarray([
+            0.873821971016996,  0.063089014491502,
+            0.063089014491502,  0.873821971016996,
+            0.063089014491502,  0.063089014491502,
+            0.501426509658179,  0.249286745170910,
+            0.249286745170910,  0.501426509658179,
+            0.249286745170910,  0.249286745170910,
+            0.636502499121399,  0.310352451033785,
+            0.636502499121399,  0.053145049844816,
+            0.310352451033785,  0.636502499121399,
+            0.310352451033785,  0.053145049844816,
+            0.053145049844816,  0.636502499121399,
+            0.053145049844816,  0.310352451033785,
+        ], dtype=np.float64).reshape((sngi, 2))
+        pnts3 = 1 - np.sum(pnts, axis=1)
+        pnts = np.concatenate((pnts, pnts3.reshape(sngi, 1)), axis=1)
+        sweight = np.asarray([
+            0.050844906370207,
+            0.050844906370207,
+            0.050844906370207,
+            0.116786275726379,
+            0.116786275726379,
+            0.116786275726379,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+        ], dtype=np.float64)
+        sweight *= 0.5
+        alignment = np.asarray([
+            1, 3, 2, 4, 6, 5, 8, 7, 10, 9, 12, 11,
+            2, 1, 3, 5, 4, 6, 9, 11, 7, 12, 8, 10,
+            3, 2, 1, 6, 5, 4, 12, 10, 11, 8, 9, 7,
+        ]) - 1
     elif sngi == 6:
         # strang5 6 pnts quadrature rule, order 4 precision
         # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
@@ -187,6 +225,77 @@ def _gi_pnts_tri(sngi):
         sweight *= 0.5
     else:
         raise Exception('ngi ', sngi, 'for triangle is not implemented or existed!')
+    return pnts, sweight, alignment
+
+
+def _gi_pnts_line(ngi):
+    """get gaussian points on reference line segment [0, 1],
+    given no of gi points,
+    output:
+    1. gi points coordinates: L
+    2. gi points weights: weight
+    3. gi points alignment on the other side"""
+    if ngi == 4:
+        ## 4pnt gaussian quadrature in 1D
+        a = 0.339981043584856
+        b = 0.861136311594053
+        w1 = 0.652145154862546
+        w2 = 0.347854845137454
+        ## transfer to [0,1]
+        a1 = 0.5 + 0.5 * a
+        a2 = 0.5 - 0.5 * a
+        b1 = 0.5 + 0.5 * b
+        b2 = 0.5 - 0.5 * b
+        pnts = np.asarray([
+            b2, 1-b2,
+            a2, 1-a2,
+            a1, 1-a1,
+            b1, 1-b1,
+        ])
+        pnts = pnts.reshape((ngi,2))
+        sweight = np.zeros(ngi, dtype=np.float64)
+        #
+        sweight[0] = w2
+        sweight[1] = w1
+        sweight[2] = w1
+        sweight[3] = w2
+        sweight /= 2.
+        alignment = [
+            [0, 1, 2, 3],
+            [3, 2, 1, 0],
+        ]
+    elif ngi == 3:
+        a = np.sqrt(3./5.)
+        a1 = 0.5 - 0.5 * a
+        a2 = 0.5
+        a3 = 0.5 + 0.5 * a
+        pnts = np.asarray([
+            a1, 1-a1,
+            a2, 1-a2,
+            a3, 1-a3,
+        ])
+        sweight = np.asarray([
+            5./18, 4./9, 5./18.,
+        ])
+        alignment = [
+            [0, 1, 2],
+            [2, 1, 0]
+        ]
+    elif ngi == 2:
+        a = np.sqrt(3.)
+        a1 = 0.5 - 0.5 / a
+        a2 = 0.5 + 0.5 / a
+        pnts = np.asarray([
+            a1, 1-a1,
+            a2, 1-a2,
+        ])
+        sweight = np.asarray([0.5, 0.5])
+        alignment = [
+            [0, 1],
+            [1, 0],
+        ]
+    else:
+        raise Exception('ngi ', ngi, 'for line segment is not implemented or existed!')
     return pnts, sweight, alignment
 
 
@@ -766,109 +875,77 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
     sl3 = np.zeros((nface, sngi))
     sweight = np.zeros(sngi)
 
-    if nloc==10:  # cubic elements
-        alpha = -0.149570044467682
-        beta = 0.333333333333333
-        alpha1 = 0.175615257433208
-        beta1 = 0.479308067841920
-        gamma1 = 0.260345966079040
-        alpha2 = 0.053347235608838
-        beta2 = 0.869739794195568
-        gamma2 = 0.065130102902216
-        alpha3 = 0.077113760890257
-        beta3 = 0.048690315425316
-        gamma3 = 0.312865496004874
-        gamma4 = 0.638444188569810
-        # ! get wild
-        weight[0] = alpha;   l1[0] = beta ;  l2[0] = beta;     l3[0] = beta
-        weight[1] = alpha1;  l1[1] = beta1;  l2[1] = gamma1;   l3[1] = gamma1
-        weight[2] = alpha1;  l1[2] = gamma1; l2[2] = beta1;    l3[2] = gamma1 
-        weight[3] = alpha1;  l1[3] = gamma1; l2[3] = gamma1;   l3[3] = beta1 
-        weight[4] = alpha2;  l1[4] = beta2;  l2[4] = gamma2;   l3[4] = gamma2 
-        weight[5] = alpha2;  l1[5] = gamma2; l2[5] = beta2;    l3[5] = gamma2 
-        weight[6] = alpha2;  l1[6] = gamma2; l2[6] = gamma2;   l3[6] = beta2 
-        weight[7] = alpha3;  l1[7] = beta3;  l2[7] = gamma3;   l3[7] = gamma4 
-        weight[8] = alpha3;  l1[8] = beta3;  l2[8] = gamma4;   l3[8] = gamma3
-        weight[9] = alpha3;  l1[9]= gamma3;  l2[9]= gamma4;    l3[9]= beta3 
-        weight[10] = alpha3; l1[10]= gamma3; l2[10]= beta3;    l3[10]= gamma4 
-        weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3 
-        weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
-        # print('sum of weights', np.sum(weight))
-    elif nloc==3:  # linear elements
-        weight[:] = 1./3.
-        l1[0] = 0.5;    l2[0] = 0.5;    l3[0] = 0
-        l1[1] = 0;      l2[1] = 0.5;    l3[1] = 0.5
-        l1[2] = 0.5;    l2[2] = 0;      l3[2] = 0.5
+    if nloc == 10:  # cubic elements
+        # alpha = -0.149570044467682
+        # beta = 0.333333333333333
+        # alpha1 = 0.175615257433208
+        # beta1 = 0.479308067841920
+        # gamma1 = 0.260345966079040
+        # alpha2 = 0.053347235608838
+        # beta2 = 0.869739794195568
+        # gamma2 = 0.065130102902216
+        # alpha3 = 0.077113760890257
+        # beta3 = 0.048690315425316
+        # gamma3 = 0.312865496004874
+        # gamma4 = 0.638444188569810
+        # # ! get wild
+        # weight[0] = alpha;   l1[0] = beta ;  l2[0] = beta;     l3[0] = beta
+        # weight[1] = alpha1;  l1[1] = beta1;  l2[1] = gamma1;   l3[1] = gamma1
+        # weight[2] = alpha1;  l1[2] = gamma1; l2[2] = beta1;    l3[2] = gamma1
+        # weight[3] = alpha1;  l1[3] = gamma1; l2[3] = gamma1;   l3[3] = beta1
+        # weight[4] = alpha2;  l1[4] = beta2;  l2[4] = gamma2;   l3[4] = gamma2
+        # weight[5] = alpha2;  l1[5] = gamma2; l2[5] = beta2;    l3[5] = gamma2
+        # weight[6] = alpha2;  l1[6] = gamma2; l2[6] = gamma2;   l3[6] = beta2
+        # weight[7] = alpha3;  l1[7] = beta3;  l2[7] = gamma3;   l3[7] = gamma4
+        # weight[8] = alpha3;  l1[8] = beta3;  l2[8] = gamma4;   l3[8] = gamma3
+        # weight[9] = alpha3;  l1[9]= gamma3;  l2[9]= gamma4;    l3[9]= beta3
+        # weight[10] = alpha3; l1[10]= gamma3; l2[10]= beta3;    l3[10]= gamma4
+        # weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3
+        # weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
+        # # print('sum of weights', np.sum(weight))
+        L, weight, _ = _gi_pnts_tri(ngi)
+        l1 = L[:, 0]
+        l2 = L[:, 1]
+        l3 = L[:, 2]
+    elif nloc == 6:  # quadratic elements
+        L, weight, _ = _gi_pnts_tri(ngi)
+        l1 = L[:, 0]
+        l2 = L[:, 1]
+        l3 = L[:, 2]
+    elif nloc == 3:  # linear elements
+        # weight[:] = 1./3.
+        # l1[0] = 0.5;    l2[0] = 0.5;    l3[0] = 0
+        # l1[1] = 0;      l2[1] = 0.5;    l3[1] = 0.5
+        # l1[2] = 0.5;    l2[2] = 0;      l3[2] = 0.5
+        L, weight, _ = _gi_pnts_tri(ngi)
+        l1 = L[:, 0]
+        l2 = L[:, 1]
+        l3 = L[:, 2]
+    else:
+        raise ValueError('nloc %d for triangle element is not implemented.'%nloc)
 
-    weight = weight*0.5
+    # weight = weight*0.5
 
-    if snloc == 4:  # cubic element
-        ## 4pnt gaussian quadrature in 1D
-        a = 0.339981043584856
-        b = 0.861136311594053
-        w1 = 0.652145154862546
-        w2 = 0.347854845137454
-        ## transfer to [0,1]
-        a1 = 0.5 + 0.5*a 
-        a2 = 0.5 - 0.5*a
-        b1 = 0.5 + 0.5*b 
-        b2 = 0.5 - 0.5*b
-        # 
-        sweight[0] = w2
-        sweight[1] = w1
-        sweight[2] = w1
-        sweight[3] = w2
-        alignment = [
-            [0, 1, 2, 3],
-            [3, 2, 1, 0],
-        ]
-        # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-        #                                         device=dev,
-        #                                         dtype=torch.int64).view(ndim, sngi))
-        gi_align = torch.tensor(alignment,
-                                device=dev,
-                                dtype=torch.int64).view(ndim, sngi)
-        # face 1
-        sl1[0,:] = np.asarray([b2,a2,a1,b1])
-        sl2[0,:] = 1-sl1[0,:]
-        sl3[0,:] = 0.
-        # face 2
-        sl1[1,:] = 0.
-        sl2[1,:] = np.asarray([b2,a2,a1,b1])
-        sl3[1,:] = 1-sl2[1,:]
-        # face 3 
-        sl2[2,:] = 0.
-        sl3[2,:] = np.asarray([b2,a2,a1,b1])
-        sl1[2,:] = 1-sl3[2,:]
-    elif snloc == 2:  # linear element
-        # 2 pnt gaussian quadrature in 1D
-        a = 0.5 + 0.5/np.sqrt(3.)
-        b = 0.5 - 0.5/np.sqrt(3.)
-        sweight = 1.
-        alignment = [
-            [0, 1],
-            [1, 0],
-        ]
-        # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-        #                                         device=dev,
-        #                                         dtype=torch.int64).view(ndim, sngi))
-        gi_align = torch.tensor(alignment,
-                                device=dev,
-                                dtype=torch.int64).view(ndim, sngi)
-        # face 1
-        sl1[0, :] = np.asarray([b, a])
-        sl2[0, :] = 1 - sl1[0, :]
-        sl3[0, :] = 0.
-        # face 2
-        sl1[1, :] = 0.
-        sl2[1, :] = np.asarray([b, a])
-        sl3[1, :] = 1 - sl2[1, :]
-        # face 3
-        sl2[2, :] = 0.
-        sl3[2, :] = np.asarray([b, a])
-        sl1[2, :] = 1 - sl3[2, :]
+    # get face quadrature
+    SL, sweight, alignment = _gi_pnts_line(sngi)
+    gi_align = torch.tensor(alignment,
+                            device=dev,
+                            dtype=torch.int64).view(ndim, sngi)
+    # face 0: 0-1
+    sl1[0,:] = SL[:, 0]
+    sl2[0,:] = SL[:, 1]
+    sl3[0,:] = 0.
+    # face 1: 1-2
+    sl1[1,:] = 0.
+    sl2[1,:] = SL[:, 0]
+    sl3[1,:] = SL[:, 1]
+    # face 2: 2-0
+    sl1[2,:] = SL[:, 1]
+    sl2[2,:] = 0.
+    sl3[2,:] = SL[:, 0]
+
     
-    sweight = sweight/2.
+    # sweight = sweight/2.
 
     n = np.zeros((nloc,ngi))
     nlx = np.zeros((nloc,ngi))
@@ -924,6 +1001,28 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             nly[ 8, gi ] = -(9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
             # central node...
             nly[ 9, gi ] = 27.*l1[ gi ]*( 1. - 2.*l2[gi]  - l1[ gi ] )
+    elif nloc == 6:  # quadratic element
+        for gi in range(ngi):
+            n[0, gi] = l1[gi] * (2 * l1[gi] - 1)
+            n[1, gi] = l2[gi] * (2 * l2[gi] - 1)
+            n[2, gi] = (l1[gi] + l2[gi] - 1) * (2 * l1[gi] + 2 * l2[gi] - 1)
+            n[3, gi] = 4 * l1[gi] * l2[gi]
+            n[4, gi] = -4 * l2[gi] * (l1[gi] + l2[gi] - 1)
+            n[5, gi] = -l1[gi] * (4 * l1[gi] + 4 * l2[gi] - 4)
+            # x-derivative
+            nlx[0, gi] = 4 * l1[gi] - 1
+            nlx[1, gi] = 0
+            nlx[2, gi] = 4 * l1[gi] + 4 * l2[gi] - 3
+            nlx[3, gi] = 4 * l2[gi]
+            nlx[4, gi] = -4 * l2[gi]
+            nlx[5, gi] = 4 - 4 * l2[gi] - 8 * l1[gi]
+            # y-derivative
+            nly[0, gi] = 0
+            nly[1, gi] = 4 * l2[gi] - 1
+            nly[2, gi] = 4 * l1[gi] + 4 * l2[gi] - 3
+            nly[3, gi] = 4 * l1[gi]
+            nly[4, gi] = 4 - 8 * l2[gi] - 4 * l1[gi]
+            nly[5, gi] = -4 * l1[gi]
     elif nloc == 3:  # linear element
         for gi in range(ngi):
             n[0, gi] = l1[gi]
@@ -996,6 +1095,29 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 snly[iface, 8, gi ] = -(9./2.)*sl1[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
                 # central node...
                 snly[iface, 9, gi ] = 27.*sl1[iface, gi ]*( 1. - 2.*sl2[iface,gi]  - sl1[iface, gi ] )
+    elif nloc == 6:  # quadratic element
+        for iface in range(nface):
+            for gi in range(sngi):
+                sn[iface, 0, gi] = sl1[iface, gi] * (2 * sl1[iface, gi] - 1)
+                sn[iface, 1, gi] = sl2[iface, gi] * (2 * sl2[iface, gi] - 1)
+                sn[iface, 2, gi] = (sl1[iface, gi] + sl2[iface, gi] - 1) * (2 * sl1[iface, gi] + 2 * sl2[iface, gi] - 1)
+                sn[iface, 3, gi] = 4 * sl1[iface, gi] * sl2[iface, gi]
+                sn[iface, 4, gi] = -4 * sl2[iface, gi] * (sl1[iface, gi] + sl2[iface, gi] - 1)
+                sn[iface, 5, gi] = -sl1[iface, gi] * (4 * sl1[iface, gi] + 4 * sl2[iface, gi] - 4)
+                # x-derivative
+                snlx[iface, 0, gi] = 4 * sl1[iface, gi] - 1
+                snlx[iface, 1, gi] = 0
+                snlx[iface, 2, gi] = 4 * sl1[iface, gi] + 4 * sl2[iface, gi] - 3
+                snlx[iface, 3, gi] = 4 * sl2[iface, gi]
+                snlx[iface, 4, gi] = -4 * sl2[iface, gi]
+                snlx[iface, 5, gi] = 4 - 4 * sl2[iface, gi] - 8 * sl1[iface, gi]
+                # y-derivative
+                snly[iface, 0, gi] = 0
+                snly[iface, 1, gi] = 4 * sl2[iface, gi] - 1
+                snly[iface, 2, gi] = 4 * sl1[iface, gi] + 4 * sl2[iface, gi] - 3
+                snly[iface, 3, gi] = 4 * sl1[iface, gi]
+                snly[iface, 4, gi] = 4 - 8 * sl2[iface, gi] - 4 * sl1[iface, gi]
+                snly[iface, 5, gi] = -4 * sl1[iface, gi]
     elif nloc == 3:  # linear element
         for iface in range(nface):
             for gi in range(sngi):
@@ -1261,7 +1383,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc, sngi):
             torch tensor (batch_in, nface, sngi) on dev
     """
 
-    nface=config.nface
+    nface = config.ndim + 1
     # input : x_loc
     # (batch_size , ndim, nloc), coordinate info of local nodes
     # reference coordinate: (xi, eta)

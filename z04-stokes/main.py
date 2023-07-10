@@ -392,9 +392,67 @@ if config.solver == 'direct':
     import stokes_assemble
     print('im going to assemble', time.time()-starttime)
     Amat_sp, rhs_np = stokes_assemble.assemble(u_bc, f)
+
+    if False:
+        # apply velocity boundary strongly
+        bclist = np.zeros(u_nonods*ndim+p_nonods, dtype=bool)
+        for bci in sf_nd_nb.vel_func_space.bc:
+            for inod in bci:
+                bclist[inod*ndim:(inod+1)*ndim] = True
+        # print('boundary nodes list: ', bclist)
+        # set i'th rows and columns in Amat be 0 except for diagonal.
+        # for all i in bclist
+        Amat_ncola = Amat_sp.nnz
+        Amat_cola = Amat_sp.indices
+        Amat_fina = Amat_sp.indptr
+        u_bc = u_bc.reshape(-1)
+        for inod in range(u_nonods*ndim+p_nonods):
+            if bclist[inod]:
+                # this is boundary node row, just set everything to 0
+                Amat_sp.data[Amat_fina[inod]:Amat_fina[inod+1]] *= 0
+                for j in range(Amat_fina[inod], Amat_fina[inod + 1]):
+                    jnod = Amat_cola[j]
+                    if inod == jnod:
+                        # we're on boundary nodes' diagonal
+                        Amat_sp.data[j] += 1
+                        rhs_np[inod] *= 0
+                        rhs_np[inod] += u_bc[inod]
+            else:
+                for j in range(Amat_fina[inod], Amat_fina[inod+1]):
+                    jnod = Amat_cola[j]
+                    if bclist[jnod]:
+                        if inod != jnod:
+                            # this is a boundary node, and we're not on diagonal
+                            # put off-diagonal contribution to rhs then set entry to 0
+                            rhs_np[inod] -= Amat_sp.data[j] * u_bc[jnod]
+                            Amat_sp.data[j] *= 0
+    if False:  # liftig pressure 0 node
+        pre_ref_node = u_nonods*ndim  # pressure reference node
+        Amat_ncola = Amat_sp.nnz
+        Amat_cola = Amat_sp.indices
+        Amat_fina = Amat_sp.indptr
+        for inod in range(u_nonods*ndim+p_nonods):
+            if inod == pre_ref_node:
+                # this is the row of pressure reference node, set everything to 0
+                Amat_sp.data[Amat_fina[inod]:Amat_fina[inod+1]] *= 0
+                for j in range(Amat_fina[inod], Amat_fina[inod+1]):
+                    jnod = Amat_cola[j]
+                    if inod == jnod:
+                        # this is the diagonal
+                        Amat_sp.data[j] += 1
+                        rhs_np[inod] *= 0  # we are setting ref pressure node to 0
+            else:
+                for j in range(Amat_fina[inod], Amat_fina[inod+1]):
+                    jnod = Amat_cola[j]
+                    if jnod == pre_ref_node:
+                        # this is the column of ref pressure node
+                        if inod != jnod:  # and, we're not on diagonal
+                            rhs_np[inod] -= Amat_sp.data[j] * 0
+                            Amat_sp.data[j] *= 0
+
     print('done assemble, going to write', time.time()-starttime)
-    Amat_np = Amat_sp.todense()
-    print('Amat cond number is: ', np.linalg.cond(Amat_np))
+    # Amat_np = Amat_sp.todense()
+    # print('Amat cond number is: ', np.linalg.cond(Amat_np))
     # print('Amat rank is: ', np.linalg.matrix_rank(Amat_np))
     # np.savetxt('rhs_assemble.txt', rhs_np, delimiter=',')
     # np.savetxt('Amat_assemble.txt', Amat_np, delimiter=',')

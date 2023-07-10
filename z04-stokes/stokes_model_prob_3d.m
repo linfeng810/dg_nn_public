@@ -3,7 +3,7 @@
 % velocity should satisfy divergence-free condition
 % \nabla \cdot u = 0
 
-clear;
+% clear;
 
 syms x y z
 u = sym(zeros(3,1));
@@ -16,7 +16,7 @@ p = sin(x);
 
 gradu = sym(zeros(3,3));
 for i = 1:3
-    gradu(:,i) = gradient(u(i), [x y z]);
+    gradu(i,:) = gradient(u(i), [x y z]);
 end
 gradTu = transpose(gradu);
 

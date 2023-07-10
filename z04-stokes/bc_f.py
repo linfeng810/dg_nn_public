@@ -166,8 +166,10 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
         if ndim == 2:
             # apply boundary conditions (4 Dirichlet bcs)
             for bci in bc:
-                for inod in bci:
-                    x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
+                for inod in range(bci.shape[0]):
+                    if not bci[inod]:  # this is not a boundary node
+                        continue
+                    x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
                     # u[inod//nloc, inod%nloc, :] = 0.
                     u[inod // nloc, inod % nloc, 0] = -torch.exp(x_inod[0]) * \
                                                       (x_inod[1] * torch.cos(x_inod[1]) + torch.sin(x_inod[1]))
@@ -180,7 +182,9 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
 
         else:  # ndim == 3
             for bci in bc:
-                for inod in bci:
+                for inod in range(bci.shape[0]):
+                    if not bci[inod]:  # this is not a boundary node
+                        continue
                     x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
                     # u[inod//nloc, inod%nloc, :] = 0.
                     u[inod // nloc, inod % nloc, 0] = -2./3. * torch.sin(x_inod[0])**3
@@ -196,11 +200,22 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
             y = torch.tensor(x_all[:, 1], device=dev)
             z = torch.tensor(x_all[:, 2], device=dev)
 
+            # sin pressure
             f[:, 0] = torch.cos(x) - 2*torch.sin(x) + 6*torch.cos(x)**2 * torch.sin(x)
             f[:, 1] = 7*y*torch.cos(x) - 9*y*torch.cos(x)**3 \
                       - 3*z*torch.sin(x) + 9*z*torch.cos(x)**2*torch.sin(x)
             f[:, 2] = 7*z*torch.cos(x) - 9*z*torch.cos(x)**3 \
                       + 3*y*torch.sin(x) - 9*y*torch.cos(x)**2*torch.sin(x)
+
+            # # linear pressure
+            # from torch import sin, cos
+            # f[:, 0] = 4 * cos(x) ** 2 * sin(x) - 2 * sin(x) ** 3 + 1
+            # f[:, 1] = 3 * sin(x) ** 2 * (y * cos(x) - z * sin(x)) \
+            #           - 2 * cos(x) ** 2 * (y * cos(x) - z * sin(x)) \
+            #           + 4 * cos(x) * sin(x) * (z * cos(x) + y * sin(x))
+            # f[:, 2] = 3 * sin(x) ** 2 * (z * cos(x) + y * sin(x)) \
+            #           - 2 * cos(x) ** 2 * (z * cos(x) + y * sin(x)) \
+            #           - 4 * cos(x) * sin(x) * (y * cos(x) - z * sin(x))
 
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
             del x, y, z

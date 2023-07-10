@@ -6,7 +6,7 @@ from config import sf_nd_nb
 from get_nb import getfinele, getfin_p1cg
 
 
-def init(mesh, nele, nonods, nloc):
+def init_2d(mesh, nele, nonods, nloc, nface):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
@@ -14,7 +14,7 @@ def init(mesh, nele, nonods, nloc):
     # check and make sure triangle vertices are ordered anti-clockwisely
     for ele in range(nele):
         # vertex nodes global index
-        idx = mesh.cells[0][1][ele]
+        idx = mesh.cells[-1].data[ele]  # cells[0][1][ele]
         # vertex nodes coordinate 
         x_loc=[]
         for id in idx:
@@ -24,22 +24,22 @@ def init(mesh, nele, nonods, nloc):
         det = np.linalg.det(x_loc)
         if (det<0) :
             # print(mesh.cells[0][1][ele])
-            mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1]]
+            mesh.cells[-1].data[ele] = [idx[0], idx[2], idx[1]]
             # print(mesh.cells[0][1][ele])
             # print('clockise')
 
     # create faces
     faces=[]
     for ele in range(nele):
-        element = mesh.cells[0][1][ele]
+        element = mesh.cells[-1].data[ele]
         for iloc in range(3):
             faces.append([element[iloc],element[(iloc+1)%3]])
 
     cg_ndglno = np.zeros(nele*3, dtype=np.int64)
     for ele in range(nele):
         for iloc in range(3):
-            cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
-    sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
+            cg_ndglno[ele*3+iloc] = mesh.cells[-1].data[ele, iloc]
+    # sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
@@ -67,7 +67,7 @@ def init(mesh, nele, nonods, nloc):
     #      1 - reverse alignment
     #     -1 - no neighbour
     nbf = np.zeros(len(faces), dtype=np.int64) - 1
-    alnmt = np.ones(len(faces), dtype=np.int64) * -1.
+    alnmt = np.ones(len(faces), dtype=np.int64) * -1
     found=np.empty(len(faces))
     found[:]=False
     for ele in range(config.nele):
@@ -93,7 +93,7 @@ def init(mesh, nele, nonods, nloc):
                         found[glb_iface]=True 
                         found[glb_iface2]=True 
     endtime = time.time()
-    print('nbf: ', nbf)
+    # print('nbf: ', nbf)
     print('time consumed in finding neighbouring:', endtime-starttime,' s')
 
     # find neighbouring elements associated with each face
@@ -104,14 +104,14 @@ def init(mesh, nele, nonods, nloc):
     # output type: float, sign denotes face node numbering orientation
     #              nan denotes non found (input is boundary element)
     #              !! convert to positive int before use as index !!
-    nbele = nbf // config.nface
+    nbele = nbf // nface
 
     if nloc == 10:
         # generate cubic nodes from element vertices
         x_all = []
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = mesh.cells[-1].data[ele]
             # vertex nodes coordinate
             x_loc=[]
             for id in idx:
@@ -142,11 +142,40 @@ def init(mesh, nele, nonods, nloc):
             x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
             # node 10
             x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+        ref_node_order = [1, 2, 0, 5, 6, 7, 8, 3, 4, 9]
+    elif nloc == 6:  # quadratic element
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = mesh.cells[-1].data[ele]
+            # vertex nodes coordinate
+            x_loc = []
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # reference quadratic triangle
+            # !  y
+            # !  |
+            # !  2
+            # !  | \
+            # !  |  \
+            # !  5   4
+            # !  |    \
+            # !  |     \
+            # !  3--6---1--x
+            # nodes 1-3
+            x_all.append([x_loc[0][0], x_loc[0][1]])
+            x_all.append([x_loc[1][0], x_loc[1][1]])
+            x_all.append([x_loc[2][0], x_loc[2][1]])
+            # node 4-6
+            x_all.append([x_loc[0][0] * 0.5 + x_loc[1][0] * 0.5, x_loc[0][1] * 0.5 + x_loc[1][1] * 0.5])
+            x_all.append([x_loc[1][0] * 0.5 + x_loc[2][0] * 0.5, x_loc[1][1] * 0.5 + x_loc[2][1] * 0.5])
+            x_all.append([x_loc[2][0] * 0.5 + x_loc[0][0] * 0.5, x_loc[2][1] * 0.5 + x_loc[0][1] * 0.5])
+        ref_node_order = [1, 2, 0, 4, 5, 3]
     elif nloc == 3:  # linear element
         x_all = []
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = mesh.cells[-1].data[ele]
             # vertex nodes coordinate
             x_loc=[]
             for id in idx:
@@ -166,68 +195,71 @@ def init(mesh, nele, nonods, nloc):
             x_all.append([x_loc[0][0], x_loc[0][1]])
             x_all.append([x_loc[1][0], x_loc[1][1]])
             x_all.append([x_loc[2][0], x_loc[2][1]])
+        ref_node_order = [1, 2, 0]
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
     np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
-    sf_nd_nb.set_data(cg_nonods=cg_nonods)
+    # sf_nd_nb.set_data(cg_nonods=cg_nonods)
     x_all = np.asarray(x_all, dtype=np.float64)
     # print('x_all shape: ', x_all.shape)
 
-    # mark boundary nodes
-    #      bc4
-    #   ┌--------┐
-    #   |        |
-    #bc1|        |bc3
-    #   |        |
-    #   └--------┘
-    #      bc2
-    # bc1: x=0
-    bc1=[]
-    for inod in range(nonods):
-        if x_all[inod,0]<1e-8 :
-            bc1.append(inod)
-    # bc2: y=0
-    bc2=[]
-    for inod in range(nonods):
-        if x_all[inod,1]<1e-8 :
-            bc2.append(inod)
-    # bc3: x=1
-    bc3=[]
-    for inod in range(nonods):
-        if x_all[inod,0]>1.-1e-8 :
-            bc3.append(inod)
-    # bc4: y=1
-    bc4=[]
-    for inod in range(nonods):
-        if x_all[inod,1]>1.-1e-8 :
-            bc4.append(inod)
-    bc = [bc1, bc2, bc3, bc4]
-
-    # cg bc
-    cg_bc1 = []
-    for inod in range(cg_nonods):
-        if mesh.points[inod, 0] < 1e-8:
-            cg_bc1.append(inod)
-    # bc2: y=0
-    cg_bc2 = []
-    for inod in range(cg_nonods):
-        if mesh.points[inod, 1] < 1e-8:
-            cg_bc2.append(inod)
-    # bc3: x=1
-    cg_bc3 = []
-    for inod in range(cg_nonods):
-        if mesh.points[inod, 0] > 1. - 1e-8:
-            cg_bc3.append(inod)
-    # bc4: y=1
-    cg_bc4 = []
-    for inod in range(cg_nonods):
-        if mesh.points[inod, 1] > 1. - 1e-8:
-            cg_bc4.append(inod)
-    cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
+    if False:
+        # mark boundary nodes
+        #      bc4
+        #   ┌--------┐
+        #   |        |
+        #bc1|        |bc3
+        #   |        |
+        #   └--------┘
+        #      bc2
+        # bc1: x=0
+        bc1=[]
+        for inod in range(nonods):
+            if x_all[inod,0]<1e-8 :
+                bc1.append(inod)
+        # bc2: y=0
+        bc2=[]
+        for inod in range(nonods):
+            if x_all[inod,1]<1e-8 :
+                bc2.append(inod)
+        # bc3: x=1
+        bc3=[]
+        for inod in range(nonods):
+            if x_all[inod,0]>1.-1e-8 :
+                bc3.append(inod)
+        # bc4: y=1
+        bc4=[]
+        for inod in range(nonods):
+            if x_all[inod,1]>1.-1e-8 :
+                bc4.append(inod)
+        bc = [bc1, bc2, bc3, bc4]
+    else:
+        bc = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+    # # cg bc
+    # cg_bc1 = []
+    # for inod in range(cg_nonods):
+    #     if mesh.points[inod, 0] < 1e-8:
+    #         cg_bc1.append(inod)
+    # # bc2: y=0
+    # cg_bc2 = []
+    # for inod in range(cg_nonods):
+    #     if mesh.points[inod, 1] < 1e-8:
+    #         cg_bc2.append(inod)
+    # # bc3: x=1
+    # cg_bc3 = []
+    # for inod in range(cg_nonods):
+    #     if mesh.points[inod, 0] > 1. - 1e-8:
+    #         cg_bc3.append(inod)
+    # # bc4: y=1
+    # cg_bc4 = []
+    # for inod in range(cg_nonods):
+    #     if mesh.points[inod, 1] > 1. - 1e-8:
+    #         cg_bc4.append(inod)
+    # cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
 
     # store P3DG from/to P1DG restrictor/prolongator
-    sf_nd_nb.set_data(I_31=torch.tensor([
+    prolongator_from_p1dg = torch.tensor([
         [1., 0, 0],
         [0, 1., 0],
         [0, 0, 1.],
@@ -238,15 +270,27 @@ def init(mesh, nele, nonods, nloc):
         [1. / 3, 0, 2. / 3],
         [2. / 3, 0, 1. / 3],
         [1. / 3, 1. / 3, 1. / 3]
-    ], device=config.dev, dtype=torch.float64))  # P1DG to P3DG, element-wise prolongation operator)
+    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator)
     if nloc == 3:  # linear element
-        sf_nd_nb.set_data(I_31=torch.tensor([
+        prolongator_from_p1dg = torch.tensor([
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
-        ], device=config.dev, dtype=torch.float64))
+        ], device=config.dev, dtype=torch.float64)
+    elif nloc == 10:  # quadratic element
+        prolongator_from_p1dg = torch.tensor([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+            [1 / 2, 1 / 2, 0],
+            [0, 1 / 2, 1 / 2],
+            [1 / 2, 0, 1 / 2],
+        ], device=config.dev, dtype=torch.float64)
 
-    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods, cg_bc
+    return x_all, nbf, nbele, alnmt, \
+        finele, colele, ncolele, \
+        bc, cg_ndglno, cg_nonods, ref_node_order, \
+        prolongator_from_p1dg
 
 
 def init_3d(mesh, nele, nonods, nloc, nface):
@@ -256,18 +300,24 @@ def init_3d(mesh, nele, nonods, nloc, nface):
 
     # check and make sure tetrahedron are ordered left-handed
     for ele in range(nele):
-        idx = mesh.cells[0][1][ele]
+        idx = mesh.cells[-1].data[ele]
         x_loc = mesh.points[idx]
         det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         if det > 0:  # it's right-handed, flip two nodes to flip hand.
-            mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1], idx[3]]
+            # TODO: change back!!!!
+            # mesh.cells[-1].data[ele] = [idx[0], idx[2], idx[1], idx[3]]
+            # temporarily change order
+            mesh.cells[-1].data[ele] = [idx[3], idx[1], idx[2], idx[0]]
+        # else:
+        #     raise Warning('ele %d is not right-handed. I didnt flip two nodes. \n '
+        #                   'Boundary nodes might not been correctly found.\n' % ele)
         # x_loc = mesh.points[idx]
         # det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         # print(det > 0)
     # create faces
     faces = []
     for ele in range(nele):
-        element = mesh.cells[0][1][ele]
+        element = mesh.cells[-1].data[ele]
         # for iface in range(nface):
         #     faces.append([element[iface],
         #                   element[(iface + 1) % nface],
@@ -293,7 +343,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     # for ele in range(nele):
     #     for iloc in range(4):
     #         cg_ndglno[ele * 4 + iloc] = mesh.cells[0][1][ele][iloc]
-    cg_ndglno = mesh.cells[0][1].reshape((nele * 4))
+    cg_ndglno = mesh.cells[-1].data.reshape((nele * 4))
     # sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
@@ -354,7 +404,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
                         found[glb_iface2] = True
                         continue
     endtime = time.time()
-    print('nbf: ', nbf)
+    # print('nbf: ', nbf)
     print('time consumed in finding neighbouring:', endtime - starttime, ' s')
 
     # find neighbouring elements associated with each face
@@ -377,7 +427,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
         # sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = mesh.cells[-1].data[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:
@@ -484,7 +534,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
         # sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = mesh.cells[-1].data[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:
@@ -547,7 +597,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
         # sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = mesh.cells[-1].data[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:
@@ -566,32 +616,35 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     # print('x_all shape: ', x_all.shape)
 
     # mark boundary nodes of a cube
-    bc1 = []  # x=0
-    for inod in range(nonods):
-        if x_all[inod, 0] < 1e-8:
-            bc1.append(inod)
-    bc2 = []  # y=0
-    for inod in range(nonods):
-        if x_all[inod, 1] < 1e-8:
-            bc2.append(inod)
-    bc3 = []  # z=0
-    for inod in range(nonods):
-        if x_all[inod, 2] < 1e-8:
-            bc3.append(inod)
-    bc4 = []  # x=1
-    for inod in range(nonods):
-        if x_all[inod, 0] > 1. - 1e-8:
-            bc4.append(inod)
-    bc5 = []  # y=0
-    for inod in range(nonods):
-        if x_all[inod, 1] > 1. - 1e-8:
-            bc5.append(inod)
-    bc6 = []  # z=0
-    for inod in range(nonods):
-        if x_all[inod, 2] > 1. - 1e-8:
-            bc6.append(inod)
-    # mark boundary nodes
-    bc = [bc1, bc2, bc3, bc4, bc5, bc6]
+    if False:
+        bc1 = []  # x=0
+        for inod in range(nonods):
+            if x_all[inod, 0] < 1e-8:
+                bc1.append(inod)
+        bc2 = []  # y=0
+        for inod in range(nonods):
+            if x_all[inod, 1] < 1e-8:
+                bc2.append(inod)
+        bc3 = []  # z=0
+        for inod in range(nonods):
+            if x_all[inod, 2] < 1e-8:
+                bc3.append(inod)
+        bc4 = []  # x=1
+        for inod in range(nonods):
+            if x_all[inod, 0] > 1. - 1e-8:
+                bc4.append(inod)
+        bc5 = []  # y=0
+        for inod in range(nonods):
+            if x_all[inod, 1] > 1. - 1e-8:
+                bc5.append(inod)
+        bc6 = []  # z=0
+        for inod in range(nonods):
+            if x_all[inod, 2] > 1. - 1e-8:
+                bc6.append(inod)
+        # mark boundary nodes
+        bc = [bc1, bc2, bc3, bc4, bc5, bc6]
+    else:
+        bc = get_bc_node(mesh, faces, alnmt, nloc, x_all)
 
     # store P3DG from/to P1DG restrictor/prolongator
     prolongator_from_p1dg = torch.tensor([
@@ -678,29 +731,99 @@ def connectivity(nbele):
     return fina, cola, ncola
 
 
+def get_bc_node(mesh, faces, alnmt, nloc, x_all=0):
+    """this is to find boundary nodes and
+    log them in a list. In the list, positive
+    number denotes bc 'physical label' as defined
+    in gmsh. negative number denotes non-bc nodes."""
+
+    # input mesh is meshio object. it contains boundary element physical tag info.
+    # we're going to use that to mark nodes in x_all with physical tag.
+
+    # no_entity = len(mesh.cells)  # among these entities, except for the last one is volume, the rest are boundaries
+    nele = config.nele
+    nface = config.ndim + 1
+    nonods = nloc * nele
+    face_iloc_list = face_iloc_array(config.ndim, nloc)
+    entity_labels = [key for key in mesh.cell_sets_dict]
+    no_labels = len(entity_labels) - 1
+    bc_list = [np.zeros(nonods, dtype=bool) for _ in range(no_labels-1)]  # a list of markers
+    if config.ndim == 2:
+        face_ele_key = 'line'
+    else:
+        face_ele_key = 'triangle'
+    for ent_id in range(no_labels-1):
+        ent_lab = entity_labels[ent_id]
+        # print('ent_id, ent_lab', ent_id, ent_lab)
+        for fele in mesh.cell_sets_dict[ent_lab][face_ele_key]:
+            bc_face_nodes = mesh.cells_dict[face_ele_key][fele]
+            for glb_iface in range(nele*nface):
+                if alnmt[glb_iface] >= 0:
+                    # this is not a boundary face
+                    continue
+                if set(faces[glb_iface]) == set(bc_face_nodes):
+                    # this is boundary face we're looking for!
+                    iface = glb_iface % nface  # local face idx
+                    ele = glb_iface // nface  # which element this face is in
+                    nod_list_in_this_ele = ele*nloc + face_iloc_list[iface]
+                    # print('ele iface nod_list', ele, '|', iface, '|', nod_list_in_this_ele)
+                    bc_list[ent_id][nod_list_in_this_ele] = True  # marked!
+    return bc_list
+
+
 # local nodes number on a face
-def face_iloc(iface):
+def face_iloc_array(ndim, nloc):
     # return local nodes number on a face
-    # !      y
-    # !      | 
-    # !      2
-    # !  f2  | \   ┌
-    # !   |  6  5   \   
-    # !   |  |   \   \  f1
-    # !  \|/ 7 10 4   \
-    # !      |     \
-    # !      3-8-9--1--x
-    #         ---->
-    #           f3
-    match iface:
-        case 0:
-            return [0,3,4,1]
-        case 1:
-            return [1,5,6,2]
-        case 2:
-            return [2,7,8,0]
-        case _:
-            return []
+    if ndim == 2:
+        if nloc == 10:  # cubic element
+            arr = np.asarray([
+                0,3,4,1,
+                1,5,6,2,
+                2,7,8,0,
+            ], dtype=np.int64).reshape((3, 4))
+        elif nloc == 6:  # quadratic element
+            arr = np.asarray([
+                0,3,1,
+                1,4,2,
+                2,5,0,
+            ], dtype=np.int64).reshape((3, 3))
+        elif nloc == 3:  # linear element
+            arr = np.asarray([
+                0,1,
+                1,2,
+                2,0,
+            ], dtype=np.int64).reshape((3, 2))
+        else:
+            raise ValueError('cannot find face nodes list for nloc = %d' % nloc)
+    elif ndim == 3:
+        if nloc == 20:  # cubic element
+            arr = np.asarray([
+                1, 2, 3, 8, 9, 14, 15, 12, 13, 16,
+                0, 2, 3, 4, 5, 10, 11, 14, 15, 18,
+                0, 1, 3, 6, 7, 10, 11, 12, 13, 19,
+                0, 1, 2, 4, 5, 6,  7,  8,  9,  17,
+            ], dtype=np.int64).reshape((4, 10))
+        elif nloc == 10:  # quadratic element
+            arr = np.asarray([
+                1,2,3,4,8,9,
+                0,2,3,5,7,9,
+                0,1,3,6,7,8,
+                0,1,2,4,5,6,
+            ], dtype=np.int64).reshape((4, 6))
+        elif nloc == 4:  # linear element
+            arr = np.asarray([
+                1,2,3,
+                0,2,3,
+                0,1,3,
+                0,1,2,
+            ], dtype=np.int64).reshape((4, 3))
+        else:
+            raise ValueError('cannot find face nodes list for nloc = %d' % nloc)
+    else:
+        raise ValueError('ndim not correct.')
+    return arr
+
+
 def face_iloc2(iface):
     # return local nodes number on the other side of a face
     # in reverse order 

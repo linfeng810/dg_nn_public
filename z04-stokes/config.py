@@ -1,5 +1,5 @@
 # configuration
-import toughio
+import meshio
 import numpy as np
 import torch
 import sys
@@ -27,18 +27,23 @@ solver='direct' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube.msh' # directory to mesh file (gmsh)
-
+filename='z31-cube-mesh/cube_4ele_w_bc.msh' # directory to mesh file (gmsh)
+filename = 'z31-cube-mesh/one_element_r_order.msh'
+filename = 'z31-cube-mesh/two_element.msh'
+# filename = 'z32-square-mesh/square_w_tag.msh'
+# filename = 'z32-square-mesh/one_element.msh'
+# filename = 'z32-square-mesh/two_element.msh'
 if len(sys.argv) > 1:
     filename = sys.argv[1]
-mesh = toughio.read_mesh(filename) # mesh object
+mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
-nele = mesh.n_cells # number of elements
+nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
 ele_p = 3  # velocity element order (2 or higher)
 ele_p_pressure = ele_p - 1  # pressure element order
 print('element order: ', ele_p)
+
 ndim = 3  # dimesnion of the problem
 # if ndim == 2:
 #     if ele_type == 'cubic':

@@ -1,5 +1,5 @@
 import torch
-from mesh_init import init, init_3d
+from mesh_init import init_2d, init_3d
 from shape_function import SHATRInew
 # import config
 
@@ -24,7 +24,8 @@ class Element(object):
             self.snloc = int(1/2*(ele_order+2)*(ele_order+1))
             if self.gi_order == 6:
                 self.ngi = 24
-                self.sngi = 9
+                # self.sngi = 9  # STOP using this. this is only 5 order precise
+                self.sngi = 12  # this is 6 order.
             elif self.gi_order == 4:
                 self.ngi = 11
                 self.sngi = 6
@@ -36,6 +37,17 @@ class Element(object):
         elif self.ndim == 2:
             self.nloc = int(1/2*(ele_order+2)*(ele_order+1))
             self.snloc = ele_order+1
+            if self.gi_order == 6:
+                self.ngi = 12
+                self.sngi = 4
+            elif self.gi_order == 4:
+                self.ngi = 6
+                self.sngi = 3
+            elif self.gi_order == 2:
+                self.ngi = 3
+                self.sngi = 2
+            else:
+                raise ValueError("the chosen gaussian integration order %d isn't accepted." % gi_order)
         else:
             raise ValueError("only support 2D or 3D elements.")
         # now we find shape functions on the reference element
@@ -69,7 +81,7 @@ class FuncSpace(object):
         self.name = name
         print('initalising '+name+' function space')
         self.mesh = mesh
-        self.nele = mesh.n_cells
+        self.nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
         self.nonods = element.nloc * self.nele
         self.element = element
         self.ndim = self.element.ndim
@@ -79,8 +91,9 @@ class FuncSpace(object):
             self.x_all, \
                 self.nbf, self.nbele, self.alnmt, \
                 self.fina, self.cola, self.ncola, \
-                self.bc, self.cg_ndglno, self.cg_nonods, _ = \
-                init(self.mesh, self.nele, self.nonods, self.element.nloc)
+                self.bc, self.cg_ndglno, self.cg_nonods, \
+                self.ref_node_order, self.prolongator_from_p1dg = \
+                init_2d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim + 1)
         elif self.ndim == 3:
             self.x_all, \
                 self.nbf, self.nbele, self.alnmt, \

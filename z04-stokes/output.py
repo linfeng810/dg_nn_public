@@ -9,7 +9,7 @@ from function_space import FuncSpace
 # nonods = config.nonods
 # nloc = config.nloc
 ndim = config.ndim
-
+VTK_LAGRANGE_TRIANGLE = 69
 VTK_LAGRANGE_TETRAHEDRON = 71
 
 
@@ -56,7 +56,10 @@ class File():
             # write points coordinates
             f.write(b'<Points>\n')
             f.write(b'<DataArray type="Float64" NumberOfComponents="3" Format="ascii">\n')
-            np.savetxt(f, x_all, delimiter=' ')
+            if ndim == 3:
+                np.savetxt(f, x_all, delimiter=' ')
+            elif ndim == 2:
+                np.savetxt(f, np.concatenate((x_all, np.zeros((nonods,1))), axis=-1), delimiter=' ')
             f.write(b'</DataArray>\n'
                     b'</Points>\n')
 
@@ -74,14 +77,20 @@ class File():
             np.savetxt(f, offsets, fmt='%d')
             f.write(b'</DataArray>\n'
                     b'<DataArray type="Int32" Name="types" Format="ascii">\n')
-            np.savetxt(f, np.full(nele, VTK_LAGRANGE_TETRAHEDRON, dtype="uint8"), fmt='%d')
+            if ndim == 3:
+                np.savetxt(f, np.full(nele, VTK_LAGRANGE_TETRAHEDRON, dtype="uint8"), fmt='%d')
+            elif ndim == 2:
+                np.savetxt(f, np.full(nele, VTK_LAGRANGE_TRIANGLE, dtype="uint8"), fmt='%d')
             f.write(b'</DataArray>\n'
                     b'</Cells>\n')
             f.write(('<PointData Vectors="%s">\n' % name).encode('ascii'))
             f.write(('<DataArray Name="%s" type="%s" '
                      'NumberOfComponents="%s" '
                      'format="ascii">\n' % (name, typ, ncmp)).encode('ascii'))
-            np.savetxt(f, u_np, delimiter=' ')
+            if ndim == 3:
+                np.savetxt(f, u_np, delimiter=' ')
+            elif ndim == 2:
+                np.savetxt(f, np.concatenate((u_np, np.zeros((nonods,1))), axis=-1), delimiter=' ')
             f.write(b'</DataArray>\n'
                     b'</PointData>\n'
                     b'</Piece>\n')
@@ -117,7 +126,10 @@ class File():
             # write points coordinates
             f.write(b'<Points>\n')
             f.write(b'<DataArray type="Float64" NumberOfComponents="3" Format="ascii">\n')
-            np.savetxt(f, x_all, delimiter=' ')
+            if ndim == 3:
+                np.savetxt(f, x_all, delimiter=' ')
+            elif ndim == 2:
+                np.savetxt(f, np.concatenate((x_all, np.zeros((nonods,1))), axis=-1), delimiter=' ')
             f.write(b'</DataArray>\n'
                     b'</Points>\n')
 
@@ -135,7 +147,10 @@ class File():
             np.savetxt(f, offsets, fmt='%d')
             f.write(b'</DataArray>\n'
                     b'<DataArray type="Int32" Name="types" Format="ascii">\n')
-            np.savetxt(f, np.full(nele, VTK_LAGRANGE_TETRAHEDRON, dtype="uint8"), fmt='%d')
+            if ndim == 3:
+                np.savetxt(f, np.full(nele, VTK_LAGRANGE_TETRAHEDRON, dtype="uint8"), fmt='%d')
+            elif ndim == 2:
+                np.savetxt(f, np.full(nele, VTK_LAGRANGE_TRIANGLE, dtype="uint8"), fmt='%d')
             f.write(b'</DataArray>\n'
                     b'</Cells>\n')
             f.write(('<PointData Scalers="%s">\n' % name).encode('ascii'))
