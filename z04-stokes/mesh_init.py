@@ -372,7 +372,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     #       2  rotate twice (e.g. self is 1-2-3, nb is 3-1-2
     nbf = np.zeros(len(faces), dtype=np.int64) - 1
     alnmt = np.ones(len(faces), dtype=np.int64) * - 1
-    found = np.zeros(len(faces), dtype=np.bool)
+    found = np.zeros(len(faces), dtype=bool)
     for ele in range(nele):
         for iface in range(nface):
             glb_iface = ele * nface + iface
@@ -748,26 +748,31 @@ def get_bc_node(mesh, faces, alnmt, nloc, x_all=0):
     entity_labels = [key for key in mesh.cell_sets_dict]
     no_labels = len(entity_labels) - 1
     bc_list = [np.zeros(nonods, dtype=bool) for _ in range(no_labels-1)]  # a list of markers
+    found = np.zeros(nele*nface, dtype=bool)
+    bc_face_list = np.where(alnmt < 0)[0]
     if config.ndim == 2:
         face_ele_key = 'line'
     else:
         face_ele_key = 'triangle'
+    sttime = time.time()
+    print('start getting bc nodes... ')
     for ent_id in range(no_labels-1):
         ent_lab = entity_labels[ent_id]
         # print('ent_id, ent_lab', ent_id, ent_lab)
         for fele in mesh.cell_sets_dict[ent_lab][face_ele_key]:
             bc_face_nodes = mesh.cells_dict[face_ele_key][fele]
-            for glb_iface in range(nele*nface):
-                if alnmt[glb_iface] >= 0:
-                    # this is not a boundary face
+            for glb_iface in bc_face_list:
+                if found[glb_iface]:
                     continue
                 if set(faces[glb_iface]) == set(bc_face_nodes):
                     # this is boundary face we're looking for!
+                    found[glb_iface] = True
                     iface = glb_iface % nface  # local face idx
                     ele = glb_iface // nface  # which element this face is in
                     nod_list_in_this_ele = ele*nloc + face_iloc_list[iface]
                     # print('ele iface nod_list', ele, '|', iface, '|', nod_list_in_this_ele)
                     bc_list[ent_id][nod_list_in_this_ele] = True  # marked!
+    print('finishing getting bc nodes... time consumed: %f s' % (time.time() - sttime))
     return bc_list
 
 

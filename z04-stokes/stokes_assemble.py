@@ -110,160 +110,172 @@ def assemble(u_bc, f):
     alnmt = sf_nd_nb.vel_func_space.alnmt.cpu().numpy()
     u_gi_align = sf_nd_nb.vel_func_space.element.gi_align.cpu().numpy()
     q_gi_align = sf_nd_nb.pre_func_space.element.gi_align.cpu().numpy()
-    for ele in (range(nele)):
-        for iface in range(nface):
-            glb_iface = ele*nface + iface
-            if alnmt[glb_iface] < 0:
-                # this is boundary face
-                # K and G
-                mu_e = eta_e/np.power(np.sum(detwei[ele, :]), 1./ndim)
-                # mu_e = 1.  # TOOO: temporarily change to 1 to debug (compare to other code)
-                # print('ele, iface, mu_e', ele, iface, mu_e)
-                for inod in range(u_nloc):
-                    for idim in range(ndim):
-                        glb_inod = ele*u_nloc*ndim + inod*ndim + idim
-                        # K
+    if True:  # use python to assemble surface integral term (would be slow)
+        for ele in tqdm(range(nele)):
+            for iface in range(nface):
+                glb_iface = ele*nface + iface
+                if alnmt[glb_iface] < 0:
+                    # this is boundary face
+                    # K and G
+                    mu_e = eta_e/np.power(np.sum(detwei[ele, :]), 1./ndim)
+                    # mu_e = 1.  # TOOO: temporarily change to 1 to debug (compare to other code)
+                    # print('ele, iface, mu_e', ele, iface, mu_e)
+                    for inod in range(u_nloc):
+                        for idim in range(ndim):
+                            glb_inod = ele*u_nloc*ndim + inod*ndim + idim
+                            # K
+                            for jnod in range(u_nloc):
+                                jdim = idim
+                                glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
+                                vnux = 0  # [v_i n_k][du_i / dx_k]
+                                vxun = 0  # [dv_i/ dx_k][u_i n_k]
+                                nn = 0
+                                for kdim in range(ndim):
+                                    vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
+                                                   snx[ele, iface, kdim, jnod, :] * sdetwei[ele, iface, :])
+                                    vxun += np.sum(snx[ele, iface, kdim, inod, :] * sn[iface, jnod, :] *
+                                                   snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
+                                nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
+                                             sdetwei[ele, iface, :]) * mu_e
+                                # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
+                                indices.append([glb_inod, glb_jnod])
+                                values.append(-vnux - vxun + nn)
+                                # add boundary contribution to rhs
+                                rhs[glb_inod] += u_bc[glb_jnod] * (-vxun + nn)
+                            # G
+                            for jnod in range(p_nloc):
+                                glb_jnod = nele*u_nloc*ndim + ele*p_nloc + jnod
+                                # print('ele, iface, inod, idim, jnod, glbinod, glbjnod',
+                                #       ele, iface, inod, idim, jnod, glb_inod, glb_jnod)
+                                vnq = 0  # [vi ni] {q}
+                                vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
+                                              sq[iface, jnod, :] * sdetwei[ele, iface, :])
+                                # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod, glb_inod, glb_jnod)
+                                indices.append([glb_inod, glb_jnod])
+                                values.append(vnq)
+                                # # add pressure bc as well since we integrate by once
+                                # rhs[glb_inod] += p_bc[glb_jnod - nele*u_nloc*ndim] * vnq
+                    # G^T
+                    for inod in range(p_nloc):
+                        glb_inod = nele*u_nloc*ndim + ele*p_nloc + inod
                         for jnod in range(u_nloc):
-                            jdim = idim
-                            glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
-                            vnux = 0  # [v_i n_k][du_i / dx_k]
-                            vxun = 0  # [dv_i/ dx_k][u_i n_k]
-                            nn = 0
-                            for kdim in range(ndim):
-                                vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
-                                               snx[ele, iface, kdim, jnod, :] * sdetwei[ele, iface, :])
-                                vxun += np.sum(snx[ele, iface, kdim, inod, :] * sn[iface, jnod, :] *
-                                               snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
-                            nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
-                                         sdetwei[ele, iface, :]) * mu_e
-                            # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
-                            indices.append([glb_inod, glb_jnod])
-                            values.append(-vnux - vxun + nn)
-                            # add boundary contribution to rhs
-                            rhs[glb_inod] += u_bc[glb_jnod] * (-vxun + nn)
-                        # G
-                        for jnod in range(p_nloc):
-                            glb_jnod = nele*u_nloc*ndim + ele*p_nloc + jnod
-                            # print('ele, iface, inod, idim, jnod, glbinod, glbjnod',
-                            #       ele, iface, inod, idim, jnod, glb_inod, glb_jnod)
-                            vnq = 0  # [vi ni] {q}
-                            vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
-                                          sq[iface, jnod, :] * sdetwei[ele, iface, :])
-                            # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod, glb_inod, glb_jnod)
-                            indices.append([glb_inod, glb_jnod])
-                            values.append(vnq)
-                            # # add pressure bc as well since we integrate by once
-                            # rhs[glb_inod] += p_bc[glb_jnod - nele*u_nloc*ndim] * vnq
-                # G^T
-                for inod in range(p_nloc):
-                    glb_inod = nele*u_nloc*ndim + ele*p_nloc + inod
-                    for jnod in range(u_nloc):
-                        for jdim in range(ndim):
-                            glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
-                            qun = np.sum(sq[iface, inod, :] * sn[iface, jnod, :] *
-                                         snormal[ele, iface, jdim] * sdetwei[ele, iface, :])
-                            # print('    inod, jnod, jdim, glbi, glbj', inod, jnod, jdim, glb_inod, glb_jnod)
-                            indices.append([glb_inod, glb_jnod])
-                            values.append(qun)
-                            # add boundary contribution to rhs
-                            rhs[glb_inod] += u_bc[glb_jnod] * qun
-            else:
-                # this is interior / internal face
-                ele2 = nbele[glb_iface]
-                mu_e = 2. * eta_e / (np.power(np.sum(detwei[ele, :]), 1./ndim) +
-                                     np.power(np.sum(detwei[ele2, :]), 1./ndim))
-                # mu_e = 1  # TOOO: temporarily change to 1 to debug (compare to other code)
-                # print('ele, iface, mu_e, ele2', ele, iface, mu_e, ele2)
-                glb_iface2 = nbf[glb_iface]
-                iface2 = glb_iface2 % nface
-                # K and G
-                for inod in range(u_nloc):
-                    for idim in range(ndim):
-                        glb_inod = ele*u_nloc*ndim + inod*ndim + idim
+                            for jdim in range(ndim):
+                                glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
+                                qun = np.sum(sq[iface, inod, :] * sn[iface, jnod, :] *
+                                             snormal[ele, iface, jdim] * sdetwei[ele, iface, :])
+                                # print('    inod, jnod, jdim, glbi, glbj', inod, jnod, jdim, glb_inod, glb_jnod)
+                                indices.append([glb_inod, glb_jnod])
+                                values.append(qun)
+                                # add boundary contribution to rhs
+                                rhs[glb_inod] += u_bc[glb_jnod] * qun
+                else:
+                    # this is interior / internal face
+                    ele2 = nbele[glb_iface]
+                    mu_e = 2. * eta_e / (np.power(np.sum(detwei[ele, :]), 1./ndim) +
+                                         np.power(np.sum(detwei[ele2, :]), 1./ndim))
+                    # mu_e = 1  # TOOO: temporarily change to 1 to debug (compare to other code)
+                    # print('ele, iface, mu_e, ele2', ele, iface, mu_e, ele2)
+                    glb_iface2 = nbf[glb_iface]
+                    iface2 = glb_iface2 % nface
+                    # K and G
+                    for inod in range(u_nloc):
+                        for idim in range(ndim):
+                            glb_inod = ele*u_nloc*ndim + inod*ndim + idim
+                            # this side
+                            # K
+                            for jnod in range(u_nloc):
+                                jdim = idim
+                                glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
+                                vnux = 0  # [v_i n_k][du_i / dx_k]
+                                vxun = 0  # [dv_i/ dx_k][u_i n_k]
+                                nn = 0
+                                for kdim in range(ndim):
+                                    vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
+                                                   snx[ele, iface, kdim, jnod, :] * sdetwei[ele, iface, :])
+                                    vxun += np.sum(snx[ele, iface, kdim, inod, :] * sn[iface, jnod, :] *
+                                                   snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
+                                nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
+                                             sdetwei[ele, iface, :]) * mu_e
+                                # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
+                                indices.append([glb_inod, glb_jnod])
+                                values.append(-0.5*vnux - 0.5*vxun + nn)
+                            # G
+                            for jnod in range(p_nloc):
+                                glb_jnod = nele * u_nloc * ndim + ele * p_nloc + jnod
+                                vnq = 0  # [vi ni] {q}
+                                vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
+                                              sq[iface, jnod, :] * sdetwei[ele, iface, :])
+                                # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod, glb_inod, glb_jnod)
+                                indices.append([glb_inod, glb_jnod])
+                                values.append(0.5*vnq)
+                            # other side
+                            # K
+                            for jnod2 in range(u_nloc):
+                                jdim2 = idim
+                                glb_jnod2 = ele2 * u_nloc * ndim + jnod2 * ndim + jdim2
+                                vnux = 0  # [v_i n_k][du_i / dx_k]
+                                vxun = 0  # [dv_i/ dx_k][u_i n_k]
+                                nn = 0
+                                for kdim in range(ndim):
+                                    vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
+                                                   snx[ele2, iface2, kdim, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                                   sdetwei[ele, iface, :])
+                                    vxun += np.sum(snx[ele, iface, kdim, inod, :] *
+                                                   sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                                   snormal[ele2, iface2, kdim] * sdetwei[ele, iface, :])
+                                nn += np.sum(sn[iface, inod, :] * sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                             sdetwei[ele, iface, :]) * mu_e * (-1.)
+                                # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
+                                indices.append([glb_inod, glb_jnod2])
+                                values.append(-0.5 * vnux - 0.5 * vxun + nn)
+                            # G
+                            for jnod2 in range(p_nloc):
+                                glb_jnod2 = nele * u_nloc * ndim + ele2 * p_nloc + jnod2
+                                vnq = 0  # [vi ni] {q}
+                                vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
+                                              sq[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                              sdetwei[ele, iface, :])
+                                # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod2, glb_inod, glb_jnod2)
+                                indices.append([glb_inod, glb_jnod2])
+                                values.append(0.5 * vnq)
+                    # G^T
+                    for inod in range(p_nloc):
+                        glb_inod = nele*u_nloc*ndim + ele*p_nloc + inod
                         # this side
-                        # K
                         for jnod in range(u_nloc):
-                            jdim = idim
-                            glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
-                            vnux = 0  # [v_i n_k][du_i / dx_k]
-                            vxun = 0  # [dv_i/ dx_k][u_i n_k]
-                            nn = 0
-                            for kdim in range(ndim):
-                                vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
-                                               snx[ele, iface, kdim, jnod, :] * sdetwei[ele, iface, :])
-                                vxun += np.sum(snx[ele, iface, kdim, inod, :] * sn[iface, jnod, :] *
-                                               snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
-                            nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
-                                         sdetwei[ele, iface, :]) * mu_e
-                            # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
-                            indices.append([glb_inod, glb_jnod])
-                            values.append(-0.5*vnux - 0.5*vxun + nn)
-                        # G
-                        for jnod in range(p_nloc):
-                            glb_jnod = nele * u_nloc * ndim + ele * p_nloc + jnod
-                            vnq = 0  # [vi ni] {q}
-                            vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
-                                          sq[iface, jnod, :] * sdetwei[ele, iface, :])
-                            # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod, glb_inod, glb_jnod)
-                            indices.append([glb_inod, glb_jnod])
-                            values.append(0.5*vnq)
+                            for jdim in range(ndim):
+                                glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
+                                qun = np.sum(sq[iface, inod, :] * sn[iface, jnod, :] *
+                                             snormal[ele, iface, jdim] * sdetwei[ele, iface, :])
+                                # print('    inod, jnod, jdim, glbi, glbj', inod, jnod, jdim, glb_inod, glb_jnod)
+                                indices.append([glb_inod, glb_jnod])
+                                values.append(0.5*qun)
                         # other side
-                        # K
                         for jnod2 in range(u_nloc):
-                            jdim2 = idim
-                            glb_jnod2 = ele2 * u_nloc * ndim + jnod2 * ndim + jdim2
-                            vnux = 0  # [v_i n_k][du_i / dx_k]
-                            vxun = 0  # [dv_i/ dx_k][u_i n_k]
-                            nn = 0
-                            for kdim in range(ndim):
-                                vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
-                                               snx[ele2, iface2, kdim, jnod2, u_gi_align[alnmt[glb_iface]]] *
-                                               sdetwei[ele, iface, :])
-                                vxun += np.sum(snx[ele, iface, kdim, inod, :] *
-                                               sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
-                                               snormal[ele2, iface2, kdim] * sdetwei[ele, iface, :])
-                            nn += np.sum(sn[iface, inod, :] * sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
-                                         sdetwei[ele, iface, :]) * mu_e * (-1.)
-                            # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
-                            indices.append([glb_inod, glb_jnod2])
-                            values.append(-0.5 * vnux - 0.5 * vxun + nn)
-                        # G
-                        for jnod2 in range(p_nloc):
-                            glb_jnod2 = nele * u_nloc * ndim + ele2 * p_nloc + jnod2
-                            vnq = 0  # [vi ni] {q}
-                            vnq += np.sum(sn[iface, inod, :] * snormal[ele, iface, idim] *
-                                          sq[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
-                                          sdetwei[ele, iface, :])
-                            # print('    inod, idim, jnod, glbi, glbj', inod, idim, jnod2, glb_inod, glb_jnod2)
-                            indices.append([glb_inod, glb_jnod2])
-                            values.append(0.5 * vnq)
-                # G^T
-                for inod in range(p_nloc):
-                    glb_inod = nele*u_nloc*ndim + ele*p_nloc + inod
-                    # this side
-                    for jnod in range(u_nloc):
-                        for jdim in range(ndim):
-                            glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
-                            qun = np.sum(sq[iface, inod, :] * sn[iface, jnod, :] *
-                                         snormal[ele, iface, jdim] * sdetwei[ele, iface, :])
-                            # print('    inod, jnod, jdim, glbi, glbj', inod, jnod, jdim, glb_inod, glb_jnod)
-                            indices.append([glb_inod, glb_jnod])
-                            values.append(0.5*qun)
-                    # other side
-                    for jnod2 in range(u_nloc):
-                        for jdim2 in range(ndim):
-                            glb_jnod2 = ele2*u_nloc*ndim + jnod2*ndim + jdim2
-                            qun = np.sum(sq[iface, inod, :] *
-                                         sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
-                                         snormal[ele2, iface2, jdim2] * sdetwei[ele, iface, :])
-                            # print('    inod, jnod2, jdim2, glbi, glbj', inod, jnod2, jdim2, glb_inod, glb_jnod2)
-                            indices.append([glb_inod, glb_jnod2])
-                            values.append(0.5 * qun)
+                            for jdim2 in range(ndim):
+                                glb_jnod2 = ele2*u_nloc*ndim + jnod2*ndim + jdim2
+                                qun = np.sum(sq[iface, inod, :] *
+                                             sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                             snormal[ele2, iface2, jdim2] * sdetwei[ele, iface, :])
+                                # print('    inod, jnod2, jdim2, glbi, glbj', inod, jnod2, jdim2, glb_inod, glb_jnod2)
+                                indices.append([glb_inod, glb_jnod2])
+                                values.append(0.5 * qun)
+    else:  # use fortran to assemble surface integral term
+        from stokes_assemble_fortran import stokes_asssemble_fortran
+        values_f, indices_, ndix, rhs_ = stokes_asssemble_fortran(
+            sn=sn, snx=snx, sdetwei=sdetwei, snormal=snormal,
+            sq=sq, detwei=detwei,
+            u_bc=u_bc.reshape((nele, u_nloc, ndim)),
+            nbele=nbele, nbf=nbf, alnmt=alnmt, gi_align=u_gi_align,
+            mx_nidx=nele*(u_nloc*ndim+p_nloc)*100,
+            eta_e=eta_e
+        )
+
     # remove null space
-    # if True:
-    #     # indices.append([nele*u_nloc*ndim + nele*p_nloc - 1, nele*u_nloc*ndim + nele*p_nloc - 1])
-    #     indices.append([nele*u_nloc*ndim, nele*u_nloc*ndim])
-    #     values.append(1.)
+    if False:
+        # indices.append([nele*u_nloc*ndim + nele*p_nloc - 1, nele*u_nloc*ndim + nele*p_nloc - 1])
+        indices.append([nele*u_nloc*ndim, nele*u_nloc*ndim])
+        values.append(1.)
     else:  # enforce average pressure over whole domain is 0
         for ele in range(nele):
             glb_inod = u_nonods*ndim

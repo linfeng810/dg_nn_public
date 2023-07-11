@@ -3,8 +3,7 @@
 ####################################################
 # preamble
 ####################################################
-# import 
-import toughio
+# import
 import numpy as np
 import torch
 from torch.nn import Conv1d,Sequential,Module
@@ -484,4 +483,4 @@ np.savetxt('p_all.txt', p_all, delimiter=',')
 np.savetxt('x_all.txt', vel_func_space.x_all, delimiter=',')
 np.savetxt('p_x_all.txt', pre_func_space.x_all, delimiter=',')
 print('10. done output, time elaspsed: ', time.time()-starttime)
-print(torch.cuda.memory_summary())
+# print(torch.cuda.memory_summary())
