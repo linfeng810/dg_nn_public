@@ -260,6 +260,26 @@ def assemble(u_bc, f):
                                 # print('    inod, jnod2, jdim2, glbi, glbj', inod, jnod2, jdim2, glb_inod, glb_jnod2)
                                 indices.append([glb_inod, glb_jnod2])
                                 values.append(0.5 * qun)
+                    # S (pressure penalty term, as per Di Pietro & Ern 2012 pg. 252. In theory, we can use same order
+                    # for both vel and pre if we have this term.
+                    # this term only integrates on interior faces, thus does not introduce additional pressure bc contri
+                    for inod in range(p_nloc):
+                        glb_inod = nele*u_nloc*ndim + ele*p_nloc + inod
+                        # this side
+                        for jnod in range(p_nloc):
+                            glb_jnod = nele*u_nloc*ndim + ele*p_nloc + jnod
+                            qq = np.sum(sq[iface, inod, :] * sq[iface, jnod, :] *
+                                        sdetwei[ele, iface, :]) * mu_e/config.eta_e  # mu_e/eta_e is h
+                            indices.append([glb_inod, glb_jnod])
+                            values.append(qq)  # positive because n1.n1 = 1
+                        # other side
+                        for jnod2 in range(p_nloc):
+                            glb_jnod2 = nele*u_nloc*ndim + ele2*p_nloc + jnod2
+                            qq = np.sum(sq[iface, inod, :] *
+                                        sq[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                        sdetwei[ele, iface, :]) * mu_e/config.eta_e
+                            indices.append([glb_inod, glb_jnod2])
+                            values.append(-qq)  # negative because n1.n2 = -1
     else:  # use fortran to assemble surface integral term
         from stokes_assemble_fortran import stokes_asssemble_fortran
         values_f, indices_, ndix, rhs_ = stokes_asssemble_fortran(
