@@ -157,7 +157,7 @@ def multigrid_solver(x_i, p_i, x_rhs, tol):
     return x_i
 
 
-def gmres_mg_solver(x_i, p_i, x_rhs,
+def gmres_mg_solver(x_i, x_rhs,
                     tol):
     """
     use mg left preconditioned gmres as a solver
@@ -171,7 +171,7 @@ def gmres_mg_solver(x_i, p_i, x_rhs,
     v_m = torch.zeros(m+1, u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # V_m
     h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
     r0 = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-    r0_list = [r0[0:u_nonods*ndim], r0[u_nonods*ndim:u_nonods*ndim+p_nonods]]
+    r0_u, r0_p = volume_mf_st.slicing_x_i(r0)
     dummy = [torch.zeros(u_nonods * ndim, device=dev, dtype=torch.float64),
              torch.zeros(p_nonods, device=dev, dtype=torch.float64)]
     r0l2 = 1.
@@ -182,30 +182,28 @@ def gmres_mg_solver(x_i, p_i, x_rhs,
         h_m *= 0
         v_m *= 0
         r0 *= 0
-        r0_list = get_residual_only(r0_list,
-                                    x_i, x_rhs)
+        r0 = get_residual_only(r0,
+                               x_i, x_rhs)
         # r0 = r0.view(nonods, ndim)  # why change view here...?
-        r0_list, _ = _multigrid_one_cycle(x_i=[torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64),
-                                          torch.zeros(p_nonods, device=dev, dtype=torch.float64)],
-                                          x_rhs=r0_list)
-        r0 = r0.view(-1)  # remember r0_list is a 'view' of r0.
+        # apply preconditioner
+        r0_u = volume_mf_st.vel_blk_precon(r0_u)
+        r0_p = volume_mf_st.pre_blk_precon(r0_p)
+
         beta = torch.linalg.norm(r0)
         v_m[0, :] += r0 / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
         for j in range(0, m):
             w *= 0
-            w_list = [w[0:u_nonods*ndim], w[u_nonods*ndim:u_nonods*ndim+p_nonods]]
-            w_list = get_residual_only(r0=w_list,
-                                       x_i=[v_m[j, 0:u_nonods*ndim],
-                                            v_m[j, u_nonods*ndim:u_nonods*ndim+p_nonods]],
-                                       x_rhs=dummy)  # providing rhs=0, b-Ax is -Ax
+            w_u, w_p = volume_mf_st.slicing_x_i(w)
+            w = get_residual_only(r0=w,
+                                  x_i=v_m[j, :],
+                                  x_rhs=0)  # providing rhs=0, b-Ax is -Ax
             # w = w.view(nonods, ndim)  # why change view here...?
             w *= -1.
-            w_list, _ = _multigrid_one_cycle([torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64),
-                                              torch.zeros(p_nonods, device=dev, dtype=torch.float64)],
-                                             # ↑ here I believe we create another nonods memory usage
-                                             x_rhs=w_list)
-            w = w.view(-1)  # w_list is a 'view' of w
+            # apply preconditioner
+            w_u = volume_mf_st.vel_blk_precon(w_u)
+            w_p = volume_mf_st.pre_blk_precon(w_p)
+            # w = w.view(-1)  # w_list is a 'view' of w
             for i in range(0, j+1):
                 h_m[i, j] = torch.linalg.vecdot(w, v_m[i, :])
                 w -= h_m[i, j] * v_m[i, :]
@@ -213,21 +211,18 @@ def gmres_mg_solver(x_i, p_i, x_rhs,
             v_m[j+1, :] += w / h_m[j+1, j]
         # solve least-square problem
         q, r = torch.linalg.qr(h_m, mode='complete')  # h_m: (m+1)xm, q: (m+1)x(m+1), r: (m+1)xm
-        e_1 *= 0
+        e_1[0] = 0
         e_1[0] += beta
         y_m = torch.linalg.solve(r[0:m, 0:m], q[0:m+1, 0:m].T @ e_1)  # y_m: m
         # update c_i and get residual
         dx_i = torch.einsum('ji,j->i', v_m[0:m, :], y_m)
-        x_i[0] += dx_i[0:u_nonods*ndim].view(config.nele, u_nloc, ndim)
-        x_i[1] += dx_i[u_nonods*ndim:u_nonods*ndim+p_nonods].view(config.nele, p_nloc)
-        # update x_rhs and p
-        x_rhs = update_rhs(x_rhs, x_i[1])
-        p_i += x_i[1]
+        x_i += dx_i
+
         # r0l2 = torch.linalg.norm(q[:, m:m+1].T @ e_1)
         r0 *= 0
-        r0_list = get_residual_only(r0_list,
-                                    x_i, x_rhs)
-        r0 = r0.view(-1)
+        r0 = get_residual_only(r0,
+                               x_i, x_rhs)
+        # r0 = r0.view(-1)
         r0l2 = torch.linalg.norm(r0)
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
         its += 1

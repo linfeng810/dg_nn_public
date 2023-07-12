@@ -213,6 +213,8 @@ if True:  # from PnDG to P1CG
 #         np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
 print('7. time elapsed, ',time.time()-starttime)
 
+u_nonods = sf_nd_nb.vel_func_space.nonods
+p_nonods = sf_nd_nb.pre_func_space.nonods
 if (config.solver=='iterative') :
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
@@ -222,21 +224,16 @@ if (config.solver=='iterative') :
     # time loop
     r0 = torch.zeros(nele * (vel_ele.nloc * ndim + pre_ele.nloc),
                      device=dev, dtype=torch.float64)
-    r0_list = [r0[0:nele * vel_ele.nloc * ndim].view(nele, -1, ndim),
-               r0[nele * vel_ele.nloc * ndim:nele * (vel_ele.nloc * ndim + pre_ele.nloc)].view(nele, -1)]
+    r0_list = volume_mf_st.slicing_x_i(r0)
     if config.problem == 'stokes':
-        u_i = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)
-        u_rhs = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)
-        p_i = torch.zeros_like(r0_list[1], device=dev, dtype=torch.float64)
-        dp_i = torch.zeros_like(r0_list[1], device=dev, dtype=torch.float64)
-        p_rhs = torch.zeros_like(r0_list[1], device=dev, dtype=torch.float64)
-        x_i = [u_i, dp_i]
-        x_rhs = [u_rhs, p_rhs]
+        x_i = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+        x_rhs = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+        x_i_list = volume_mf_st.slicing_x_i(x_i)
+        x_i_n = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # last step soln
         for itime in range(1, tstep):  # time loop
-            u_n = u.view(nele, vel_ele.nloc, ndim)  # store last timestep value to un
-            u_i += u_n  # newton iteration initial value taken as last time step value
-            p_i += p.view(nele, pre_ele.nloc)  # use last timestep p as start value
-            dp_i *= 0
+            u_n, p_n = volume_mf_st.slicing_x_i(x_i_n)
+            x_i *= 0
+            x_i += x_i_n  # use last timestep p as start value
 
             r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
             its = 0  # linear solver iteration
@@ -245,10 +242,9 @@ if (config.solver=='iterative') :
             r0 *= 0
 
             while nits < config.n_its_max:
-                u_rhs *= 0
-                p_rhs *= 0
-                x_rhs = integral_mf.get_rhs(
-                    x_rhs=x_rhs, p_i=p_i, u_bc=u_bc, f=f
+                x_rhs *= 0
+                x_rhs = volume_mf_st.get_rhs(
+                    x_rhs=x_rhs, u_bc=u_bc, f=f
                 )
                 nr0l2 = r0l2  # stokes is linear prob, we will simply use linear residual as the non-linear residual
                 print('============')
@@ -269,10 +265,10 @@ if (config.solver=='iterative') :
                                      shape=((ndim+1) * cg_nonods, (ndim+1) * cg_nonods))
                     sf_nd_nb.set_data(RARmat=RAR.tocsr())
                 # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-                RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim+1,ndim+1,ncola)
+                RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
                 # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
                 space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-                    mg.mg_on_P0DG_prep(fina, cola, RARvalues)
+                    mg.mg_on_P0CG_prep(fina, cola, RARvalues)
                 sf_nd_nb.sfc_data.set_data(
                     space_filling_curve_numbering=space_filling_curve_numbering,
                     variables_sfc=variables_sfc,
@@ -281,20 +277,18 @@ if (config.solver=='iterative') :
                 )
                 # print('9. time elapsed, ', time.time() - starttime)
 
-                dp_i *= 0  # solve for delta p_i and u_i
-                if config.linear_solver == 'mg':
-                    x_i = solvers.multigrid_solver(x_i, p_i, x_rhs, config.tol)
-                elif config.linear_solver == 'gmres-mg':
-                    x_i = solvers.gmres_mg_solver(x_i, p_i, x_rhs, config.tol) # min(1.e-3*nr0l2, 1.e-3))
+                # dp_i *= 0  # solve for delta p_i and u_i
+                if config.linear_solver == 'gmres-mg':
+                    x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol) # min(1.e-3*nr0l2, 1.e-3))
                 else:
                     raise Exception('choose a valid solver...')
                 # get final residual after we're back to fine grid
                 r0 *= 0
-                r0_list = integral_mf.get_residual_only(
-                    r0_list, x_i, x_rhs
+                r0 = volume_mf_st.get_residual_only(
+                    r0, x_i, x_rhs
                 )
 
-                r0l2 = integral_mf.get_r0_l2_norm(r0) / fNorm
+                r0l2 = torch.linalg.norm(r0) / fNorm
                 r0l2all.append(r0l2.cpu().numpy())
                 print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
                       'abs res=', integral_mf.get_r0_l2_norm(r0).cpu().numpy(),
@@ -306,12 +300,11 @@ if (config.solver=='iterative') :
                 nits += 1
 
             # if converges,
-            x_i[0] = x_i[0].view(nele, -1, ndim)
-            x_i[1] = x_i[1].view(nele, -1)
+            x_i_n = x_i  # store this step in case we want to use this for next timestep
 
             # combine inner/inter element contribution
-            u_all[itime, :, :, :] = x_i[0].cpu().numpy()
-            p_all[itime, ...] = x_i[1].cpu().numpy()
+            u_all[itime, :, :, :] = x_i_list[0].cpu().numpy()
+            p_all[itime, ...] = x_i_list[1].cpu().numpy()
 
             # output to vtk
             vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % itime)
@@ -457,6 +450,15 @@ if config.solver == 'direct':
     # np.savetxt('Amat_assemble.txt', Amat_np, delimiter=',')
     print('doing writing. im goingt o solve', time.time()-starttime)
     x_sol = sp.sparse.linalg.spsolve(Amat_sp, rhs_np)
+    # get l2 error
+    x_ana = bc_f.ana_soln(config.problem)
+    u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_sol, x_ana)
+    print('after solving, l2 error is: \n',
+          'velocity ', u_l2, '\n',
+          'pressure ', p_l2)
+    print('l infinity error is: \n',
+          'velocity ', u_linf, '\n',
+          'pressure ', p_linf)
     u_sol = x_sol[0:ndim*u_nonods]
     p_sol = x_sol[ndim*u_nonods:ndim*u_nonods+p_nonods]
     u_all[1, ...] = u_sol.reshape(u_all[1, ...].shape)

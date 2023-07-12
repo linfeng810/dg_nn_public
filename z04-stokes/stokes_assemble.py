@@ -269,7 +269,7 @@ def assemble(u_bc, f):
                         for jnod in range(p_nloc):
                             glb_jnod = nele*u_nloc*ndim + ele*p_nloc + jnod
                             qq = np.sum(sq[iface, inod, :] * sq[iface, jnod, :] *
-                                        sdetwei[ele, iface, :]) * mu_e/config.eta_e  # mu_e/eta_e is h
+                                        sdetwei[ele, iface, :]) * config.eta_e / mu_e  # mu_e = eta_e/h
                             indices.append([glb_inod, glb_jnod])
                             values.append(qq)  # positive because n1.n1 = 1
                         # other side
@@ -277,7 +277,7 @@ def assemble(u_bc, f):
                             glb_jnod2 = nele*u_nloc*ndim + ele2*p_nloc + jnod2
                             qq = np.sum(sq[iface, inod, :] *
                                         sq[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
-                                        sdetwei[ele, iface, :]) * mu_e/config.eta_e
+                                        sdetwei[ele, iface, :]) * config.eta_e / mu_e
                             indices.append([glb_inod, glb_jnod2])
                             values.append(-qq)  # negative because n1.n2 = -1
     else:  # use fortran to assemble surface integral term
