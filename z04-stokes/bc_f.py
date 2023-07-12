@@ -222,3 +222,33 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
     else:
         raise Exception('the problem '+prob+' is not defined in bc_f.py')
     return u, f, fNorm
+
+
+def ana_soln(problem):
+    """get analytical solution"""
+    from volume_mf_st import slicing_x_i
+    ndim = config.ndim
+    if problem == 'stokes' and ndim == 3:
+        u_nloc = sf_nd_nb.vel_func_space.element.nloc
+        p_nloc = sf_nd_nb.pre_func_space.element.nloc
+        nele = config.nele
+        u_nonods = u_nloc * nele
+        p_nonods = p_nloc * nele
+        u_ana = torch.zeros(u_nonods*ndim + p_nonods, device=dev, dtype=torch.float64)
+        u, p = slicing_x_i(u_ana)
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+            # u[inod//u_nloc, inod%u_nloc, :] = 0.
+            u[inod // u_nloc, inod % u_nloc, 0] = -2. / 3. * torch.sin(x_inod[0]) ** 3
+            u[inod // u_nloc, inod % u_nloc, 1] = torch.sin(x_inod[0]) ** 2 * \
+                                                  (x_inod[1] * torch.cos(x_inod[0])
+                                                   - x_inod[2] * torch.sin(x_inod[0]))
+            u[inod // u_nloc, inod % u_nloc, 2] = torch.sin(x_inod[0]) ** 2 * \
+                                                  (x_inod[2] * torch.cos(x_inod[0])
+                                                   + x_inod[1] * torch.sin(x_inod[0]))
+        for inod in range(p_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+            p[inod // p_nloc, inod % p_nloc] = torch.sin(x_inod[0]) - 1. + np.cos(1.)
+    else:
+        raise Exception('problem analytical solution not detined for '+problem)
+    return u_ana
