@@ -342,9 +342,8 @@ if config.solver == 'direct':
     #               probe[u_nonods*ndim:u_nonods*ndim+p_nonods]]
     # rhs_list = [rhs[0:u_nonods*ndim],
     #             rhs[u_nonods*ndim:u_nonods*ndim+p_nonods]]
-    # rhs_list = integral_mf.get_rhs(
-    #     x_rhs=rhs_list,
-    #     p_i=p_dummy,
+    # rhs = integral_mf.get_rhs(
+    #     x_rhs=rhs,
     #     u_bc=u_bc,
     #     f=f
     # )
@@ -357,10 +356,11 @@ if config.solver == 'direct':
     #         rhs_dummy *= 0
     #         probe *= 0
     #         probe[jdim * u_nonods + inod] += 1.
-    #         x_list = integral_mf.get_residual_only(
-    #             r0=x_list,
-    #             x_i=probe_list,
-    #             x_rhs=rhs_dummy_list,
+    #         x_dummy = integral_mf.get_residual_only(
+    #             r0=x_dummy,
+    #             x_i=probe,
+    #             x_rhs=0,
+    #             include_p=False,
     #         )
     #         # add to Amat
     #         Amat[:, jdim*u_nonods + inod] -= x_dummy
@@ -371,10 +371,11 @@ if config.solver == 'direct':
     #     rhs_dummy *= 0
     #     probe *= 0
     #     probe[ndim * u_nonods + inod] += 1.
-    #     x_list = integral_mf.get_residual_only(
-    #         r0=x_list,
-    #         x_i=probe_list,
-    #         x_rhs=rhs_dummy_list,
+    #     x_dummy = integral_mf.get_residual_only(
+    #         r0=x_dummy,
+    #         x_i=probe,
+    #         x_rhs=0,
+    #         include_p=False,
     #     )
     #     # put in Amat
     #     Amat[:, ndim*u_nonods + inod] -= x_dummy

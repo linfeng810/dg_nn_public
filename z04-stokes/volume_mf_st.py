@@ -397,8 +397,6 @@ def _s_res_fi(
         sngi=sf_nd_nb.vel_func_space.element.sngi
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
-    if include_p:
-        sq = sf_nd_nb.pre_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim)
@@ -413,8 +411,6 @@ def _s_res_fi(
     )
     # get faces we want
     sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
-    if include_p:
-        sq_nb = sf_nd_nb.pre_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
     snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim)
     # change gaussian points order on other side
@@ -423,8 +419,7 @@ def _s_res_fi(
     # don't forget to change gaussian points order on sn_nb!
     sn_nb = sn_nb[..., nb_aln]
     nb_aln = sf_nd_nb.pre_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for pressure element
-    if include_p:
-        sq_nb = sq_nb[..., nb_aln]
+
 
     h = torch.sum(sdetwei, -1)
     if ndim == 3:
@@ -509,6 +504,10 @@ def _s_res_fi(
 
     if not include_p:  # no need to go to G, G^T and S
         return r_in, diagK, bdiagK, diagS
+    # include p blocks (G, G^T, S)
+    sq = sf_nd_nb.pre_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    sq_nb = sf_nd_nb.pre_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+    sq_nb = sq_nb[..., nb_aln]
     # G block
     del K
     G = torch.zeros(batch_in, u_nloc, ndim, p_nloc, device=dev, dtype=torch.float64)
@@ -588,7 +587,7 @@ def _s_res_fb(
     batch_in = f_b.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     if batch_in < 1:  # nothing to do here.
-        return r_in
+        return r_in, diagK, bdiagK
 
     # get element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -610,7 +609,10 @@ def _s_res_fb(
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
-    gamma_e = config.eta_e / torch.sum(sdetwei, -1)
+    if ndim == 3:
+        gamma_e = config.eta_e / torch.sqrt(torch.sum(sdetwei, -1))
+    else:
+        gamma_e = config.eta_e / torch.sum(sdetwei, -1)
 
     u_ith = x_i[0][E_F_b, ...]
     if include_p:
@@ -731,14 +733,14 @@ def _k_rhs_one_batch(
         nloc=u_nloc,
         ngi=sf_nd_nb.vel_func_space.element.ngi
     )
-    q = sf_nd_nb.pre_func_space.element.n
-    _, qdetwei = get_det_nlx(
-        nlx=sf_nd_nb.pre_func_space.element.nlx,
-        x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
-        weight=sf_nd_nb.pre_func_space.element.weight,
-        nloc=p_nloc,
-        ngi=sf_nd_nb.pre_func_space.element.ngi
-    )
+    # q = sf_nd_nb.pre_func_space.element.n
+    # _, qdetwei = get_det_nlx(
+    #     nlx=sf_nd_nb.pre_func_space.element.nlx,
+    #     x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
+    #     weight=sf_nd_nb.pre_func_space.element.weight,
+    #     nloc=p_nloc,
+    #     ngi=sf_nd_nb.pre_func_space.element.ngi
+    # )
 
     # f . v contribution to vel rhs
     rhs[0][idx_in, ...] += torch.einsum(
@@ -919,8 +921,11 @@ def _s_rhs_fb(
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
-    gamma_e = config.eta_e / torch.sum(sdetwei, -1)
-
+    h = torch.sum(sdetwei, -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    gamma_e = config.eta_e / h
+    print('gamma_e', gamma_e)
     u_bc_th = u_bc[E_F_b, ...]
     # p_i_th = p_i[E_F_b, ...]
 
@@ -946,10 +951,11 @@ def _s_rhs_fb(
 
     # 2. {q} [u_Di n_i]
     rhs[1][E_F_b, ...] += torch.einsum(
-        'bmg,bng,bi,bni->bm',
+        'bmg,bng,bi,bg,bni->bm',
         sq,  # (batch_in, p_nloc, sngi)
         sn,  # (batch_in, u_nloc, sngi)
         snormal,  # (batch_in, ndim)
+        sdetwei,  # (batch_in, sngi)
         u_bc_th,  # (batch_in, u_nloc, ndim)
     )
 
@@ -1215,7 +1221,7 @@ def slicing_x_i(x_i, include_p=True):
         p = x_i[nele*u_nloc*ndim:nele*u_nloc*ndim+nele*p_nloc].view(nele, p_nloc)
     else:
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
-        u = x_i.view(nele, u_nloc, ndim)
+        u = x_i[0:nele*u_nloc*ndim].view(nele, u_nloc, ndim)
         p = 0  # put in 0 to ... do nothing...
     return u, p
 
