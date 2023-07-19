@@ -7,6 +7,7 @@ We have MG solver, and MG-preconditioned GMRES solver.
 import torch
 import numpy as np
 import scipy as sp
+from types import NoneType
 import config
 import multigrid_linearelastic as mg
 # from volume_mf_linear_elastic import get_residual_only, get_residual_and_smooth_once
@@ -158,7 +159,8 @@ def multigrid_solver(x_i, p_i, x_rhs, tol):
 
 
 def gmres_mg_solver(x_i, x_rhs,
-                    tol):
+                    tol,
+                    nullspace=None):
     """
     use mg left preconditioned gmres as a solver
     """
@@ -189,12 +191,15 @@ def gmres_mg_solver(x_i, x_rhs,
         r0_u = volume_mf_st.vel_blk_precon(r0_u)
         r0_p = volume_mf_st.pre_blk_precon(r0_p)
 
+        # remove null space
+        if type(nullspace) is not NoneType:
+            r0 = remove_nullspace(r0, nullspace)
         beta = torch.linalg.norm(r0)
         v_m[0, :] += r0 / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
+        w_u, w_p = volume_mf_st.slicing_x_i(w)
         for j in range(0, m):
             w *= 0
-            w_u, w_p = volume_mf_st.slicing_x_i(w)
             w = get_residual_only(r0=w,
                                   x_i=v_m[j, :],
                                   x_rhs=0)  # providing rhs=0, b-Ax is -Ax
@@ -207,6 +212,10 @@ def gmres_mg_solver(x_i, x_rhs,
             for i in range(0, j+1):
                 h_m[i, j] = torch.linalg.vecdot(w, v_m[i, :])
                 w -= h_m[i, j] * v_m[i, :]
+
+            # remove null space
+            if type(nullspace) is not NoneType:
+                w = remove_nullspace(w, nullspace)
             h_m[j+1, j] = torch.linalg.norm(w)
             v_m[j+1, :] += w / h_m[j+1, j]
         # solve least-square problem
@@ -283,3 +292,11 @@ def gmres_solver(c_i, c_n, c_bc, f,
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
         its += 1
     return c_i
+
+
+def remove_nullspace(r, n):
+    """remove nullspace n from r"""
+    dim_null = n.shape[0]
+    for dim in range(dim_null):
+        r -= torch.inner(r, n[dim, :]) * n[dim, :]
+    return r

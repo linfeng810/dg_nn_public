@@ -237,8 +237,8 @@ def mg_on_P0CG_prep(fina, cola, RARvalues):
     print('to get sfc operators...', time.time() - start_time)
 
     # get coarse grid info
-    max_nlevel = sf.calculate_nlevel_sfc(nele) + 1
-    max_nonods_sfc_all_grids = 5 * config.nele
+    max_nlevel = sf.calculate_nlevel_sfc(cg_nonods) + 1
+    max_nonods_sfc_all_grids = 5 * cg_nonods
     max_ncola_sfc_all_un = 10 * ncola
     a_sfc, fina_sfc_all_un, cola_sfc_all_un, ncola_sfc_all_un, b_sfc, \
         ml_sfc, fin_sfc_nonods, nonods_sfc_all_grids, nlevel = \

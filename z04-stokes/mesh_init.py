@@ -235,7 +235,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
                 bc4.append(inod)
         bc = [bc1, bc2, bc3, bc4]
     else:
-        bc = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+        bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
     # # cg bc
     # cg_bc1 = []
     # for inod in range(cg_nonods):
@@ -277,7 +277,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
             [0, 1, 0],
             [0, 0, 1],
         ], device=config.dev, dtype=torch.float64)
-    elif nloc == 10:  # quadratic element
+    elif nloc == 6:  # quadratic element
         prolongator_from_p1dg = torch.tensor([
             [1, 0, 0],
             [0, 1, 0],
@@ -287,7 +287,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
             [1 / 2, 0, 1 / 2],
         ], device=config.dev, dtype=torch.float64)
 
-    return x_all, nbf, nbele, alnmt, \
+    return x_all, nbf, nbele, alnmt, glb_bcface_type, \
         finele, colele, ncolele, \
         bc, cg_ndglno, cg_nonods, ref_node_order, \
         prolongator_from_p1dg
@@ -644,7 +644,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
         # mark boundary nodes
         bc = [bc1, bc2, bc3, bc4, bc5, bc6]
     else:
-        bc = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+        bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
 
     # store P3DG from/to P1DG restrictor/prolongator
     prolongator_from_p1dg = torch.tensor([
@@ -689,7 +689,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
             [0, 1 / 2, 0, 1 / 2],
             [0, 0, 1 / 2, 1 / 2],
         ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise prolongation operator
-    return x_all, nbf, nbele, alnmt, \
+    return x_all, nbf, nbele, alnmt, glb_bcface_type, \
         finele, colele, ncolele, \
         bc, cg_ndglno, cg_nonods, ref_node_order,\
         prolongator_from_p1dg
@@ -750,6 +750,7 @@ def get_bc_node(mesh, faces, alnmt, nloc, x_all=0):
     bc_list = [np.zeros(nonods, dtype=bool) for _ in range(no_labels-1)]  # a list of markers
     found = np.zeros(nele*nface, dtype=bool)
     bc_face_list = np.where(alnmt < 0)[0]
+    glb_bcface_type = np.ones(nele*nface, dtype=np.int64) * -1
     if config.ndim == 2:
         face_ele_key = 'line'
     else:
@@ -767,13 +768,14 @@ def get_bc_node(mesh, faces, alnmt, nloc, x_all=0):
                 if set(faces[glb_iface]) == set(bc_face_nodes):
                     # this is boundary face we're looking for!
                     found[glb_iface] = True
+                    glb_bcface_type[glb_iface] = ent_id  # use ent_id to mark bc face's entity id.
                     iface = glb_iface % nface  # local face idx
                     ele = glb_iface // nface  # which element this face is in
                     nod_list_in_this_ele = ele*nloc + face_iloc_list[iface]
                     # print('ele iface nod_list', ele, '|', iface, '|', nod_list_in_this_ele)
                     bc_list[ent_id][nod_list_in_this_ele] = True  # marked!
     print('finishing getting bc nodes... time consumed: %f s' % (time.time() - sttime))
-    return bc_list
+    return bc_list, glb_bcface_type
 
 
 # local nodes number on a face

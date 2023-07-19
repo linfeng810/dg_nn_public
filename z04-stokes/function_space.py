@@ -89,16 +89,17 @@ class FuncSpace(object):
         self.p1dg_nonods = self.p1cg_nloc * self.nele
         if self.ndim == 2:
             self.x_all, \
-                self.nbf, self.nbele, self.alnmt, \
+                self.nbf, self.nbele, self.alnmt, self.glb_bcface_type, \
                 self.fina, self.cola, self.ncola, \
-                self.bc, self.cg_ndglno, self.cg_nonods, \
+                self.bc_node_list, self.cg_ndglno, self.cg_nonods, \
                 self.ref_node_order, self.prolongator_from_p1dg = \
                 init_2d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim + 1)
+            self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
         elif self.ndim == 3:
             self.x_all, \
-                self.nbf, self.nbele, self.alnmt, \
+                self.nbf, self.nbele, self.alnmt, self.glb_bcface_type, \
                 self.fina, self.cola, self.ncola, \
-                self.bc, self.cg_ndglno, self.cg_nonods, \
+                self.bc_node_list, self.cg_ndglno, self.cg_nonods, \
                 self.ref_node_order, self.prolongator_from_p1dg = \
                 init_3d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim+1)
             self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
@@ -110,3 +111,4 @@ class FuncSpace(object):
         self.nbele = torch.tensor(self.nbele, device=dev)
         self.nbf = torch.tensor(self.nbf, device=dev)
         self.alnmt = torch.tensor(self.alnmt, device=dev)
+        self.glb_bcface_type = torch.tensor(self.glb_bcface_type, device=dev)

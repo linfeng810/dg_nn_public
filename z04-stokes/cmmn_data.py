@@ -27,6 +27,7 @@ class SfNdNb:
         self.I_cd = None  # restrictor from P1DG to P1CG
         self.RARmat = None  # operator on P1CG (velocity and pressure both here. they are same shape on P1CG)
         self.sfc_data = SFCdata()
+        self.Kmatinv = None  # velocity block of stoeks problem
 
     def set_data(self,
                  vel_func_space=None,

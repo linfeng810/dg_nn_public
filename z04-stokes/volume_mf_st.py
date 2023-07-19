@@ -201,6 +201,9 @@ def get_residual_only(r0, x_i, x_rhs, include_p=True):
             r0, x_i,
             diagK, bdiagK, diagS,
             idx_in_f, brk_pnt[i], include_p)
+    # if include_p and config.hasNullSpace:
+    #     r0[-1] -= x_i[-1]  # this effectively add 1 to the last diagonal entry in pressure block to remove null space.
+        # print(r0.shape, x_i.shape)
     # r0[0] = r0[0].view(nele * u_nloc, ndim)
     # r0[1] = r0[1].view(-1)
     return r0
@@ -329,7 +332,10 @@ def _s_res_one_batch(
 
     # separate nbf to get internal face list and boundary face list
     F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
-    F_b = torch.where(torch.logical_and(alnmt < 0, idx_in_f))[0]  # boundary face
+    # for boundary faces, only include dirichlet boundary faces
+    F_b = torch.where(torch.logical_and(
+        torch.logical_and(alnmt < 0, sf_nd_nb.vel_func_space.glb_bcface_type == 0),
+        idx_in_f))[0]  # boundary face
     F_inb = nbf[F_i]  # neighbour list of interior face
     F_inb = F_inb.type(torch.int64)
 
@@ -359,7 +365,7 @@ def _s_res_one_batch(
 
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
-    if ndim == 3:
+    if True:  # ndim == 3:  # TODO: we could omit this iface loop in 2D. we'll make do with it at the moment.
         for iface in range(nface):
             idx_iface = f_b == iface
             r0, diagK, bdiagK = _s_res_fb(
@@ -695,7 +701,8 @@ def get_rhs(x_rhs, u_bc, f, u_n=0):
     # x_i[0] = x_i[0].view(nele, u_nloc, ndim)  # this is u
     # x_i[1] = x_i[1].view(nele, p_nloc)  # this is dp
     # p_i = p_i.view(nele, p_nloc)
-    u_bc = u_bc.view(nele, u_nloc, ndim)
+    for u_bci in u_bc:
+        u_bci = u_bci.view(nele, u_nloc, ndim)
     f = f.view(nele, u_nloc, ndim)
 
     for i in range(nnn):
@@ -786,26 +793,21 @@ def _s_rhs_one_batch(
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    # rhs[0] = rhs[0].view(-1, u_nloc, ndim)
-    # rhs[1] = rhs[1].view(-1, p_nloc)
-    # u_bc = u_bc.view(-1, u_nloc, ndim)
-    # p_i = p_i.view(-1, p_nloc)
 
     # separate nbf to get internal face list and boundary face list
-    # F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
-    F_b = torch.where(torch.logical_and(alnmt < 0, idx_in_f))[0]  # boundary face
-    # F_inb = nbf[F_i]  # neighbour list of interior face
-    # F_inb = F_inb.type(torch.int64)
+    F_b_d = torch.where(torch.logical_and(
+        torch.logical_and(alnmt < 0, sf_nd_nb.vel_func_space.glb_bcface_type == 0),
+        idx_in_f))[0]  # boundary face
+    F_b_n = torch.where(torch.logical_and(
+        torch.logical_and(alnmt < 0, sf_nd_nb.vel_func_space.glb_bcface_type == 1),
+        idx_in_f))[0]  # boundary face
 
-    # create two lists of which element f_i / f_b is in
-    # E_F_i = torch.floor_divide(F_i, nface)
-    E_F_b = torch.floor_divide(F_b, nface)
-    # E_F_inb = torch.floor_divide(F_inb, nface)
+    E_F_b_d = torch.floor_divide(F_b_d, nface)
+    E_F_b_n = torch.floor_divide(F_b_n, nface)
 
     # local face number
-    # f_i = torch.remainder(F_i, nface)
-    f_b = torch.remainder(F_b, nface)
-    # f_inb = torch.remainder(F_inb, nface)
+    f_b_d = torch.remainder(F_b_d, nface)
+    f_b_n = torch.remainder(F_b_n, nface)
 
     # # for interior faces
     # for iface in range(nface):
@@ -819,15 +821,23 @@ def _s_rhs_one_batch(
     #             f_inb[idx_iface], E_F_inb[idx_iface],
     #             p_i,
     #             nb_gi_aln)
-
+    hasNeuBC = False
+    if len(u_bc) > 1: hasNeuBC = True
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
     if True:  # ndim == 3:  # this is slower for 2D, but we'll make do with it.
         for iface in range(nface):
-            idx_iface = f_b == iface
+            idx_iface_d = f_b_d == iface
+            idx_iface_n = f_b_n == iface
             rhs = _s_rhs_fb(
-                rhs, f_b[idx_iface], E_F_b[idx_iface],
-                u_bc)
+                rhs,
+                f_b_d[idx_iface_d], E_F_b_d[idx_iface_d],
+                u_bc[0])
+            if not hasNeuBC: continue
+            rhs = _s_rhs_fb_neumann(
+                rhs,
+                f_b_n[idx_iface_n], E_F_b_n[idx_iface_n],
+                u_bc[1])
     else:
         raise Exception('2D stokes not implemented!')
 
@@ -895,7 +905,7 @@ def _s_rhs_fb(
     contains contribution of
     1. vel dirichlet BC to velocity rhs
     2. vel dirichlet BC to pressure rhs
-    3. TODO: stress neumann BC to velocity rhs
+    ~3. : stress neumann BC to velocity rhs~
     ~4. gradient of p on boundary to velocith rhs~
     """
     batch_in = f_b.shape[0]
@@ -925,7 +935,7 @@ def _s_rhs_fb(
     if ndim == 3:
         h = torch.sqrt(h)
     gamma_e = config.eta_e / h
-    print('gamma_e', gamma_e)
+    # print('gamma_e', gamma_e)
     u_bc_th = u_bc[E_F_b, ...]
     # p_i_th = p_i[E_F_b, ...]
 
@@ -959,7 +969,7 @@ def _s_rhs_fb(
         u_bc_th,  # (batch_in, u_nloc, ndim)
     )
 
-    # 3. TODO: Neumann BC
+    # ~3. : Neumann BC~
 
     # # 4. grad p: {p} [v_i n_i]
     # rhs[0][E_F_b, ...] -= torch.einsum(
@@ -970,6 +980,56 @@ def _s_rhs_fb(
     #     sdetwei,  # (batch_in, sngi)
     #     p_i_th,  # (batch_in, p_nloc)
     # )
+
+    return rhs_in
+
+
+def _s_rhs_fb_neumann(
+        rhs_in, f_b, E_F_b,
+        u_bc
+):
+    """
+    contains contribution of
+    3. stress neumann BC to velocity rhs
+    """
+    batch_in = f_b.shape[0]
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
+    if batch_in < 1:  # nothing to do here.
+        return rhs_in
+
+    # get element parameters
+    # u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    # p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    rhs = slicing_x_i(rhs_in)
+
+    # shape function
+    snx, sdetwei, snormal = sdet_snlx(
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
+        sngi=sf_nd_nb.vel_func_space.element.sngi
+    )
+    sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
+    sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
+    snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
+    sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
+    h = torch.sum(sdetwei, -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    gamma_e = config.eta_e / h
+    # print('gamma_e', gamma_e)
+    u_bc_th = u_bc[E_F_b, ...]
+
+    # 3. TODO: Neumann BC
+    rhs[0][E_F_b, ...] += torch.einsum(
+        'bmg,bng,bg,bni->bmi',
+        sn,   # (batch_in, nloc, sngi)
+        sn,   # (batch_in, nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        u_bc_th,  # (batch_in, u_nloc, ndim)
+    )
 
     return rhs_in
 
@@ -1337,7 +1397,7 @@ def vel_blk_precon(x_u):
             sf_nd_nb.RARmat,
             r1.contiguous().view(-1).cpu().numpy()
         )
-        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods, ndim)
     else:  # multi-grid on space-filling curve generated grids
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data.space_filling_curve_numbering)
@@ -1370,4 +1430,39 @@ def vel_blk_precon(x_u):
     for its1 in range(config.pre_smooth_its):
         r0 *= 0
         r0, x_u = get_residual_and_smooth_once(r0, x_u, x_rhs=0, include_p=False)
+    return x_u
+
+
+def vel_blk_precon_direct_inv(x_u):
+    """
+    as a test,
+    use direct inverse of K as velocity block preconditioner.
+    i.e. lhs mat is
+    A = [ K,   G, ]
+        [ G^t, S  ]
+        preconditioner is
+    M = [ K,   0, ]
+        [ 0,   Q  ]
+
+    in this subroutine we apply K^-1 to x_u
+    """
+    # we will use stokes_assemble to get K
+    import stokes_assemble
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    p_nonods = sf_nd_nb.pre_func_space.nonods
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    if type(sf_nd_nb.Kmatinv) is not None:
+        dummy = torch.zeros(u_nonods*ndim, device=dev, dtype=torch.float64)
+        Amat_sp, _ = stokes_assemble.assemble(u_bc=dummy,
+                                              f=dummy)
+        Kmat = Amat_sp.todense()[0:u_nonods*ndim, 0:u_nonods*ndim]
+        Kmatinv = np.linalg.inv(Kmat)
+        sf_nd_nb.Kmatinv = Kmatinv
+    else:
+        Kmatinv = sf_nd_nb.Kmatinv
+    x_in = x_u.view(-1).cpu().numpy()
+    x_out = np.matmul(Kmatinv, x_in)
+    x_u *= 0
+    x_u += torch.tensor(x_out, device=dev, dtype=torch.float64).view(nele, u_nloc, ndim)
     return x_u

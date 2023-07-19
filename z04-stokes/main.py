@@ -118,16 +118,16 @@ print('4. time elapsed, ',time.time()-starttime)
 # del x_ref_in
 
 # initical condition
-u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
-p = torch.zeros(nele, pre_ele.nloc, device=dev, dtype=torch.float64)
-u, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc, u, vel_func_space.x_all, prob=config.problem)  # 'linear-elastic')
+# u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
+u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all, prob=config.problem)  # 'linear-elastic')
 
 # print(u)
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
-u = u.reshape(nele, vel_ele.nloc, ndim) # reshape doesn't change memory allocation.
-u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
+# u = u.reshape(nele, vel_ele.nloc, ndim) # reshape doesn't change memory allocation.
+# u_bc = u.detach().clone() # this stores Dirichlet boundary *only*, otherwise zero.
 
-u = torch.rand_like(u)*0  # initial guess
+u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # initial guess
+p = torch.zeros(nele, pre_ele.nloc, device=dev, dtype=torch.float64)
 # to test vtk output, set u and p be ana sol here
 if False:
     u = u.view(vel_func_space.nonods, ndim)
@@ -262,7 +262,7 @@ if (config.solver=='iterative') :
 
                 if not config.is_sfc:
                     RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
-                                     shape=((ndim+1) * cg_nonods, (ndim+1) * cg_nonods))
+                                     shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
                     sf_nd_nb.set_data(RARmat=RAR.tocsr())
                 # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
                 RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
@@ -279,7 +279,12 @@ if (config.solver=='iterative') :
 
                 # dp_i *= 0  # solve for delta p_i and u_i
                 if config.linear_solver == 'gmres-mg':
-                    x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol) # min(1.e-3*nr0l2, 1.e-3))
+                    # nullspace = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+                    # nullspace[u_nonods * ndim:-1] += 1.
+                    # nullspace = nullspace.view(1, -1)
+                    # x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol,
+                    #                               nullspace=nullspace)  # min(1.e-3*nr0l2, 1.e-3))
+                    x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol)
                 else:
                     raise Exception('choose a valid solver...')
                 # get final residual after we're back to fine grid
@@ -302,16 +307,26 @@ if (config.solver=='iterative') :
             # if converges,
             x_i_n = x_i  # store this step in case we want to use this for next timestep
 
+            # get l2 error
+            x_ana = bc_f.ana_soln(config.problem)
+            u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
+            print('after solving, l2 error is: \n',
+                  'velocity ', u_l2, '\n',
+                  'pressure ', p_l2)
+            print('l infinity error is: \n',
+                  'velocity ', u_linf, '\n',
+                  'pressure ', p_linf)
+
             # combine inner/inter element contribution
             u_all[itime, :, :, :] = x_i_list[0].cpu().numpy()
             p_all[itime, ...] = x_i_list[1].cpu().numpy()
 
             # output to vtk
             vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % itime)
-            vtk.write_vector(x_i[0], 'velocity', sf_nd_nb.vel_func_space)
+            vtk.write_vector(x_i_list[0], 'velocity', sf_nd_nb.vel_func_space)
             vtk.write_end()
             vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-            vtk.write_scaler(x_i[1], 'pressure', sf_nd_nb.pre_func_space)
+            vtk.write_scaler(x_i_list[1], 'pressure', sf_nd_nb.pre_func_space)
             vtk.write_end()
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
@@ -360,7 +375,7 @@ if config.solver == 'direct':
     #             r0=x_dummy,
     #             x_i=probe,
     #             x_rhs=0,
-    #             include_p=False,
+    #             include_p=True,
     #         )
     #         # add to Amat
     #         Amat[:, jdim*u_nonods + inod] -= x_dummy
@@ -375,7 +390,7 @@ if config.solver == 'direct':
     #         r0=x_dummy,
     #         x_i=probe,
     #         x_rhs=0,
-    #         include_p=False,
+    #         include_p=True,
     #     )
     #     # put in Amat
     #     Amat[:, ndim*u_nonods + inod] -= x_dummy
@@ -384,6 +399,14 @@ if config.solver == 'direct':
 
     import stokes_assemble
     print('im going to assemble', time.time()-starttime)
+    # save bc to vtk to check if it's correct
+    vtk = output.File('bc_diri.vtu')
+    vtk.write_vector(u_bc[0], 'velocity_diri', sf_nd_nb.vel_func_space)
+    vtk.write_end()
+    if len(u_bc) > 1:  # has neumann bc
+        vtk = output.File('bc_neu.vtu')
+        vtk.write_vector(u_bc[1], 'velocity_neu', sf_nd_nb.vel_func_space)
+        vtk.write_end()
     Amat_sp, rhs_np = stokes_assemble.assemble(u_bc, f)
 
     if False:
