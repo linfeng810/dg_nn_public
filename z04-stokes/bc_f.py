@@ -159,21 +159,43 @@ def bc_f(ndim, bc, u, x_all, prob: str):
     return u, f, fNorm
 
 
-def vel_bc_f(ndim, bc, u, x_all, prob: str):
+def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
     nloc = sf_nd_nb.vel_func_space.element.nloc
     nonods = sf_nd_nb.vel_func_space.nonods
+    u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
     if prob == 'stokes':
         if ndim == 2:
             # apply boundary conditions (4 Dirichlet bcs)
-            for bci in bc:
-                for inod in range(bci.shape[0]):
-                    if not bci[inod]:  # this is not a boundary node
-                        continue
-                    x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                    # u[inod//nloc, inod%nloc, :] = 0.
-                    u[inod // nloc, inod % nloc, 0] = -torch.exp(x_inod[0]) * \
-                                                      (x_inod[1] * torch.cos(x_inod[1]) + torch.sin(x_inod[1]))
-                    u[inod // nloc, inod % nloc, 1] = torch.exp(x_inod[0]) * x_inod[1] * torch.sin(x_inod[1])
+            # for ibc in range(1):
+            #     bci = bc_node_list[ibc]
+            #     for inod in range(bci.shape[0]):
+            #         if not bci[inod]:  # this is not a boundary node
+            #             continue
+            #         x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+            #         # u[inod//nloc, inod%nloc, :] = 0.
+            #         u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+            #             -torch.exp(x_inod[0]) * \
+            #             (x_inod[1] * torch.cos(x_inod[1]) + torch.sin(x_inod[1]))
+            #         u_bc[ibc][inod // nloc, inod % nloc, 1] = \
+            #             torch.exp(x_inod[0]) * x_inod[1] * torch.sin(x_inod[1])
+            # for ibc in range(1, len(bc_node_list)):  # neumann boundary
+            #     pass  # let's assume there's no neumann boundary
+
+            # poiseuille flow
+            ibc = 0
+            bci = bc_node_list[0]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = 1 - x_inod[1] **2
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = 0.
+            ibc = 1
+            bci = bc_node_list[1]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:
+                    continue
+                u_bc[ibc][inod // nloc, inod % nloc, :] = 0.  # 0 stress out-flow condition
 
             f = np.zeros((nonods, ndim), dtype=np.float64)
 
@@ -181,19 +203,39 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
 
         else:  # ndim == 3
-            for bci in bc:
+            for ibc in range(1):
+                bci = bc_node_list[ibc]
                 for inod in range(bci.shape[0]):
                     if not bci[inod]:  # this is not a boundary node
                         continue
                     x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
                     # u[inod//nloc, inod%nloc, :] = 0.
-                    u[inod // nloc, inod % nloc, 0] = -2./3. * torch.sin(x_inod[0])**3
-                    u[inod // nloc, inod % nloc, 1] = torch.sin(x_inod[0])**2 * \
-                                                      (x_inod[1] * torch.cos(x_inod[0])
-                                                       - x_inod[2] * torch.sin(x_inod[0]))
-                    u[inod // nloc, inod % nloc, 2] = torch.sin(x_inod[0])**2 * \
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = -2./3. * torch.sin(x_inod[0])**3
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = \
+                        torch.sin(x_inod[0])**2 * (x_inod[1] * torch.cos(x_inod[0]) - x_inod[2] * torch.sin(x_inod[0]))
+                    u_bc[ibc][inod // nloc, inod % nloc, 2] = torch.sin(x_inod[0])**2 * \
                                                       (x_inod[2] * torch.cos(x_inod[0])
                                                        + x_inod[1] * torch.sin(x_inod[0]))
+            # neumann bc (at z=1 plane) the rest are neumann bc... what a raw assumption
+            for ibc in range(1, len(bc_node_list)):
+                bci = bc_node_list[ibc]
+                for inod in range(bci.shape[0]):
+                    if not bci[inod]:
+                        continue
+                    x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod%nloc]
+                    x = x_inod[0]
+                    y = x_inod[1]
+                    z = x_inod[2]
+                    # unsymmetry stress formulation
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = - torch.sin(x) ** 3
+                    u_bc[ibc][inod // nloc, inod % nloc, 2] = torch.cos(x) * torch.sin(x) ** 2 - torch.sin(x)
+
+                    # symmetry stress formulation
+                    # u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                    #     torch.sin(x) * (3 * torch.cos(x) ** 2 + 3 * y * torch.cos(x) * torch.sin(x) - 1)
+                    # u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+                    # u_bc[ibc][inod // nloc, inod % nloc, 2] = torch.sin(x) * (torch.sin(2 * x) - 1)
             f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
             x = torch.tensor(x_all[:, 0], device=dev)
@@ -201,11 +243,17 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
             z = torch.tensor(x_all[:, 2], device=dev)
 
             # sin pressure
-            f[:, 0] = torch.cos(x) - 2*torch.sin(x) + 6*torch.cos(x)**2 * torch.sin(x)
-            f[:, 1] = 7*y*torch.cos(x) - 9*y*torch.cos(x)**3 \
-                      - 3*z*torch.sin(x) + 9*z*torch.cos(x)**2*torch.sin(x)
-            f[:, 2] = 7*z*torch.cos(x) - 9*z*torch.cos(x)**3 \
-                      + 3*y*torch.sin(x) - 9*y*torch.cos(x)**2*torch.sin(x)
+            # unsymmetric stress formulation
+            f[:, 0] = torch.cos(x) - 2 * torch.sin(x) + 6 * torch.cos(x) ** 2 * torch.sin(x)
+            f[:, 1] = 7 * y * torch.cos(x) - 9 * y * torch.cos(x) ** 3 - 3 * z * torch.sin(x) + 9 * z * torch.cos(x) ** 2 * torch.sin(x)
+            f[:, 2] = 7 * z * torch.cos(x) - 9 * z * torch.cos(x) ** 3 + 3 * y * torch.sin(x) - 9 * y * torch.cos(x) ** 2 * torch.sin(x)
+
+            # # symmetryc tress formulation
+            # f[:, 0] = torch.cos(x) - 2*torch.sin(x) + 6*torch.cos(x)**2 * torch.sin(x)
+            # f[:, 1] = 7*y*torch.cos(x) - 9*y*torch.cos(x)**3 \
+            #           - 3*z*torch.sin(x) + 9*z*torch.cos(x)**2*torch.sin(x)
+            # f[:, 2] = 7*z*torch.cos(x) - 9*z*torch.cos(x)**3 \
+            #           + 3*y*torch.sin(x) - 9*y*torch.cos(x)**2*torch.sin(x)
 
             # # linear pressure
             # from torch import sin, cos
@@ -217,11 +265,49 @@ def vel_bc_f(ndim, bc, u, x_all, prob: str):
             #           - 2 * cos(x) ** 2 * (z * cos(x) + y * sin(x)) \
             #           - 4 * cos(x) * sin(x) * (y * cos(x) - z * sin(x))
 
+            # # poiseuille flow
+            # for ibc in range(1):
+            #     bci = bc_node_list[ibc]
+            #     for inod in range(bci.shape[0]):
+            #         if not bci[inod]:  # this is not a boundary node
+            #             continue
+            #         x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+            #         # u[inod//nloc, inod%nloc, :] = 0.
+            #         u_bc[ibc][inod // nloc, inod % nloc, 0] = 1 - x_inod[1]**2
+            #         u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+            #         u_bc[ibc][inod // nloc, inod % nloc, 2] = 0
+            # # neumann bc (at z=1 plane) the rest are neumann bc... what a raw assumption
+            # for ibc in range(1, len(bc_node_list)-1):
+            #     bci = bc_node_list[ibc]
+            #     for inod in range(bci.shape[0]):
+            #         if not bci[inod]:
+            #             continue
+            #         x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod%nloc]
+            #         x = x_inod[0]
+            #         y = x_inod[1]
+            #         z = x_inod[2]
+            #         u_bc[ibc][inod // nloc, inod % nloc, :] = 0  # outflow no stress bc
+            # # symmetry bc
+            # for ibc in range(2, len(bc_node_list)):
+            #     bci = bc_node_list[ibc]
+            #     for inod in range(bci.shape[0]):
+            #         if not bci[inod]:
+            #             continue
+            #         x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+            #         x = x_inod[0]
+            #         y = x_inod[1]
+            #         z = x_inod[2]
+            #         # symmetry is too hard... I'll just use dirichlet
+            #         u_bc[ibc][inod // nloc, inod % nloc, 0] = 1 - x_inod[1] ** 2
+            #         u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+            #         u_bc[ibc][inod // nloc, inod % nloc, 2] = 0
+            # f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
-            del x, y, z
+            # del x, y, z
     else:
         raise Exception('the problem '+prob+' is not defined in bc_f.py')
-    return u, f, fNorm
+    return u_bc, f, fNorm
 
 
 def ana_soln(problem):
@@ -248,7 +334,35 @@ def ana_soln(problem):
                                                    + x_inod[1] * torch.sin(x_inod[0]))
         for inod in range(p_nonods):
             x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
-            p[inod // p_nloc, inod % p_nloc] = torch.sin(x_inod[0]) - 1. + np.cos(1.)
+            p[inod // p_nloc, inod % p_nloc] = torch.sin(x_inod[0])  # - 1. + np.cos(1.)
+
+        # # poiseuille flow
+        # for inod in range(u_nonods):
+        #     x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+        #     # u[inod//u_nloc, inod%u_nloc, :] = 0.
+        #     u[inod // u_nloc, inod % u_nloc, 0] = 1 - x_inod[1]**2
+        #     u[inod // u_nloc, inod % u_nloc, 1] = 0
+        #     u[inod // u_nloc, inod % u_nloc, 2] = 0
+        # for inod in range(p_nonods):
+        #     x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        #     p[inod // p_nloc, inod % p_nloc] = -2 * x_inod[0] + 2
+    elif problem == 'stokes' and ndim == 2:
+        # poiseuille flow
+        u_nloc = sf_nd_nb.vel_func_space.element.nloc
+        p_nloc = sf_nd_nb.pre_func_space.element.nloc
+        nele = config.nele
+        u_nonods = u_nloc * nele
+        p_nonods = p_nloc * nele
+        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+        u, p = slicing_x_i(u_ana)
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+            # u[inod//u_nloc, inod%u_nloc, :] = 0.
+            u[inod // u_nloc, inod % u_nloc, 0] = 1 - x_inod[1]**2
+            u[inod // u_nloc, inod % u_nloc, 1] = 0
+        for inod in range(p_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+            p[inod // p_nloc, inod % p_nloc] = -2 * x_inod[0] + 2
     else:
         raise Exception('problem analytical solution not detined for '+problem)
     return u_ana
