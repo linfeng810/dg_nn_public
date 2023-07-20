@@ -27,7 +27,7 @@ class SfNdNb:
         self.I_cd = None  # restrictor from P1DG to P1CG
         self.RARmat = None  # operator on P1CG (velocity and pressure both here. they are same shape on P1CG)
         self.sfc_data = SFCdata()
-        self.Kmatinv = None  # velocity block of stoeks problem
+        self.Kmatinv = None  # velocity block of stokes problem
 
     def set_data(self,
                  vel_func_space=None,
@@ -38,6 +38,7 @@ class SfNdNb:
                  I_cd=None,  # discontinuous P1DG to continuous P1CG prolongator
                  I_dc=None,  # continuous P1CG to discontinuous p1DG restrictor
                  RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
+                 Kmatinv=None,  # inverse of velocity block of stokes problem
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -57,6 +58,8 @@ class SfNdNb:
             self.I_dc = I_dc
         if type(RARmat) != NoneType:
             self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
+        if type(Kmatinv) != NoneType:
+            self.Kmatinv = Kmatinv
 
 
 class SFCdata:

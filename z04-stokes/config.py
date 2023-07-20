@@ -22,7 +22,7 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='direct' # 'direct' or 'iterative'
+solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
@@ -76,8 +76,8 @@ print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_it
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
-gmres_m = 10  # restart
-gmres_its = 100  # max GMRES steps
+gmres_m = 20  # restart
+gmres_its = 500  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)

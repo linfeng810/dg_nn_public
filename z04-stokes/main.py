@@ -296,7 +296,7 @@ if (config.solver=='iterative') :
                 r0l2 = torch.linalg.norm(r0) / fNorm
                 r0l2all.append(r0l2.cpu().numpy())
                 print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
-                      'abs res=', integral_mf.get_r0_l2_norm(r0).cpu().numpy(),
+                      'abs res=', torch.linalg.norm(r0).cpu().numpy(),
                       'fNorm', fNorm.cpu().numpy())
                 # nr0l2 = torch.linalg.norm(du_i.view(-1))
                 nr0l2 = r0l2

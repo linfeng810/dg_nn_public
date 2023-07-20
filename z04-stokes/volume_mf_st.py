@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 import scipy as sp
 import numpy as np
+from types import NoneType
 from tqdm import tqdm
 import config
 from config import sf_nd_nb
@@ -1452,13 +1453,13 @@ def vel_blk_precon_direct_inv(x_u):
     p_nonods = sf_nd_nb.pre_func_space.nonods
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    if type(sf_nd_nb.Kmatinv) is not None:
+    if type(sf_nd_nb.Kmatinv) is NoneType:
         dummy = torch.zeros(u_nonods*ndim, device=dev, dtype=torch.float64)
-        Amat_sp, _ = stokes_assemble.assemble(u_bc=dummy,
+        Amat_sp, _ = stokes_assemble.assemble(u_bc_in=[dummy, dummy],
                                               f=dummy)
         Kmat = Amat_sp.todense()[0:u_nonods*ndim, 0:u_nonods*ndim]
         Kmatinv = np.linalg.inv(Kmat)
-        sf_nd_nb.Kmatinv = Kmatinv
+        sf_nd_nb.set_data(Kmatinv=Kmatinv)
     else:
         Kmatinv = sf_nd_nb.Kmatinv
     x_in = x_u.view(-1).cpu().numpy()
