@@ -108,7 +108,7 @@ print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_it
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
-gmres_m = 10  # restart
+gmres_m = 20  # restart
 gmres_its = 100  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':

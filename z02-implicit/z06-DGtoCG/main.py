@@ -526,4 +526,5 @@ if (config.solver=='direct'):
 # c_all = np.asarray(c_all)[::1,:]
 np.savetxt('c_all.txt', c_all, delimiter=',')
 np.savetxt('x_all.txt', x_all, delimiter=',')
+print('10. time elapsed, ',time.time()-starttime)
 print(torch.cuda.memory_summary())
