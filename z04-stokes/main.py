@@ -285,6 +285,8 @@ if (config.solver=='iterative') :
                     # x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol,
                     #                               nullspace=nullspace)  # min(1.e-3*nr0l2, 1.e-3))
                     x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol)
+                elif config.linear_solver == 'right-gmres-mg':
+                    x_i = solvers.right_gmres_mg_solver(x_i, x_rhs, config.tol)
                 else:
                     raise Exception('choose a valid solver...')
                 # get final residual after we're back to fine grid

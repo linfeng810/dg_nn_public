@@ -274,7 +274,7 @@ def _k_res_one_batch(
     # get diagonal of velocity block K
     diagK += torch.diagonal(K.view(batch_in, u_nloc * ndim, u_nloc * ndim)
                             , dim1=1, dim2=2).view(batch_in, u_nloc, ndim)
-    bdiagK += K
+    bdiagK[idx_in, ...] += K
 
     if include_p:
         # local G
@@ -557,29 +557,30 @@ def _s_res_fi(
     # update pressure residual from velocity divergence
     r[1][E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_inb)
 
-    del G
-    S = torch.zeros((batch_in, p_nloc, p_nloc), device=dev, dtype=torch.float64)
-    # S: pressure penalty term: h[q][p]
-    # this side
-    S += torch.einsum(
-        'b,bmg,bng,bg->bmn',
-        h,  # (batch_in)
-        sq,  # (batch_in, p_nloc, sngi)
-        sq,
-        sdetwei,  # (batch_in, sngi)
-    )
-    r[1][E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_ith)
-    diagS[E_F_i, ...] += S
-    # other side
-    S *= 0
-    S += torch.einsum(
-        'b,bmg,bng,bg->bmn',
-        h,  # (batch_in)
-        sq,  # (batch_in, p_nloc, sngi)
-        sq_nb,  # (batch_in, p_nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-    ) * (-1.)  # due to n1 \cdot n2 = -1
-    r[1][E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_inb)
+    if config.is_pressure_stablise:
+        del G
+        S = torch.zeros((batch_in, p_nloc, p_nloc), device=dev, dtype=torch.float64)
+        # S: pressure penalty term: h[q][p]
+        # this side
+        S += torch.einsum(
+            'b,bmg,bng,bg->bmn',
+            h,  # (batch_in)
+            sq,  # (batch_in, p_nloc, sngi)
+            sq,
+            sdetwei,  # (batch_in, sngi)
+        )
+        r[1][E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_ith)
+        diagS[E_F_i, ...] += S
+        # other side
+        S *= 0
+        S += torch.einsum(
+            'b,bmg,bng,bg->bmn',
+            h,  # (batch_in)
+            sq,  # (batch_in, p_nloc, sngi)
+            sq_nb,  # (batch_in, p_nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+        ) * (-1.)  # due to n1 \cdot n2 = -1
+        r[1][E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_inb)
     # this concludes surface integral on interior faces.
     return r_in, diagK, bdiagK, diagS
 
@@ -1354,34 +1355,36 @@ def pre_blk_precon(x_p):
         qdetwei
     )
     Q = torch.linalg.inv(Q)
-    x_p = torch.einsum('bmn,bn->bm', Q, x_p)
+    x_temp = torch.einsum('bmn,bn->bm', Q, x_p)
+    x_p *= 0
+    x_p += x_temp
     return x_p.view(-1)
 
 
-def vel_blk_precon(x_u):
+def vel_blk_precon(x_u, x_rhs):
     """
     given vector x_u, apply velocity block's preconditioner:
-    x_u <- K^-1 x_u
+    x_u <- K^-1 x_rhs
     here K^-1 is the approximation of the inverse of K,
     The approximation is computed by a multi-grid cycle.
 
-    This operation equals to _multigrid_one_cycle,
-    only except that rhs is always zero.
+    This operation equals to _multigrid_one_cycle.
     """
     nonods = sf_nd_nb.vel_func_space.nonods
     nloc = sf_nd_nb.vel_func_space.element.nloc
     x_u = x_u.view(nonods, ndim)
+    x_rhs = x_rhs.view(nonods, ndim)
     cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
     r0 = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
 
     # pre smooth
     for its1 in range(config.pre_smooth_its):
         r0 *= 0
-        r0, x_u = get_residual_and_smooth_once(r0, x_u, x_rhs=0, include_p=False)
+        r0, x_u = get_residual_and_smooth_once(r0, x_u, x_rhs=x_rhs, include_p=False)
 
     # get residual on PnDG
     r0 *= 0
-    r0 = get_residual_only(r0, x_u, x_rhs=0, include_p=False)
+    r0 = get_residual_only(r0, x_u, x_rhs=x_rhs, include_p=False)
 
     # restrict residual
     if not config.is_pmg:
@@ -1430,11 +1433,12 @@ def vel_blk_precon(x_u):
     # post smooth
     for its1 in range(config.pre_smooth_its):
         r0 *= 0
-        r0, x_u = get_residual_and_smooth_once(r0, x_u, x_rhs=0, include_p=False)
-    return x_u
+        r0, x_u = get_residual_and_smooth_once(r0, x_u, x_rhs=x_rhs, include_p=False)
+    # print('x_rhs norm: ', torch.linalg.norm(x_rhs.view(-1)), 'r0 norm: ', torch.linalg.norm(r0.view(-1)))
+    return x_u.view(nele, nloc, ndim)
 
 
-def vel_blk_precon_direct_inv(x_u):
+def vel_blk_precon_direct_inv(x_rhs):
     """
     as a test,
     use direct inverse of K as velocity block preconditioner.
@@ -1445,7 +1449,7 @@ def vel_blk_precon_direct_inv(x_u):
     M = [ K,   0, ]
         [ 0,   Q  ]
 
-    in this subroutine we apply K^-1 to x_u
+    in this subroutine we apply K^-1 to x_rhs
     """
     # we will use stokes_assemble to get K
     import stokes_assemble
@@ -1462,8 +1466,8 @@ def vel_blk_precon_direct_inv(x_u):
         sf_nd_nb.set_data(Kmatinv=Kmatinv)
     else:
         Kmatinv = sf_nd_nb.Kmatinv
-    x_in = x_u.view(-1).cpu().numpy()
+    x_in = x_rhs.view(-1).cpu().numpy()
     x_out = np.matmul(Kmatinv, x_in)
-    x_u *= 0
-    x_u += torch.tensor(x_out, device=dev, dtype=torch.float64).view(nele, u_nloc, ndim)
-    return x_u
+    x_rhs *= 0
+    x_rhs += torch.tensor(x_out, device=dev, dtype=torch.float64).view(nele, u_nloc, ndim)
+    return x_rhs

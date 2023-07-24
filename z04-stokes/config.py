@@ -69,7 +69,7 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
 print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,
       'with SFC?', is_sfc)
@@ -77,7 +77,7 @@ print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
 gmres_m = 20  # restart
-gmres_its = 500  # max GMRES steps
+gmres_its = 100  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
@@ -127,6 +127,8 @@ else:
 if problem == 'stokes':
     mu = 1.  # this is diffusion coefficient (viscosity)
     hasNullSpace = True  # to remove null space, adding 1 to a pressure diagonal node
+    is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
+    print('viscosity, hasNullSpade, is_pressure_stabilise?', mu, hasNullSpace, is_pressure_stablise)
 
 ####################
 # discretisation settings
