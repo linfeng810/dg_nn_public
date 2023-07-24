@@ -802,7 +802,10 @@ def _pmg_S_fi(
     # snx | snx_nb         (batch_in, nface, ndim, nloc, sngi)
     # sdetwei | sdetwei_nb (batch_in, nface, sngi)
     # snormal | snormal_nb (batch_in, nface, ndim)
-    mu_e = eta_e / torch.sum(sdetwei[dummy_idx, f_i, :], -1)
+    h = torch.sum(sdetwei[dummy_idx, f_i, :], -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    mu_e = eta_e / h
     snxi = snx.unsqueeze(4) \
         .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
     snxj = snx.unsqueeze(3) \
@@ -952,7 +955,10 @@ def _pmg_S_fb(
 
     # get shaps function derivatives
     snx, sdetwei, snormal = sdet_snlx(snlx, x_ref_in[E_F_b], sweight)
-    mu_e = eta_e / torch.sum(sdetwei[dummy_idx, f_b, :], -1)
+    h = torch.sum(sdetwei[dummy_idx, f_b, :], -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    mu_e = eta_e / h
     snxi = snx.unsqueeze(4) \
         .expand(-1, -1, -1, -1, nloc, -1)  # expand on nloc(jnod)
     snxj = snx.unsqueeze(3) \

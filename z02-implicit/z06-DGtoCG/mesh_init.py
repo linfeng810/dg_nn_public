@@ -263,18 +263,19 @@ def init_3d():
 
     # check and make sure tetrahedron are ordered left-handed
     for ele in range(nele):
-        idx = mesh.cells[0][1][ele]
+        idx = mesh.cells[-1].data[ele]
         x_loc = mesh.points[idx]
         det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         if det > 0:  # it's right-handed, flip two nodes to flip hand.
-            mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1], idx[3]]
+            # mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1], idx[3]]
+            mesh.cells[-1].data[ele] = [idx[3], idx[1], idx[2], idx[0]]
         # x_loc = mesh.points[idx]
         # det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         # print(det > 0)
     # create faces
     faces = []
     for ele in range(nele):
-        element = mesh.cells[0][1][ele]
+        element = mesh.cells[-1].data[ele]
         # for iface in range(nface):
         #     faces.append([element[iface],
         #                   element[(iface + 1) % nface],
@@ -300,7 +301,7 @@ def init_3d():
     # for ele in range(nele):
     #     for iloc in range(4):
     #         cg_ndglno[ele * 4 + iloc] = mesh.cells[0][1][ele][iloc]
-    cg_ndglno = mesh.cells[0][1].reshape((nele * 4))
+    cg_ndglno = mesh.cells[-1].data.reshape((nele * 4))
     sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
@@ -377,7 +378,7 @@ def init_3d():
         x_all = []
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = mesh.cells[-1].data[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:

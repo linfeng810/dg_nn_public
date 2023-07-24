@@ -1,5 +1,5 @@
 # configuration
-import toughio
+import meshio
 import numpy as np
 import torch
 import sys
@@ -25,14 +25,14 @@ solver='iterative' # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z21-cube-mesh/cube.msh' # directory to mesh file (gmsh)
+filename='z04-cube-mesh/cube_only_diri.msh' # directory to mesh file (gmsh)
 if len(sys.argv) > 1:
     filename = sys.argv[1]
-mesh = toughio.read_mesh(filename) # mesh object
+mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
-nele = mesh.n_cells # number of elements
+nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
 ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
 print('element order: ', ele_type)
 ndim = 3  # dimesnion of the problem
@@ -59,7 +59,7 @@ else:  # ndim = 3
         nloc = 20
         ngi = 24
         snloc = 10
-        sngi = 9
+        sngi = 12
         ele_p = 3  # order of elements
     elif ele_type == 'linear':
         nloc = 4
@@ -100,7 +100,7 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 # 'none' don't use block jacobian, but use point jacobian. Usually not stable.
-is_pmg = True  # whether visiting each order DG grid (p-multigrid)
+is_pmg = False  # whether visiting each order DG grid (p-multigrid)
 is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
 print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,

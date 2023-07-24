@@ -7,6 +7,7 @@ We have MG solver, and MG-preconditioned GMRES solver.
 import torch
 import numpy as np
 import scipy as sp
+from tqdm import tqdm
 import config
 import multi_grid
 from volume_integral import get_residual_only, get_residual_and_smooth_once
@@ -231,7 +232,7 @@ def gmres_mg_solver(c_i, c_n, c_bc, f,
         beta = torch.linalg.norm(r0)
         v_m[0, :] += r0 / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
-        for j in range(0, m):
+        for j in tqdm(range(0, m)):
             w *= 0
             w = get_residual_only(r0=w,
                                   c_i=v_m[j, :],
