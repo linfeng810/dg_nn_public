@@ -274,6 +274,7 @@ def _gi_pnts_line(ngi):
             a2, 1-a2,
             a3, 1-a3,
         ])
+        pnts = pnts.reshape((ngi, 2))
         sweight = np.asarray([
             5./18, 4./9, 5./18.,
         ])
@@ -289,6 +290,7 @@ def _gi_pnts_line(ngi):
             a1, 1-a1,
             a2, 1-a2,
         ])
+        pnts = pnts.reshape((ngi, 2))
         sweight = np.asarray([0.5, 0.5])
         alignment = [
             [0, 1],
