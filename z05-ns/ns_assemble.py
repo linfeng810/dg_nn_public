@@ -1,5 +1,5 @@
 """
-Assemble 3D stokes problem for direct solver
+Assemble 3D navier-stokes problem for direct solver
 """
 import numpy as np
 import scipy as sp
@@ -319,19 +319,19 @@ def assemble(u_bc_in, f):
             eta_e=eta_e
         )
 
-    # # remove null space
-    # if False:
-    #     # indices.append([nele*u_nloc*ndim + nele*p_nloc - 1, nele*u_nloc*ndim + nele*p_nloc - 1])
-    #     indices.append([nele*u_nloc*ndim, nele*u_nloc*ndim])
-    #     values.append(1.)
+    # remove null space
+    if config.hasNullSpace:
+        # # indices.append([nele*u_nloc*ndim + nele*p_nloc - 1, nele*u_nloc*ndim + nele*p_nloc - 1])
+        # indices.append([nele*u_nloc*ndim, nele*u_nloc*ndim])
+        # values.append(1.)
     # else:  # enforce average pressure over whole domain is 0
-    #     for ele in range(nele):
-    #         glb_inod = u_nonods*ndim
-    #         for jnod in range(p_nloc):
-    #             glb_jnod = u_nonods*ndim + ele*p_nloc + jnod
-    #             int_q = np.sum(q[jnod, :] * detwei[ele, :])
-    #             indices.append([glb_inod, glb_jnod])
-    #             values.append(int_q)
+        for ele in range(nele):
+            glb_inod = u_nonods*ndim
+            for jnod in range(p_nloc):
+                glb_jnod = u_nonods*ndim + ele*p_nloc + jnod
+                int_q = np.sum(q[jnod, :] * detwei[ele, :])
+                indices.append([glb_inod, glb_jnod])
+                values.append(int_q)
     # convert to np csr sparse mat
     values = np.asarray(values)
     indices = np.transpose(np.asarray(indices))
@@ -340,3 +340,253 @@ def assemble(u_bc_in, f):
                                        nele*u_nloc*ndim + nele*p_nloc))
     Amat = Amat.tocsr()
     return Amat, rhs
+
+
+def assemble_adv(u_n_in, u_bc_in):
+    """this function assemble the advection term and its rhs
+    at current non-linear step. thus, input is
+    u_n -> velocity at lsat non-linear step
+    u_D -> dirichlet bc data"""
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    p_nonods = sf_nd_nb.pre_func_space.nonods
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    ndim = config.ndim
+    nface = ndim + 1
+    dev = config.dev
+    nele = config.nele
+
+    # rhs
+    rhs = np.zeros(u_nonods * ndim + p_nonods)
+    # input
+    u_n = u_n_in.reshape(-1)[0:u_nonods*ndim]  # u at last non-linear step
+    u_bc = u_bc_in[0].view(nele, u_nloc, ndim).cpu().numpy()  # dirichlet bc
+
+    # get shape functions
+    n = sf_nd_nb.vel_func_space.element.n.cpu().numpy()
+    q = sf_nd_nb.pre_func_space.element.n.cpu().numpy()
+    sn = sf_nd_nb.vel_func_space.element.sn.cpu().numpy()
+    sq = sf_nd_nb.pre_func_space.element.sn.cpu().numpy()
+    nx, detwei = get_det_nlx(
+        nlx=sf_nd_nb.vel_func_space.element.nlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
+        weight=sf_nd_nb.vel_func_space.element.weight,
+        nloc=u_nloc,
+        ngi=sf_nd_nb.vel_func_space.element.ngi,
+    )
+    snx, sdetwei, snormal = sdet_snlx(
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+    )
+    nx = nx.cpu().numpy()
+    detwei = detwei.cpu().numpy()
+    snx = snx.cpu().numpy()
+    sdetwei = sdetwei.cpu().numpy()
+    snormal = snormal.cpu().numpy()
+
+    indices = []
+    values = []
+
+    isTemam = False  # add skew-symmetric term
+    print('isTemam?', isTemam)
+    isNewton = False  # Newton linearisation or Picard linearisation
+    u_n = u_n.reshape([nele, u_nloc, ndim])
+    # volume integral
+    wduxv = np.einsum('lg,bli,bing,mg,bg->bmn', n, u_n, nx, n, detwei)
+    wxduv = 0.5*np.einsum('bilg,bli,mg,ng,bg->bmn', nx, u_n, n, n, detwei)
+    if not isTemam:
+        wxduv *= 0
+    for ele in tqdm(range(nele)):
+        for iloc in range(u_nloc):
+            for idim in range(ndim):
+                glb_iloc = ele*u_nloc*ndim + iloc * ndim + idim
+                for jloc in range(u_nloc):
+                    jdim = idim
+                    glb_jloc = ele*u_nloc*ndim + jloc * ndim + jdim
+                    value = 0
+                    value += wduxv[ele, iloc, jloc]
+                    value += wxduv[ele, iloc, jloc]
+
+                    indices.append([glb_iloc, glb_jloc])
+                    values.append(value)
+
+    # surface integral
+    nbele = sf_nd_nb.vel_func_space.nbele.cpu().numpy()
+    nbf = sf_nd_nb.vel_func_space.nbf.cpu().numpy()
+    alnmt = sf_nd_nb.vel_func_space.alnmt.cpu().numpy()
+    glb_bcface_type = sf_nd_nb.vel_func_space.glb_bcface_type.cpu().numpy()
+    # print('glb bcface type', glb_bcface_type)
+    # print('alnmt', alnmt)
+    u_gi_align = sf_nd_nb.vel_func_space.element.gi_align.cpu().numpy()
+    for ele in tqdm(range(nele)):
+        for iface in range(nface):
+            glb_iface = ele*nface + iface
+            glb_iface_type = glb_bcface_type[glb_iface]
+            if glb_iface_type == 0:
+                # print(iface)
+                # this is Dirichlet boundary face
+                for inod in range(u_nloc):
+                    for idim in range(ndim):
+                        glb_inod = ele * u_nloc * ndim + inod * ndim + idim
+
+                        wknk_ave = np.einsum(
+                            'mg,mi,i->g',
+                            sn[iface, :, :],
+                            u_bc[ele, :, :],
+                            snormal[ele, iface, :]
+                        )
+                        wknk_upwd = 0.5 * (wknk_ave - np.abs(wknk_ave))
+                        wknk_jump = np.einsum(
+                            'mg,mi,i->g',
+                            sn[iface, :, :],
+                            u_n[ele, :, :],
+                            snormal[ele, iface, :]
+                        )
+
+                        for jnod in range(u_nloc):
+                            jdim = idim
+                            glb_jnod = ele*u_nloc*ndim + jnod*ndim + jdim
+                            wnduv = 0
+                            wnduv += -np.sum(
+                                0.5 * wknk_ave  # using Gauger2019 : (g_D . n)(u . v)
+                                * sn[iface, jnod, :]
+                                * sn[iface, inod, :]
+                                * sdetwei[ele, iface, :]
+                            )  # Temam
+                            wnduv_upwd = 0
+                            wnduv_upwd += -np.sum(
+                                wknk_upwd
+                                * sn[iface, jnod, :]
+                                * sn[iface, inod, :]
+                                * sdetwei[ele, iface, :]
+                            )  # upwind flux at boundary faces
+                            indices.append([glb_inod, glb_jnod])
+                            values.append(wnduv * isTemam + wnduv_upwd)
+                            rhs[glb_inod] += (wnduv * isTemam + wnduv_upwd) * u_bc.reshape(-1)[glb_jnod]
+            elif glb_iface_type == 1:
+                print(f'iface {iface} is a neumann boundary face')
+                # this is Neumann boundary face
+                continue  # nothing to do here
+            else:  # interior face
+                # this is interior face
+                ele2 = nbele[glb_iface]
+                glb_iface2 = nbf[glb_iface]
+                iface2 = glb_iface2 % nface
+                # # fix outer normal vector direction
+                # snormal_fix = snormal[ele, iface, :]
+                # if iface2 > iface:
+                #     snormal_fix *= -1
+                for inod in range(u_nloc):
+                    for idim in range(ndim):
+                        glb_inod = ele * u_nloc * ndim + inod * ndim + idim
+
+                        wknk_ave = np.einsum(
+                            'mg,mi,i->g',
+                            sn[iface, :, :],
+                            u_n[ele, :, :],
+                            snormal[ele, iface, :]
+                        ) * 0.5 + np.einsum(
+                            'gm,mi,i->g',
+                            sn[iface2, :, u_gi_align[alnmt[glb_iface]]],
+                            u_n[ele2, :, :],
+                            snormal[ele, iface, :]
+                        ) * 0.5
+                        wknk_upwd = 0.5*(wknk_ave - np.abs(wknk_ave))
+                        wknk_jump = np.einsum(
+                            'mg,mi,i->g',
+                            sn[iface, :, :],
+                            u_n[ele, :, :],
+                            snormal[ele, iface, :]
+                            # snormal_fix
+                        ) + np.einsum(
+                            'gm,mi,i->g',
+                            sn[iface2, :, u_gi_align[alnmt[glb_iface]]],
+                            u_n[ele2, :, :],
+                            snormal[ele2, iface2, :]
+                            # -snormal_fix
+                        )
+                        # this side
+                        for jnod in range(u_nloc):
+                            jdim = idim
+                            glb_jnod = ele * u_nloc * ndim + jnod * ndim + jdim
+                            wnduv_upwd = 0  # upwind term
+                            wnduv = 0  # skew-symmetric term
+
+                            wnduv_upwd += -np.sum(
+                                wknk_upwd
+                                * sn[iface, jnod, :]
+                                * sn[iface, inod, :]
+                                * sdetwei[ele, iface, :]
+                            )
+                            wnduv += -0.5 * np.sum(
+                                wknk_jump
+                                * sn[iface, jnod, :]
+                                * sn[iface, inod, :]
+                                * sdetwei[ele, iface, :]
+                            ) * 0.5  # this is the 1/2 in ave operator
+
+                            indices.append([glb_inod, glb_jnod])
+                            values.append(wnduv_upwd + wnduv*isTemam)
+                        # other side
+                        for jnod2 in range(u_nloc):
+                            jdim2 = idim
+                            glb_jnod2 = ele2 * u_nloc * ndim + jnod2 * ndim + jdim2
+                            wnduv_upwd = 0  # upwind term
+                            wnduv = 0  # skew-symmetric term
+
+                            wnduv_upwd += -np.sum(
+                                wknk_upwd
+                                * sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]]
+                                * sn[iface, inod, :]
+                                * sdetwei[ele, iface, :]
+                            ) * (-1.)
+                            # wnduv += -0.5 * np.sum(
+                            #     wknk_jump
+                            #     * sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]]
+                            #     * sn[iface, inod, :]
+                            #     * sdetwei[ele, iface, :]
+                            # ) * 0.5  # this is the 1/2 in ave operator
+
+                            indices.append([glb_inod, glb_jnod2])
+                            values.append(wnduv_upwd + wnduv*isTemam)
+    # convert to np csr sparse mat
+    values = np.asarray(values)
+    indices = np.transpose(np.asarray(indices))
+    Cmat = sp.sparse.coo_matrix((values, (indices[0, :], indices[1, :])),
+                                shape=(nele * u_nloc * ndim + nele * p_nloc,
+                                       nele * u_nloc * ndim + nele * p_nloc))
+    Cmat = Cmat.tocsr()
+    return Cmat, rhs
+
+
+def get_ave_pressure(pre):
+    """
+    input: pressure field
+    output: its average
+    """
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    ndim = config.ndim
+    nele = config.nele
+    p_nonods = nele * p_nloc
+    n = sf_nd_nb.vel_func_space.element.n.cpu().numpy()
+    q = sf_nd_nb.pre_func_space.element.n.cpu().numpy()
+    sn = sf_nd_nb.vel_func_space.element.sn.cpu().numpy()
+    sq = sf_nd_nb.pre_func_space.element.sn.cpu().numpy()
+    _, detwei = get_det_nlx(
+        nlx=sf_nd_nb.vel_func_space.element.nlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
+        weight=sf_nd_nb.vel_func_space.element.weight,
+        nloc=u_nloc,
+        ngi=sf_nd_nb.vel_func_space.element.ngi,
+    )
+    detwei = detwei.cpu().numpy()
+    pre = pre.reshape([nele, p_nloc])
+    int_pre = np.sum(np.einsum('mg,ng,bg,bn', q, q, detwei, pre))
+    int_vol = np.sum(np.einsum('mg,ng,bg', q, q, detwei))
+    print('total p, total vol', int_pre, int_vol)
+    return int_pre / int_vol
+

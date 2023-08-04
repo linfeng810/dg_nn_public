@@ -399,7 +399,7 @@ if config.solver == 'direct':
     # Amat_np = Amat.cpu().numpy()
     # Amat_sp = sp.sparse.csr_matrix(Amat_np)
 
-    import stokes_assemble
+    import ns_assemble
     print('im going to assemble', time.time()-starttime)
     # save bc to vtk to check if it's correct
     vtk = output.File('bc_diri.vtu')
@@ -409,7 +409,7 @@ if config.solver == 'direct':
         vtk = output.File('bc_neu.vtu')
         vtk.write_vector(u_bc[1], 'velocity_neu', sf_nd_nb.vel_func_space)
         vtk.write_end()
-    Amat_sp, rhs_np = stokes_assemble.assemble(u_bc, f)
+    Amat_sp, rhs_np = ns_assemble.assemble(u_bc, f)
 
     if False:
         # apply velocity boundary strongly
@@ -475,9 +475,42 @@ if config.solver == 'direct':
     # np.savetxt('rhs_assemble.txt', rhs_np, delimiter=',')
     # np.savetxt('Amat_assemble.txt', Amat_np, delimiter=',')
     print('doing writing. im goingt o solve', time.time()-starttime)
-    x_sol = sp.sparse.linalg.spsolve(Amat_sp, rhs_np)
+    x_sol = np.zeros(u_nonods*ndim+p_nonods, dtype=np.float64)
+    for nit in tqdm(range(config.n_its_max)):
+        # non-linear iteration
+        # x_sol *= 0
+        # x_sol += 1
+        # u_bc[0] *= 0
+        # u_bc[0] += 1
+        # np.savetxt('u_bc.txt', u_bc[0].view(-1).cpu().numpy(), delimiter=',')
+        Cmat_sp, rhs_c = ns_assemble.assemble_adv(x_sol, u_bc)
+        # Cmat_sp *= 0; rhs_c *= 0  # back to stokes system
+        # Cmat_np = Cmat_sp.todense()
+        # np.savetxt('Cmat_assemble.txt', Cmat_np, delimiter=',')
+        Allmat = Amat_sp + Cmat_sp  # this step is memory hungry because sparse matrix is convereted to dense
+        rhs_all = rhs_np + rhs_c
+        # # get non-linear residual
+        # rhs_all -= Allmat @ x_sol
+        non_linear_res_l2 = np.linalg.norm(rhs_all - Allmat @ x_sol)
+        print('nit = ', nit, 'residual l2 norm = ', non_linear_res_l2)
+        if non_linear_res_l2 < config.n_tol:
+            print('non-linear iteration converged.')
+            # remove average from pressure
+            p_sol = x_sol[u_nonods * ndim:u_nonods * ndim + p_nonods]
+            p_ave = ns_assemble.get_ave_pressure(p_sol)
+            p_sol -= p_ave
+            break
+        x_sol = sp.sparse.linalg.spsolve(Allmat, rhs_all)
+        # remove average from pressure
+        p_sol = x_sol[u_nonods*ndim:u_nonods*ndim+p_nonods]
+        p_ave = ns_assemble.get_ave_pressure(p_sol)
+        p_sol -= p_ave
+
     # get l2 error
     x_ana = bc_f.ana_soln(config.problem)
+    p_ana = x_ana[u_nonods*ndim:u_nonods*ndim+p_nonods]
+    p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
+    p_ana -= p_ana_ave
     u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_sol, x_ana)
     print('after solving, l2 error is: \n',
           'velocity ', u_l2, '\n',
