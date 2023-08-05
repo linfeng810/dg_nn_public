@@ -32,6 +32,9 @@ class Element(object):
             elif self.gi_order == 2:
                 self.ngi = 4
                 self.sngi = 3
+            elif self.gi_order == 9:
+                self.ngi = 57
+                self.sngi = 19
             else:
                 raise ValueError("the chosen gaussian integration order %d isn't accepted." % gi_order)
         elif self.ndim == 2:

@@ -14,7 +14,7 @@ else:
     from shape_function import sdet_snlx_3d as sdet_snlx
 
 
-def assemble(u_bc_in, f):
+def assemble(u_bc_in, f, indices, values):
     u_nonods = sf_nd_nb.vel_func_space.nonods
     p_nonods = sf_nd_nb.pre_func_space.nonods
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -66,8 +66,8 @@ def assemble(u_bc_in, f):
     sdetwei = sdetwei.cpu().numpy()
     snormal = snormal.cpu().numpy()
 
-    indices = []
-    values = []
+    # indices = []
+    # values = []
 
     # volume integral
     nxnx = np.einsum('bkmg,bkng,bg->bmn', nx, nx, detwei)
@@ -332,17 +332,17 @@ def assemble(u_bc_in, f):
                 int_q = np.sum(q[jnod, :] * detwei[ele, :])
                 indices.append([glb_inod, glb_jnod])
                 values.append(int_q)
-    # convert to np csr sparse mat
-    values = np.asarray(values)
-    indices = np.transpose(np.asarray(indices))
-    Amat = sp.sparse.coo_matrix((values, (indices[0, :], indices[1, :])),
-                                shape=(nele*u_nloc*ndim + nele*p_nloc,
-                                       nele*u_nloc*ndim + nele*p_nloc))
-    Amat = Amat.tocsr()
-    return Amat, rhs
+    # # convert to np csr sparse mat
+    # values = np.asarray(values)
+    # indices = np.transpose(np.asarray(indices))
+    # Amat = sp.sparse.coo_matrix((values, (indices[0, :], indices[1, :])),
+    #                             shape=(nele*u_nloc*ndim + nele*p_nloc,
+    #                                    nele*u_nloc*ndim + nele*p_nloc))
+    # Amat = Amat.tocsr()
+    return rhs, indices, values
 
 
-def assemble_adv(u_n_in, u_bc_in):
+def assemble_adv(u_n_in, u_bc_in, indices, values):
     """this function assemble the advection term and its rhs
     at current non-linear step. thus, input is
     u_n -> velocity at lsat non-linear step
@@ -386,9 +386,6 @@ def assemble_adv(u_n_in, u_bc_in):
     snx = snx.cpu().numpy()
     sdetwei = sdetwei.cpu().numpy()
     snormal = snormal.cpu().numpy()
-
-    indices = []
-    values = []
 
     isTemam = False  # add skew-symmetric term
     print('isTemam?', isTemam)
@@ -552,14 +549,14 @@ def assemble_adv(u_n_in, u_bc_in):
 
                             indices.append([glb_inod, glb_jnod2])
                             values.append(wnduv_upwd + wnduv*isTemam)
-    # convert to np csr sparse mat
-    values = np.asarray(values)
-    indices = np.transpose(np.asarray(indices))
-    Cmat = sp.sparse.coo_matrix((values, (indices[0, :], indices[1, :])),
-                                shape=(nele * u_nloc * ndim + nele * p_nloc,
-                                       nele * u_nloc * ndim + nele * p_nloc))
-    Cmat = Cmat.tocsr()
-    return Cmat, rhs
+    # # convert to np csr sparse mat
+    # values = np.asarray(values)
+    # indices = np.transpose(np.asarray(indices))
+    # Cmat = sp.sparse.coo_matrix((values, (indices[0, :], indices[1, :])),
+    #                             shape=(nele * u_nloc * ndim + nele * p_nloc,
+    #                                    nele * u_nloc * ndim + nele * p_nloc))
+    # Cmat = Cmat.tocsr()
+    return rhs, indices, values
 
 
 def get_ave_pressure(pre):
@@ -590,3 +587,17 @@ def get_ave_pressure(pre):
     print('total p, total vol', int_pre, int_vol)
     return int_pre / int_vol
 
+
+def assemble_csr_mat(indices, values):
+    # convert to np csr sparse mat
+    nele = config.nele
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    ndim = config.ndim
+    values = np.asarray(values)
+    indices = np.transpose(np.asarray(indices))
+    Amat = sp.sparse.coo_matrix((values, (indices[0, :], indices[1, :])),
+                                shape=(nele * u_nloc * ndim + nele * p_nloc,
+                                       nele * u_nloc * ndim + nele * p_nloc))
+    Amat = Amat.tocsr()
+    return Amat

@@ -22,18 +22,19 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='iterative' # 'direct' or 'iterative'
+solver='direct' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
+filename='z31-cube-mesh/cube_only_diri.msh' # directory to mesh file (gmsh)
 # filename = 'z31-cube-mesh/one_element_r_order.msh'
 # filename = 'z31-cube-mesh/two_element.msh'
-# filename = 'z32-square-mesh/square_w_tag.msh'
+# filename = 'z32-square-mesh/square.msh'
 # filename = 'z32-square-mesh/one_element.msh'
 # filename = 'z32-square-mesh/two_element.msh'
 # filename = 'z32-square-mesh/square_poiseuille.msh'
+# filename = 'z32-square-mesh/square_4ele.msh'
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
@@ -83,14 +84,14 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 1
+n_its_max = 20
 n_tol = 1.e-10
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
-problem = 'stokes'  # 'hyper-elastic' or 'linear-elastic' or 'stokes'
+problem = 'ns'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -124,7 +125,7 @@ else:
 
 # print('cijkl=', cijkl)
 
-if problem == 'stokes':
+if True:
     mu = 1.  # this is diffusion coefficient (viscosity)
     hasNullSpace = True  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.

@@ -50,9 +50,10 @@ tstart = config.tstart
 print('computation on ',dev)
 
 # define element
-vel_ele = Element(ele_order=config.ele_p, gi_order=config.ele_p*2, edim=ndim, dev=dev)
-pre_ele = Element(ele_order=config.ele_p_pressure, gi_order=config.ele_p*2, edim=ndim,dev=dev)
-print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order)
+quad_degree = config.ele_p*3
+vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev)
+pre_ele = Element(ele_order=config.ele_p_pressure, gi_order=quad_degree, edim=ndim,dev=dev)
+print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ', quad_degree)
 # define function space
 # if ndim == 2:
 #     x_all, nbf, nbele, alnmt, fina, cola, ncola, \
@@ -409,7 +410,9 @@ if config.solver == 'direct':
         vtk = output.File('bc_neu.vtu')
         vtk.write_vector(u_bc[1], 'velocity_neu', sf_nd_nb.vel_func_space)
         vtk.write_end()
-    Amat_sp, rhs_np = ns_assemble.assemble(u_bc, f)
+    indices_st = []
+    values_st = []
+    rhs_np, indices_st, values_st = ns_assemble.assemble(u_bc, f, indices_st, values_st)
 
     if False:
         # apply velocity boundary strongly
@@ -478,16 +481,26 @@ if config.solver == 'direct':
     x_sol = np.zeros(u_nonods*ndim+p_nonods, dtype=np.float64)
     for nit in tqdm(range(config.n_its_max)):
         # non-linear iteration
+        indices_ns = []
+        values_ns = []
+        indices_ns += indices_st
+        values_ns += values_st
         # x_sol *= 0
         # x_sol += 1
         # u_bc[0] *= 0
         # u_bc[0] += 1
         # np.savetxt('u_bc.txt', u_bc[0].view(-1).cpu().numpy(), delimiter=',')
-        Cmat_sp, rhs_c = ns_assemble.assemble_adv(x_sol, u_bc)
-        # Cmat_sp *= 0; rhs_c *= 0  # back to stokes system
+        rhs_c, indices_ns, values_ns  = ns_assemble.assemble_adv(x_sol, u_bc, indices_ns, values_ns)
+        if config.problem == 'stokes':
+            indices_ns = indices_st
+            values_ns = values_st
+            # Cmat_sp *= 0; rhs_c *= 0  # back to stokes system
+
         # Cmat_np = Cmat_sp.todense()
         # np.savetxt('Cmat_assemble.txt', Cmat_np, delimiter=',')
-        Allmat = Amat_sp + Cmat_sp  # this step is memory hungry because sparse matrix is convereted to dense
+
+        # Allmat = Amat_sp + Cmat_sp  # this step is memory hungry because sparse matrix is convereted to dense
+        Allmat = ns_assemble.assemble_csr_mat(indices_ns, values_ns)
         rhs_all = rhs_np + rhs_c
         # # get non-linear residual
         # rhs_all -= Allmat @ x_sol
@@ -501,10 +514,10 @@ if config.solver == 'direct':
             p_sol -= p_ave
             break
         x_sol = sp.sparse.linalg.spsolve(Allmat, rhs_all)
-        # remove average from pressure
-        p_sol = x_sol[u_nonods*ndim:u_nonods*ndim+p_nonods]
-        p_ave = ns_assemble.get_ave_pressure(p_sol)
-        p_sol -= p_ave
+        # # remove average from pressure
+        # p_sol = x_sol[u_nonods*ndim:u_nonods*ndim+p_nonods]
+        # p_ave = ns_assemble.get_ave_pressure(p_sol)
+        # p_sol -= p_ave
 
     # get l2 error
     x_ana = bc_f.ana_soln(config.problem)
