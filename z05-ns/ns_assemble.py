@@ -464,7 +464,7 @@ def assemble_adv(u_n_in, u_bc_in, indices, values):
                             values.append(wnduv * isTemam + wnduv_upwd)
                             rhs[glb_inod] += (wnduv * isTemam + wnduv_upwd) * u_bc.reshape(-1)[glb_jnod]
             elif glb_iface_type == 1:
-                print(f'iface {iface} is a neumann boundary face')
+                # print(f'iface {glb_iface} is a neumann boundary face')
                 # this is Neumann boundary face
                 continue  # nothing to do here
             else:  # interior face

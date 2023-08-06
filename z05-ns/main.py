@@ -50,7 +50,7 @@ tstart = config.tstart
 print('computation on ',dev)
 
 # define element
-quad_degree = config.ele_p*3
+quad_degree = config.ele_p*2
 vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev)
 pre_ele = Element(ele_order=config.ele_p_pressure, gi_order=quad_degree, edim=ndim,dev=dev)
 print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ', quad_degree)
@@ -508,10 +508,6 @@ if config.solver == 'direct':
         print('nit = ', nit, 'residual l2 norm = ', non_linear_res_l2)
         if non_linear_res_l2 < config.n_tol:
             print('non-linear iteration converged.')
-            # remove average from pressure
-            p_sol = x_sol[u_nonods * ndim:u_nonods * ndim + p_nonods]
-            p_ave = ns_assemble.get_ave_pressure(p_sol)
-            p_sol -= p_ave
             break
         x_sol = sp.sparse.linalg.spsolve(Allmat, rhs_all)
         # # remove average from pressure
@@ -521,9 +517,14 @@ if config.solver == 'direct':
 
     # get l2 error
     x_ana = bc_f.ana_soln(config.problem)
-    p_ana = x_ana[u_nonods*ndim:u_nonods*ndim+p_nonods]
-    p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
-    p_ana -= p_ana_ave
+    if config.hasNullSpace:
+        # remove average from pressure
+        p_sol = x_sol[u_nonods * ndim:u_nonods * ndim + p_nonods]
+        p_ave = ns_assemble.get_ave_pressure(p_sol)
+        p_sol -= p_ave
+        p_ana = x_ana[u_nonods*ndim:u_nonods*ndim+p_nonods]
+        p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
+        p_ana -= p_ana_ave
     u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_sol, x_ana)
     print('after solving, l2 error is: \n',
           'velocity ', u_l2, '\n',
