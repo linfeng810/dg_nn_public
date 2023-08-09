@@ -226,13 +226,14 @@ if (config.solver=='iterative') :
     r0 = torch.zeros(nele * (vel_ele.nloc * ndim + pre_ele.nloc),
                      device=dev, dtype=torch.float64)
     r0_list = volume_mf_st.slicing_x_i(r0)
-    if config.problem == 'stokes':
+    if True:
         x_i = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
         x_rhs = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
         x_i_list = volume_mf_st.slicing_x_i(x_i)
         x_i_n = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # last step soln
+        u_n, p_n = volume_mf_st.slicing_x_i(x_i_n)
+        u_k = torch.zeros(u_nonods * ndim, device=dev, dtype=torch.float64)  # non-linear velocity
         for itime in range(1, tstep):  # time loop
-            u_n, p_n = volume_mf_st.slicing_x_i(x_i_n)
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
 
@@ -243,11 +244,23 @@ if (config.solver=='iterative') :
             r0 *= 0
 
             while nits < config.n_its_max:
+                u_k *= 0
+                u_k += x_i_list[0].view(u_k.shape)  # non-linear velocity
                 x_rhs *= 0
                 x_rhs = volume_mf_st.get_rhs(
-                    x_rhs=x_rhs, u_bc=u_bc, f=f
+                    x_rhs=x_rhs, u_bc=u_bc, f=f,
+                    include_adv=True,
+                    u_n=u_n  # last *timestep* velocity
                 )
-                nr0l2 = r0l2  # stokes is linear prob, we will simply use linear residual as the non-linear residual
+                # get non-linear residual
+                r0 *= 0
+                r0 = volume_mf_st.get_residual_only(
+                    r0, x_i, x_rhs,
+                    include_adv=True,
+                    u_n=u_k,  # last *non-linear iteration step* velocity
+                    u_bc=u_bc[0],
+                )
+                nr0l2 = torch.linalg.norm(r0)  # stokes is linear prob, we will simply use linear residual as the non-linear residual
                 print('============')
                 print('nits = ', nits, 'non-linear residual = ', nr0l2.cpu().numpy())
                 if nr0l2 < config.n_tol:
@@ -258,6 +271,9 @@ if (config.solver=='iterative') :
                     I_fc, I_cf,
                     whichc, ncolor,
                     fina, cola, ncola,
+                    include_adv=True,
+                    u_n=u_k,
+                    u_bc=u_bc[0]
                 )
                 from scipy.sparse import bsr_matrix
 
@@ -285,15 +301,25 @@ if (config.solver=='iterative') :
                     # nullspace = nullspace.view(1, -1)
                     # x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol,
                     #                               nullspace=nullspace)  # min(1.e-3*nr0l2, 1.e-3))
-                    x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol)
+                    x_i = solvers.gmres_mg_solver(
+                        x_i, x_rhs,
+                        tol=max(min(1.e-3*nr0l2, 1.e-3), 1.e-11),
+                        include_adv=True,
+                        u_k=u_k,
+                        u_bc=u_bc[0]
+                    )
                 elif config.linear_solver == 'right-gmres-mg':
+                    raise ValueError('right-gmre-mg solver is not implemented!')
                     x_i = solvers.right_gmres_mg_solver(x_i, x_rhs, config.tol)
                 else:
                     raise Exception('choose a valid solver...')
                 # get final residual after we're back to fine grid
                 r0 *= 0
                 r0 = volume_mf_st.get_residual_only(
-                    r0, x_i, x_rhs
+                    r0, x_i, x_rhs,
+                    include_adv=True,
+                    u_n=u_k,
+                    u_bc=u_bc[0],
                 )
 
                 r0l2 = torch.linalg.norm(r0) / fNorm
@@ -301,14 +327,14 @@ if (config.solver=='iterative') :
                 print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
                       'abs res=', torch.linalg.norm(r0).cpu().numpy(),
                       'fNorm', fNorm.cpu().numpy())
-                # nr0l2 = torch.linalg.norm(du_i.view(-1))
-                nr0l2 = r0l2
-                # print('norm of delta u ', nr0l2.cpu().numpy())
-                # u_i += du_i.view(nele, nloc, ndim) * config.relax_coeff
+
+                # nr0l2 = r0l2
+
                 nits += 1
 
             # if converges,
-            x_i_n = x_i  # store this step in case we want to use this for next timestep
+            x_i_n *= 0
+            x_i_n += x_i  # store this step in case we want to use this for next timestep
 
             # get l2 error
             x_ana = bc_f.ana_soln(config.problem)

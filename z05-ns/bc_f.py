@@ -362,17 +362,15 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
                 y = x_inod[1]
                 z = x_inod[2]
                 # unsymmetry stress formulation
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = (- torch.cos(y + 1)*torch.exp(x - t)
-                                                           - torch.exp(1 - t)*torch.cos(x + y))
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = (torch.sin(y + 1)*torch.exp(x - t)
-                                                           - torch.cos(x + 1)*torch.exp(y - t))
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = - torch.cos(y + 1) * torch.exp(x - t) - torch.exp(1 - t) * torch.cos(x + y)
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = torch.sin(y + 1) * torch.exp(x - t) - torch.cos(x + 1) * torch.exp(y - t)
                 u_bc[ibc][inod // nloc, inod % nloc, 2] = \
-                    torch.sin(x + 1) * torch.exp(y - t) - torch.exp(1 - t) * torch.sin(x + y) \
-                    + torch.exp(-2 * t) * (
+                    torch.sin(x + 1) * torch.exp(y - t) - torch.exp(1 - t) * torch.sin(x + y) + torch.exp(-2 * t) * (
                             torch.exp(2 * x) / 2 + torch.exp(2 * y) / 2 + np.exp(2) / 2 + torch.cos(
                         x + 1) * torch.exp(y + 1) * torch.sin(x + y) + torch.cos(
                         y + 1) * torch.sin(x + 1) * torch.exp(x + y) + torch.sin(y + 1) * torch.exp(x + 1) * torch.cos(
-                        x + y) - 8601404336237285 / 1125899906842624)
+                        x + y))
+
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
         # t = 0
         x = torch.tensor(x_all[:, 0], device=dev)
@@ -475,42 +473,15 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
                 x = x_inod[0]
                 y = x_inod[1]
                 # unsymmetry stress formulation
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = torch.exp(
-                    Re - 2 * (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) / 2 - torch.exp(
-                    Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.cos(2 * torch.pi * y) * (
-                                                                      Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (
-                                                                          1 / 2))
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = (torch.exp(
-                    Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.sin(2 * torch.pi * y) * (
-                                                                       Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (
-                                                                           1 / 2)) * (
-                                                                       Re / 4 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (
-                                                                           1 / 2) / 2)) / torch.pi
-                # u_bc[ibc][inod // nloc, inod % nloc, 0] = \
-                #     torch.exp(Re - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2)) / 2 + (
-                #                 torch.exp(Re / 2 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 2) * torch.cos(2 * torch.pi * y) - 1) ** 2 - (
-                #                 torch.exp(Re / 2 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 2) * torch.cos(2 * torch.pi * y) * (
-                #                     Re / 2 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 2)) / Re
-                # u_bc[ibc][inod // nloc, inod % nloc, 1] = \
-                #     (torch.exp(Re / 2 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 2) * torch.sin(2 * torch.pi * y) * (
-                #                 Re ** 2 / 4 - (Re * (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2)) / 4 + 2 * torch.pi ** 2)) / (Re * torch.pi) - (
-                #                 torch.exp(Re / 2 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 2) * torch.sin(2 * torch.pi * y) * (
-                #                     Re / 4 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 4) * (
-                #                             torch.exp(Re / 2 - (Re ** 2 + 16 * torch.pi ** 2) ** (1 / 2) / 2) * torch.cos(
-                #                         2 * torch.pi * y) - 1)) / torch.pi
-                # u_bc[ibc][inod // nloc, inod % nloc, 0] = \
-                #     torch.exp(Re - 2 * (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) / 2 - (
-                #                 torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.cos(2 * torch.pi * y) - 1) ** 2 - (
-                #                 torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.cos(2 * torch.pi * y) * (
-                #                     Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2))) / Re
-                # u_bc[ibc][inod // nloc, inod % nloc, 1] = \
-                #     (torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.torch.sin(2 * torch.pi * y) * (
-                #                 torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.cos(2 * torch.pi * y) - 1) * (
-                #                  Re / 4 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2) / 2)) / torch.pi + (
-                #                 torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.torch.sin(2 * torch.pi * y) * (
-                #                     Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * (
-                #                             Re / 4 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2) / 2)) / (Re * torch.pi)
-
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = (
+                        torch.exp(Re - 2 * (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) / 2 - (
+                        torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.cos(
+                    2 * torch.pi * y) * (
+                                Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2))) / Re)
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = \
+                    (torch.exp(Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * torch.sin(2 * torch.pi * y) * (
+                            Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * (
+                             Re / 4 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2) / 2)) / (Re * torch.pi)
 
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
@@ -646,8 +617,8 @@ def ana_soln(problem):
             p[inod // p_nloc, inod % p_nloc] = -torch.exp(-2*t)*(torch.exp(2*x)/2 + torch.exp(2*y)/2 + torch.exp(2*z)/2 
                                                                  + torch.exp(x + y)*torch.cos(y + z)*torch.sin(x + z)
                                                                  + torch.exp(x + z)*torch.cos(x + y)*torch.sin(y + z)
-                                                                 + torch.exp(y + z)*torch.cos(x + z)*torch.sin(x + y)
-                                                                 - 7.639581710561036)  # make ave pre be 0
+                                                                 + torch.exp(y + z)*torch.cos(x + z)*torch.sin(x + y))
+                                                                 # - 7.639581710561036)  # make ave pre be 0
     elif problem == 'ns' and ndim == 2:
         # from Farrell 2019
         u_nloc = sf_nd_nb.vel_func_space.element.nloc

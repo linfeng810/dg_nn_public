@@ -1,7 +1,7 @@
 % this is to compute 3D NS model problem sln
 % rhs and proper bc
 
-syms x y z t
+syms x y z t Re
 u = sym(zeros(3,1));
 
 % PROBLEM BELTRAMI FLOW (from Liu 2019)
@@ -29,7 +29,7 @@ gradTu = transpose(gradu);
 
 divu = divergence(u, [x y z]);
 gradp = gradient(p, [x y z]);
-sigma = gradu + gradTu - p*eye(3,3);  % real stress
+sigma = 1/Re*(gradu + gradTu) - p*eye(3,3);  % real stress
 % sigma = gradu - p*eye(3,3);  % pseudo stress
 
 unablau = sym(zeros(3,1));
@@ -44,4 +44,4 @@ for i = 1:3
 end
 
 % neumann bc (z=1)
-bc_neu_z1 = subs(gradu-p*eye(3,3), z, 1) * [0, 0, 1]'
+bc_neu_z1 = subs(1/Re*gradu-p*eye(3,3), z, 1) * [0, 0, 1]'

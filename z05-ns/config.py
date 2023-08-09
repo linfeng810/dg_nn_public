@@ -22,19 +22,13 @@ dt = 1e8 # timestep
 tstart=0 # starting time
 tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
-solver='direct' # 'direct' or 'iterative'
+solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube_only_diri.msh' # directory to mesh file (gmsh)
-# filename = 'z31-cube-mesh/one_element_r_order.msh'
-# filename = 'z31-cube-mesh/two_element.msh'
-# filename = 'z32-square-mesh/square.msh'
-# filename = 'z32-square-mesh/one_element.msh'
-# filename = 'z32-square-mesh/two_element.msh'
-# filename = 'z32-square-mesh/square_poiseuille.msh'
-# filename = 'z32-square-mesh/square_4ele.msh'
+filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
+filename='z32-square-mesh/square_poiseuille.msh'
 if len(sys.argv) > 1:
     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
@@ -46,7 +40,7 @@ ele_p = 3  # velocity element order (2 or higher)
 ele_p_pressure = ele_p - 1  # pressure element order
 print('element order: ', ele_p)
 
-ndim = 3  # dimesnion of the problem
+ndim = 2  # dimesnion of the problem
 
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
@@ -78,7 +72,7 @@ print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
 gmres_m = 20  # restart
-gmres_its = 100  # max GMRES steps
+gmres_its = 20  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
@@ -91,7 +85,7 @@ relax_coeff = 1.
 ####################
 # material property
 ####################
-problem = 'ns'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'kovasznay'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -126,8 +120,8 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1.  # this is diffusion coefficient (viscosity)
-    hasNullSpace = True  # to remove null space, adding 1 to a pressure diagonal node
+    mu = 1  # this is diffusion coefficient (viscosity)
+    hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
     print('viscosity, hasNullSpade, is_pressure_stabilise?', mu, hasNullSpace, is_pressure_stablise)
 

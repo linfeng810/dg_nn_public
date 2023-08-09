@@ -34,8 +34,8 @@ gradTu = transpose(gradu);
 
 divu = divergence(u, [x y]);
 gradp = gradient(p, [x y]);
-sigma = 1/Re*(gradu + gradTu) - p*eye(2,2);  % real stress
-% sigma = gradu - p*eye(3,3);  % pseudo stress
+% sigma = 1/Re*(gradu + gradTu) - p*eye(2,2);  % real stress
+sigma = 1/Re*gradu - p*eye(2,2);  % pseudo stress
 
 unablau = sym(zeros(2,1));
 for i = 1:2
@@ -47,6 +47,6 @@ for i = 1:2
     f(i) = unablau(i) - divergence(sigma(i,:), [x y]);
 end
 
-% neumann bc (z=1)
+% neumann bc (x=1)
 bc_neu_x1 = subs(1/Re*gradu-p*eye(2,2), x, 1) * [1, 0]'
 bc_neu_x1_plus_adv = bc_neu_x1 - subs(u*transpose(u), x, 1) * [1, 0]'
