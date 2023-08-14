@@ -22,7 +22,7 @@ if config.ndim == 2:
 else:
     from shape_function import get_det_nlx_3d as get_det_nlx
     from shape_function import sdet_snlx_3d as sdet_snlx
-
+import pressure_matrix
 
 dev = config.dev
 nele = config.nele
@@ -71,10 +71,10 @@ def calc_RAR_mf_color(
             ARm = get_residual_only(r0=ARm,
                                     x_i=Rm,
                                     x_rhs=dummy,
-                                    include_p=False,
                                     include_adv=include_adv,
                                     u_n=u_n,
-                                    u_bc=u_bc,)
+                                    u_bc=u_bc,
+                                    a00=True, a01=False, a10=False, a11=False)
             ARm *= -1.  # (p3dg_nonods, ndim)
             # RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
             RARm *= 0
@@ -92,8 +92,8 @@ def calc_RAR_mf_color(
 
 def get_residual_and_smooth_once(
         r0_in, x_i_in, x_rhs,
-        include_p=True,
-        include_adv=False, u_n=None, u_bc=None
+        include_adv=False, u_n=None, u_bc=None,
+        a00=True, a01=False, a10=False, a11=False
 ):
     """update residual, then do one (block-) Jacobi smooth.
     Block matrix structure:
@@ -134,8 +134,9 @@ def get_residual_and_smooth_once(
         r0_in, diagK, bdiagK, diagS = _k_res_one_batch(
             r0_in, x_i_in,
             diagK, bdiagK, diagS,
-            idx_in, include_p,
-            include_adv, u_n
+            idx_in,
+            include_adv, u_n,
+            a00, a01, a10, a11
         )
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
@@ -143,20 +144,21 @@ def get_residual_and_smooth_once(
         r0_in, diagK, bdiagK, diagS = _s_res_one_batch(
             r0_in, x_i_in,
             diagK, bdiagK, diagS,
-            idx_in_f, brk_pnt[i], include_p,
-            include_adv, u_n, u_bc
+            idx_in_f, brk_pnt[i],
+            include_adv, u_n, u_bc,
+            a00, a01, a10, a11
         )
         # smooth once
         if config.blk_solver == 'direct':
             bdiagK = torch.inverse(bdiagK.view(batch_in, u_nloc * ndim, u_nloc * ndim))
-            r0 = slicing_x_i(r0_in, include_p)
-            x_i = slicing_x_i(x_i_in, include_p)
+            r0 = slicing_x_i(r0_in, a01)
+            x_i = slicing_x_i(x_i_in, a01)
             # x_i[0] = x_i[0].view(nele, u_nloc * ndim)
             x_i[0][idx_in, :] += config.jac_wei * torch.einsum('...ij,...j->...i',
                                                                bdiagK,
                                                                r0[0].view(nele, u_nloc * ndim)[idx_in, :]
                                                                ).view(nele, u_nloc, ndim)
-            if not include_p:
+            if not a01:
                 return r0_in, x_i_in
             # x_i[1] = x_i[1].view(nele, p_nloc)
             # TODO: actually I think we will never reach here.
@@ -173,14 +175,21 @@ def get_residual_and_smooth_once(
     return r0_in, x_i_in
 
 
-def get_residual_only(r0, x_i, x_rhs, include_p=True,
-                      include_adv=False, u_n=None, u_bc=None):
+def get_residual_only(r0, x_i, x_rhs,
+                      include_adv=False, u_n=None, u_bc=None,
+                      a00=True, a01=True, a10=True, a11=False):
     """update residual,
         Block matrix structure:
         [ K    G ]
         [ G^T  S ]
         K is velocity block, G is gradient,
         G^T is divergence, S is block for pressure penalty term.
+
+        use a00, a01, a10, a11 to control which block(s) is activated
+        during residual update. for example, we may only want to get
+        velocity block a00, then set a01, a10, a11 be False.
+        For another example, we may only want to use G, then
+        set a00, a10, a11 be false.
 
         from now on, we will only assume x_i is a 1-D array that has
         the following storage:
@@ -201,7 +210,10 @@ def get_residual_only(r0, x_i, x_rhs, include_p=True,
         u_bc = u_bc.view(nele, u_nloc, ndim)
 
     # add precalculated rhs to residual
-    r0 += x_rhs
+    if type(x_rhs) is int:
+        r0 += x_rhs
+    else:
+        r0 += x_rhs.view(r0.shape)
     for i in range(nnn):
         # volume integral
         idx_in = torch.zeros(nele, device=dev, dtype=bool)  # element indices in this batch
@@ -214,16 +226,18 @@ def get_residual_only(r0, x_i, x_rhs, include_p=True,
         diagS = torch.zeros(batch_in, p_nloc, p_nloc, device=dev, dtype=torch.float64)
         r0, diagK, bdiagK, diagS = _k_res_one_batch(r0, x_i,
                                                     diagK, bdiagK, diagS,
-                                                    idx_in, include_p,
-                                                    include_adv, u_n)
+                                                    idx_in,
+                                                    include_adv, u_n,
+                                                    a00, a01, a10, a11)
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         r0, diagK, bdiagK, diagS = _s_res_one_batch(
             r0, x_i,
             diagK, bdiagK, diagS,
-            idx_in_f, brk_pnt[i], include_p,
-            include_adv, u_n, u_bc
+            idx_in_f, brk_pnt[i],
+            include_adv, u_n, u_bc,
+            a00, a01, a10, a11
         )
     # if include_p and config.hasNullSpace:
     #     r0[-1] -= x_i[-1]  # this effectively add 1 to the last diagonal entry in pressure block to remove null space.
@@ -236,9 +250,10 @@ def get_residual_only(r0, x_i, x_rhs, include_p=True,
 def _k_res_one_batch(
         r0, x_i,
         diagK, bdiagK, diagS,
-        idx_in, include_p,
+        idx_in,
         include_adv,
         u_n,
+        a00, a01, a10, a11
 ):
     """this contains volume integral part of the residual update
     let velocity shape function be N, pressure be Q
@@ -249,6 +264,7 @@ def _k_res_one_batch(
     ~mu/|e|^2 in S~ NO S in this block-diagonal preconditioning
     """
     batch_in = diagK.shape[0]
+    include_p = a01
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
@@ -256,8 +272,12 @@ def _k_res_one_batch(
     # r0[1] = r0[1].view(-1, p_nloc)
     # x_i[0] = x_i[0].view(-1, u_nloc, ndim)
     # x_i[1] = x_i[1].view(-1, p_nloc)
-    r0_u, r0_p = slicing_x_i(r0, include_p)
-    x_i_u, x_i_p = slicing_x_i(x_i, include_p)
+    if a00:
+        r0_u, r0_p = slicing_x_i(r0, include_p)
+        x_i_u, x_i_p = slicing_x_i(x_i, include_p)
+    elif not a00 and a01:
+        r0_u = r0.view(batch_in, u_nloc, ndim)
+        x_i_p = x_i.view(batch_in, p_nloc)
     diagK = diagK.view(-1, u_nloc, ndim)
     bdiagK = bdiagK.view(-1, u_nloc, ndim, u_nloc, ndim)
     diagS = diagS.view(-1, p_nloc, p_nloc)
@@ -283,43 +303,46 @@ def _k_res_one_batch(
 
     # local K
     K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim, device=dev, dtype=torch.float64)
-    # Nx_i Nx_j
-    K += torch.einsum('bimg,bing,bg,jk->bmjnk', nx, nx, ndetwei,
-                      torch.eye(ndim, device=dev, dtype=torch.float64)
-                      ) \
-        * config.mu
-        # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)\
-    if config.isTransient:
-        # ni nj
-        for idim in range(ndim):
-            K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) \
-                                      * config.rho / config.dt
-    if include_adv:
-        K += torch.einsum(
-            'lg,bli,bing,mg,bg,jk->bmjnk',
-            n,
-            u_n[idx_in, ...],
-            nx,
-            n,
-            ndetwei,
-            torch.eye(ndim, device=dev, dtype=torch.float64)
-        )
-    # update residual of velocity block K
-    r0_u[idx_in, ...] -= torch.einsum('bminj,bnj->bmi', K, x_i_u[idx_in, ...])
-    # get diagonal of velocity block K
-    diagK += torch.diagonal(K.view(batch_in, u_nloc * ndim, u_nloc * ndim)
-                            , dim1=1, dim2=2).view(batch_in, u_nloc, ndim)
-    bdiagK[idx_in, ...] += K
+    if a00:
+        # Nx_i Nx_j
+        K += torch.einsum('bimg,bing,bg,jk->bmjnk', nx, nx, ndetwei,
+                          torch.eye(ndim, device=dev, dtype=torch.float64)
+                          ) \
+            * config.mu
+            # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)\
+        if config.isTransient:
+            # ni nj
+            for idim in range(ndim):
+                K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) \
+                                          * config.rho / config.dt
+        if include_adv:
+            K += torch.einsum(
+                'lg,bli,bing,mg,bg,jk->bmjnk',
+                n,
+                u_n[idx_in, ...],
+                nx,
+                n,
+                ndetwei,
+                torch.eye(ndim, device=dev, dtype=torch.float64)
+            )
+        # update residual of velocity block K
+        r0_u[idx_in, ...] -= torch.einsum('bminj,bnj->bmi', K, x_i_u[idx_in, ...])
+        # get diagonal of velocity block K
+        diagK += torch.diagonal(K.view(batch_in, u_nloc * ndim, u_nloc * ndim)
+                                , dim1=1, dim2=2).view(batch_in, u_nloc, ndim)
+        bdiagK[idx_in, ...] += K
 
     if include_p:
         # local G
         G = torch.zeros(batch_in, u_nloc, ndim, p_nloc, device=dev, dtype=torch.float64)
         # Nx_i Q_j
         G += torch.einsum('bimg,ng,bg->bmin', nx, q, ndetwei) * (-1.)
-        # update velocity residual of pressure gradient G * p
-        r0_u[idx_in, ...] -= torch.einsum('bmin,bn->bmi', G, x_i_p[idx_in, ...])
-        # update pressure residual of velocity divergence G^T * u
-        r0_p[idx_in, ...] -= torch.einsum('bmjn,bmj->bn', G, x_i_u[idx_in, ...])
+        if a01:
+            # update velocity residual of pressure gradient G * p
+            r0_u[idx_in, ...] -= torch.einsum('bmin,bn->bmi', G, x_i_p[idx_in, ...])
+        if a10:
+            # update pressure residual of velocity divergence G^T * u
+            r0_p[idx_in, ...] -= torch.einsum('bmjn,bmj->bn', G, x_i_u[idx_in, ...])
 
     return r0, diagK, bdiagK, diagS
 
@@ -329,8 +352,8 @@ def _s_res_one_batch(
         diagK, bdiagK, diagS,
         idx_in_f,
         batch_start_idx,
-        include_p,
-        include_adv, u_n, u_bc
+        include_adv, u_n, u_bc,
+        a00, a01, a10, a11
 ):
     # get essential data
     nbf = sf_nd_nb.vel_func_space.nbf
@@ -375,8 +398,9 @@ def _s_res_one_batch(
                 f_inb[idx_iface], E_F_inb[idx_iface],
                 x_i,
                 diagK, bdiagK, diagS, batch_start_idx,
-                nb_gi_aln, include_p,
-                include_adv, u_n
+                nb_gi_aln,
+                include_adv, u_n,
+                a00, a01, a10, a11
             )
 
     # update residual for boundary faces
@@ -387,8 +411,10 @@ def _s_res_one_batch(
             r0, diagK, bdiagK = _s_res_fb(
                 r0, f_b[idx_iface], E_F_b[idx_iface],
                 x_i,
-                diagK, bdiagK, batch_start_idx, include_p,
-            include_adv, u_bc)
+                diagK, bdiagK, batch_start_idx,
+                include_adv, u_bc,
+                a00, a01, a10, a11
+            )
     else:
         raise Exception('2D hyper-elasticity not implemented!')
     return r0, diagK, bdiagK, diagS
@@ -399,18 +425,25 @@ def _s_res_fi(
         f_inb, E_F_inb,
         x_i_in,
         diagK, bdiagK, diagS, batch_start_idx,
-        nb_gi_aln, include_p,
-        include_adv, u_n
+        nb_gi_aln,
+        include_adv, u_n,
+        a00, a01, a10, a11
 ):
     """internal faces"""
     batch_in = f_i.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
-
+    include_p = a01
     # get element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    x_i = slicing_x_i(x_i_in, include_p)
-    r = slicing_x_i(r_in, include_p)
+    # x_i = slicing_x_i(x_i_in, include_p)
+    # r = slicing_x_i(r_in, include_p)
+    if a00:
+        r_u, r_p = slicing_x_i(r_in, include_p)
+        x_i_u, x_i_p = slicing_x_i(x_i_in, include_p)
+    elif not a00 and a01:
+        r_u = r_in.view(nele, u_nloc, ndim)
+        x_i_p = x_i_in.view(nele, p_nloc)
 
     # shape function on this side
     snx, sdetwei, snormal = sdet_snlx(
@@ -448,113 +481,115 @@ def _s_res_fi(
     if ndim == 3:
         h = torch.sqrt(h)
     gamma_e = config.eta_e / h
-    u_ith = x_i[0][E_F_i, ...]
-    u_inb = x_i[0][E_F_inb, ...]
     if include_p:
-        p_ith = x_i[1][E_F_i, ...]
-        p_inb = x_i[1][E_F_inb, ...]
+        p_ith = x_i_p[E_F_i, ...]
+        p_inb = x_i_p[E_F_inb, ...]
 
-    # K block
-    K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim, device=dev, dtype=torch.float64)
-    # this side
-    # [v_i n_j] {du_i / dx_j}  consistent term
-    K += torch.einsum(
-        'bmg,bj,bjng,bg,kl->bmknl',
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim)
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
-    # {dv_i / dx_j} [u_i n_j]  symmetry term
-    K += torch.einsum(
-        'bjmg,bng,bj,bg,kl->bmknl',
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim)
-        sdetwei,  # (batch_in, sngi)
-        torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # \gamma_e * [v_i][u_i]  penalty term
-    K += torch.einsum(
-        'bmg,bng,bg,b,ij->bminj',
-        sn,  # (batch_in, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        gamma_e,  # (batch_in)
-        torch.eye(ndim, device=dev, dtype=torch.float64),
-    )
-    K *= config.mu
-    if include_adv:
-        # get upwind vel
-        wknk_ave = torch.einsum(
-            'bmg,bmi,bi->bg',
-            sn,  # (batch_in, u_nloc, sngi)
-            u_n[E_F_i, :, :],  # (batch_in, u_nloc, sngi)
+    if a00:
+        u_ith = x_i_u[E_F_i, ...]
+        u_inb = x_i_u[E_F_inb, ...]
+        # K block
+        K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim, device=dev, dtype=torch.float64)
+        # this side
+        # [v_i n_j] {du_i / dx_j}  consistent term
+        K += torch.einsum(
+            'bmg,bj,bjng,bg,kl->bmknl',
+            sn,  # (batch_in, nloc, sngi)
             snormal,  # (batch_in, ndim)
-        ) * 0.5 + torch.einsum(
-            'bmg,bmi,bi->bg',
-            sn_nb,  # (batch_in, u_nloc, sngi)
-            u_n[E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
+            snx,  # (batch_in, ndim, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
+        ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+        # {dv_i / dx_j} [u_i n_j]  symmetry term
+        K += torch.einsum(
+            'bjmg,bng,bj,bg,kl->bmknl',
+            snx,  # (batch_in, ndim, nloc, sngi)
+            sn,  # (batch_in, nloc, sngi)
             snormal,  # (batch_in, ndim)
-        ) * 0.5
-        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
-        K += -torch.einsum(
-            'bg,bmg,bng,bg,ij->bminj',
-            wknk_upwd,  # (batch_in, sngi)
-            sn,  # (batch_in, u_nloc, sngi)
-            sn,  # (batch_in, u_nloc, sngi)
-            sdetwei,  # (bathc_in, sngi)
-            torch.eye(ndim, device=dev, dtype=torch.float64)
+            sdetwei,  # (batch_in, sngi)
+            torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
+        ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+        # \gamma_e * [v_i][u_i]  penalty term
+        K += torch.einsum(
+            'bmg,bng,bg,b,ij->bminj',
+            sn,  # (batch_in, nloc, sngi)
+            sn,  # (batch_in, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            gamma_e,  # (batch_in)
+            torch.eye(ndim, device=dev, dtype=torch.float64),
         )
-    # update residual
-    r[0][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
-    # put diagonal into diagK and bdiagK
-    diagK[E_F_i-batch_start_idx, :, :] += torch.diagonal(K.view(batch_in, u_nloc*ndim, u_nloc*ndim),
-                                                         dim1=1, dim2=2).view(batch_in, u_nloc, ndim)
-    bdiagK[E_F_i-batch_start_idx, :, :] += K
+        K *= config.mu
+        if include_adv:
+            # get upwind vel
+            wknk_ave = torch.einsum(
+                'bmg,bmi,bi->bg',
+                sn,  # (batch_in, u_nloc, sngi)
+                u_n[E_F_i, :, :],  # (batch_in, u_nloc, sngi)
+                snormal,  # (batch_in, ndim)
+            ) * 0.5 + torch.einsum(
+                'bmg,bmi,bi->bg',
+                sn_nb,  # (batch_in, u_nloc, sngi)
+                u_n[E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
+                snormal,  # (batch_in, ndim)
+            ) * 0.5
+            wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
+            K += -torch.einsum(
+                'bg,bmg,bng,bg,ij->bminj',
+                wknk_upwd,  # (batch_in, sngi)
+                sn,  # (batch_in, u_nloc, sngi)
+                sn,  # (batch_in, u_nloc, sngi)
+                sdetwei,  # (bathc_in, sngi)
+                torch.eye(ndim, device=dev, dtype=torch.float64)
+            )
+        # update residual
+        r_u[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
+        # put diagonal into diagK and bdiagK
+        diagK[E_F_i-batch_start_idx, :, :] += torch.diagonal(K.view(batch_in, u_nloc*ndim, u_nloc*ndim),
+                                                             dim1=1, dim2=2).view(batch_in, u_nloc, ndim)
+        bdiagK[E_F_i-batch_start_idx, :, :] += K
 
-    # other side
-    K *= 0
-    # [v_i n_j] {du_i / dx_j}  consistent term
-    K += torch.einsum(
-        'bmg,bj,bjng,bg,kl->bmknl',
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim)
-        snx_nb,  # (batch_in, ndim, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        torch.eye(ndim, device=dev, dtype=torch.float64)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # {dv_i / dx_j} [u_i n_j]  symmetry term
-    K += torch.einsum(
-        'bjmg,bng,bj,bg,kl->bmknl',
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sn_nb,  # (batch_in, nloc, sngi)
-        snormal_nb,  # (batch_in, ndim)
-        sdetwei,  # (batch_in, sngi)
-        torch.eye(ndim, device=dev, dtype=torch.float64)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # \gamma_e * [v_i][u_i]  penalty term
-    K += torch.einsum(
-        'bmg,bng,bg,b,ij->bminj',
-        sn,  # (batch_in, nloc, sngi)
-        sn_nb,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        gamma_e,  # (batch_in)
-        torch.eye(ndim, device=dev, dtype=torch.float64),
-    ) * (-1.)  # because n2 \cdot n1 = -1
-    K *= config.mu
-    if include_adv:
-        K += -torch.einsum(
-            'bg,bmg,bng,bg,ij->bminj',
-            wknk_upwd,  # (batch_in, sngi)
-            sn,  # (batch_in, u_nloc, sngi)
-            sn_nb,  # (batch_in, u_nloc, sngi)
-            sdetwei,  # (bathc_in, sngi)
+        # other side
+        K *= 0
+        # [v_i n_j] {du_i / dx_j}  consistent term
+        K += torch.einsum(
+            'bmg,bj,bjng,bg,kl->bmknl',
+            sn,  # (batch_in, nloc, sngi)
+            snormal,  # (batch_in, ndim)
+            snx_nb,  # (batch_in, ndim, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64)
-        ) * (-1.)
-    # update residual
-    r[0][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_inb)
+        ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+        # {dv_i / dx_j} [u_i n_j]  symmetry term
+        K += torch.einsum(
+            'bjmg,bng,bj,bg,kl->bmknl',
+            snx,  # (batch_in, ndim, nloc, sngi)
+            sn_nb,  # (batch_in, nloc, sngi)
+            snormal_nb,  # (batch_in, ndim)
+            sdetwei,  # (batch_in, sngi)
+            torch.eye(ndim, device=dev, dtype=torch.float64)
+        ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+        # \gamma_e * [v_i][u_i]  penalty term
+        K += torch.einsum(
+            'bmg,bng,bg,b,ij->bminj',
+            sn,  # (batch_in, nloc, sngi)
+            sn_nb,  # (batch_in, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            gamma_e,  # (batch_in)
+            torch.eye(ndim, device=dev, dtype=torch.float64),
+        ) * (-1.)  # because n2 \cdot n1 = -1
+        K *= config.mu
+        if include_adv:
+            K += -torch.einsum(
+                'bg,bmg,bng,bg,ij->bminj',
+                wknk_upwd,  # (batch_in, sngi)
+                sn,  # (batch_in, u_nloc, sngi)
+                sn_nb,  # (batch_in, u_nloc, sngi)
+                sdetwei,  # (bathc_in, sngi)
+                torch.eye(ndim, device=dev, dtype=torch.float64)
+            ) * (-1.)
+        # update residual
+        r_u[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_inb)
+        del K
 
     if not include_p:  # no need to go to G, G^T and S
         return r_in, diagK, bdiagK, diagS
@@ -563,7 +598,6 @@ def _s_res_fi(
     sq_nb = sf_nd_nb.pre_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     sq_nb = sq_nb[..., nb_aln]
     # G block
-    del K
     G = torch.zeros(batch_in, u_nloc, ndim, p_nloc, device=dev, dtype=torch.float64)
     # this side
     # [v_i n_i] {p}
@@ -574,35 +608,39 @@ def _s_res_fi(
         sq,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     ) * (0.5)
-    # update velocity residual from pressure gradient
-    r[0][E_F_i, ...] -= torch.einsum('bmin,bn->bmi', G, p_ith)
-    # update pressure residual from velocity divergence
-    r[1][E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
+    if a01:
+        # update velocity residual from pressure gradient
+        r_u[E_F_i, ...] -= torch.einsum('bmin,bn->bmi', G, p_ith)
+    if a10:
+        # update pressure residual from velocity divergence
+        r_p[E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
 
     # other side
-    G *= 0
-    # {p} [v_i n_i]
-    G += torch.einsum(
-        'bmg,bi,bng,bg->bmin',
-        sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
-        sq_nb,  # (batch_in, p_nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-    ) * (0.5)
-    # update velocity residual from pressure gradient
-    r[0][E_F_i, ...] -= torch.einsum('bmin,bn->bmi', G, p_inb)
-    # G^T
-    G *= 0
-    # {q} [u_j n_j]
-    G += torch.einsum(
-        'bmg,bng,bj,bg->bnjm',
-        sq,  # (batch_in, p_nloc, sngi)
-        sn_nb,  # (batch_in, u_nloc, sngi)
-        snormal_nb,  # (batch_in, ndim)
-        sdetwei,  # (batch_in, sngi)
-    ) * (0.5)
-    # update pressure residual from velocity divergence
-    r[1][E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_inb)
+    if a01:
+        G *= 0
+        # {p} [v_i n_i]
+        G += torch.einsum(
+            'bmg,bi,bng,bg->bmin',
+            sn,  # (batch_in, u_nloc, sngi)
+            snormal,  # (batch_in, ndim)
+            sq_nb,  # (batch_in, p_nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+        ) * (0.5)
+        # update velocity residual from pressure gradient
+        r_u[E_F_i, ...] -= torch.einsum('bmin,bn->bmi', G, p_inb)
+    if a10:
+        # G^T
+        G *= 0
+        # {q} [u_j n_j]
+        G += torch.einsum(
+            'bmg,bng,bj,bg->bnjm',
+            sq,  # (batch_in, p_nloc, sngi)
+            sn_nb,  # (batch_in, u_nloc, sngi)
+            snormal_nb,  # (batch_in, ndim)
+            sdetwei,  # (batch_in, sngi)
+        ) * (0.5)
+        # update pressure residual from velocity divergence
+        r_p[E_F_i, ...] -= torch.einsum('bnjm,bnj->bm', G, u_inb)
 
     if config.is_pressure_stablise:
         del G
@@ -616,7 +654,7 @@ def _s_res_fi(
             sq,
             sdetwei,  # (batch_in, sngi)
         )
-        r[1][E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_ith)
+        r_p[E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_ith)
         diagS[E_F_i, ...] += S
         # other side
         S *= 0
@@ -627,7 +665,7 @@ def _s_res_fi(
             sq_nb,  # (batch_in, p_nloc, sngi)
             sdetwei,  # (batch_in, sngi)
         ) * (-1.)  # due to n1 \cdot n2 = -1
-        r[1][E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_inb)
+        r_p[E_F_i, ...] -= torch.einsum('bmn,bn->bm', S, p_inb)
     # this concludes surface integral on interior faces.
     return r_in, diagK, bdiagK, diagS
 
@@ -636,20 +674,26 @@ def _s_res_fb(
         r_in, f_b, E_F_b,
         x_i_in,
         diagK, bdiagK, batch_start_idx,
-        include_p,
-        include_ave, u_bc
+        include_ave, u_bc,
+        a00, a01, a10, a11
 ):
     """boundary faces"""
     batch_in = f_b.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     if batch_in < 1:  # nothing to do here.
         return r_in, diagK, bdiagK
-
+    include_p = a01
     # get element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    r = slicing_x_i(r_in, include_p)
-    x_i = slicing_x_i(x_i_in, include_p)
+    # r = slicing_x_i(r_in, include_p)
+    # x_i = slicing_x_i(x_i_in, include_p)
+    if a00:
+        r_u, r_p = slicing_x_i(r_in, include_p)
+        x_i_u, x_i_p = slicing_x_i(x_i_in, include_p)
+    elif not a00 and a01:
+        r_u = r_in.view(nele, u_nloc, ndim)
+        x_i_p = x_i_in.view(nele, p_nloc)
 
     # shape function
     snx, sdetwei, snormal = sdet_snlx(
@@ -670,69 +714,70 @@ def _s_res_fb(
     else:
         gamma_e = config.eta_e / torch.sum(sdetwei, -1)
 
-    u_ith = x_i[0][E_F_b, ...]
     if include_p:
-        p_ith = x_i[1][E_F_b, ...]
+        p_ith = x_i_p[E_F_b, ...]
 
-    # block K
-    K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim,
-                    device=dev, dtype=torch.float64)
-    # [vi nj] {du_i / dx_j}  consistent term
-    K -= torch.einsum(
-        'bmg,bj,bjng,bg,kl->bmknl',
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim)
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        torch.eye(ndim, device=dev, dtype=torch.float64)
-    )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
-    # {dv_i / dx_j} [ui nj]  symmetry term
-    K -= torch.einsum(
-        'bjmg,bng,bj,bg,kl->bmknl',
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim)
-        sdetwei,  # (batch_in, sngi)
-        torch.eye(ndim, device=dev, dtype=torch.float64)
-    )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
-    # \gamma_e [v_i] [u_i]  penalty term
-    K += torch.einsum(
-        'bmg,bng,bg,b,ij->bminj',
-        sn,  # (batch_in, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        gamma_e,  # (batch_in)
-        torch.eye(ndim, device=dev, dtype=torch.float64)
-    )
-    K *= config.mu
-    if include_ave:
-        # get upwind velocity
-        wknk_ave = torch.einsum(
-            'bmg,bmi,bi->bg',
-            sn,  # (batch_in, u_nloc, sngi)
-            u_bc[E_F_b, ...],  # (batch_in, u_nloc, ndim)
+    if a00:
+        u_ith = x_i_u[E_F_b, ...]
+        # block K
+        K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim,
+                        device=dev, dtype=torch.float64)
+        # [vi nj] {du_i / dx_j}  consistent term
+        K -= torch.einsum(
+            'bmg,bj,bjng,bg,kl->bmknl',
+            sn,  # (batch_in, nloc, sngi)
             snormal,  # (batch_in, ndim)
-        )
-        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
-        K += -torch.einsum(
-            'bg,bmg,bng,bg,ij->bminj',
-            wknk_upwd,
-            sn,  # (batch_in, u_nloc, sngi)
-            sn,  # (batch_in, u_nloc, sngi)
+            snx,  # (batch_in, ndim, nloc, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64)
+        )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+        # {dv_i / dx_j} [ui nj]  symmetry term
+        K -= torch.einsum(
+            'bjmg,bng,bj,bg,kl->bmknl',
+            snx,  # (batch_in, ndim, nloc, sngi)
+            sn,  # (batch_in, nloc, sngi)
+            snormal,  # (batch_in, ndim)
+            sdetwei,  # (batch_in, sngi)
+            torch.eye(ndim, device=dev, dtype=torch.float64)
+        )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+        # \gamma_e [v_i] [u_i]  penalty term
+        K += torch.einsum(
+            'bmg,bng,bg,b,ij->bminj',
+            sn,  # (batch_in, nloc, sngi)
+            sn,  # (batch_in, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            gamma_e,  # (batch_in)
+            torch.eye(ndim, device=dev, dtype=torch.float64)
         )
-    # update residual
-    r[0][E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
-    # put in diagonal
-    diagK[E_F_b - batch_start_idx, :, :] += torch.diagonal(K.view(batch_in, u_nloc * ndim, u_nloc * ndim),
-                                                           dim1=-2, dim2=-1).view(batch_in, u_nloc, ndim)
-    bdiagK[E_F_b - batch_start_idx, ...] += K
+        K *= config.mu
+        if include_ave:
+            # get upwind velocity
+            wknk_ave = torch.einsum(
+                'bmg,bmi,bi->bg',
+                sn,  # (batch_in, u_nloc, sngi)
+                u_bc[E_F_b, ...],  # (batch_in, u_nloc, ndim)
+                snormal,  # (batch_in, ndim)
+            )
+            wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
+            K += -torch.einsum(
+                'bg,bmg,bng,bg,ij->bminj',
+                wknk_upwd,
+                sn,  # (batch_in, u_nloc, sngi)
+                sn,  # (batch_in, u_nloc, sngi)
+                sdetwei,  # (batch_in, sngi)
+                torch.eye(ndim, device=dev, dtype=torch.float64)
+            )
+        # update residual
+        r_u[E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
+        # put in diagonal
+        diagK[E_F_b - batch_start_idx, :, :] += torch.diagonal(K.view(batch_in, u_nloc * ndim, u_nloc * ndim),
+                                                               dim1=-2, dim2=-1).view(batch_in, u_nloc, ndim)
+        bdiagK[E_F_b - batch_start_idx, ...] += K
+        del K
 
     if not include_p:
         return r_in, diagK, bdiagK
     # block G
-    del K
     G = torch.zeros(batch_in, u_nloc, ndim, p_nloc,
                     device=dev, dtype=torch.float64)
     # [v_i n_i] {p}
@@ -743,12 +788,13 @@ def _s_res_fb(
         sq,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     )
-    # update velocity residual from pressure gradient
-    r[0][E_F_b, :, :] -= torch.einsum('bmin,bn->bmi', G, p_ith)
-
-    # block G^T
-    # update pressure residual from velocity divergence
-    r[1][E_F_b, :] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
+    if a01:
+        # update velocity residual from pressure gradient
+        r_u[E_F_b, :, :] -= torch.einsum('bmin,bn->bmi', G, p_ith)
+    if a10:
+        # block G^T
+        # update pressure residual from velocity divergence
+        r_p[E_F_b, :] -= torch.einsum('bnjm,bnj->bm', G, u_ith)
 
     return r_in, diagK, bdiagK
 
@@ -1450,7 +1496,7 @@ def pre_blk_precon(x_p):
     return x_p.view(-1)
 
 
-def vel_blk_precon(x_u, x_rhs, include_adv, u_n=None, u_bc=None):
+def vel_precond_invK_mg(x_u, x_rhs, include_adv, u_n=None, u_bc=None):
     """
     given vector x_u, apply velocity block's preconditioner:
     x_u <- K^-1 x_rhs
@@ -1470,14 +1516,16 @@ def vel_blk_precon(x_u, x_rhs, include_adv, u_n=None, u_bc=None):
     for its1 in range(config.pre_smooth_its):
         r0 *= 0
         r0, x_u = get_residual_and_smooth_once(
-            r0, x_u, x_rhs=x_rhs, include_p=False,
+            r0, x_u, x_rhs=x_rhs,
             include_adv=include_adv, u_n=u_n, u_bc=u_bc,
+            a00=True, a01=False, a10=False, a11=False
         )
 
     # get residual on PnDG
     r0 *= 0
-    r0 = get_residual_only(r0, x_u, x_rhs=x_rhs, include_p=False,
-                           include_adv=include_adv, u_n=u_n, u_bc=u_bc)
+    r0 = get_residual_only(r0, x_u, x_rhs=x_rhs,
+                           include_adv=include_adv, u_n=u_n, u_bc=u_bc,
+                           a00=True, a01=False, a10=False, a11=False)
 
     # restrict residual
     if not config.is_pmg:
@@ -1527,14 +1575,15 @@ def vel_blk_precon(x_u, x_rhs, include_adv, u_n=None, u_bc=None):
     for its1 in range(config.pre_smooth_its):
         r0 *= 0
         r0, x_u = get_residual_and_smooth_once(
-            r0, x_u, x_rhs=x_rhs, include_p=False,
+            r0, x_u, x_rhs=x_rhs,
             include_adv=include_adv, u_n=u_n, u_bc=u_bc,
+            a00=True, a01=False, a10=False, a11=False
         )
     # print('x_rhs norm: ', torch.linalg.norm(x_rhs.view(-1)), 'r0 norm: ', torch.linalg.norm(r0.view(-1)))
     return x_u.view(nele, nloc, ndim)
 
 
-def vel_blk_precon_direct_inv(x_rhs):
+def vel_precond_invK_direct(x_rhs, u_n, u_bc):
     """
     as a test,
     use direct inverse of K as velocity block preconditioner.
@@ -1547,8 +1596,7 @@ def vel_blk_precon_direct_inv(x_rhs):
 
     in this subroutine we apply K^-1 to x_rhs
     """
-    # we will use stokes_assemble to get K
-    pass
+    # we will use ns_assemble to get K
     import ns_assemble
     u_nonods = sf_nd_nb.vel_func_space.nonods
     p_nonods = sf_nd_nb.pre_func_space.nonods
@@ -1556,15 +1604,102 @@ def vel_blk_precon_direct_inv(x_rhs):
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
     if type(sf_nd_nb.Kmatinv) is NoneType:
         dummy = torch.zeros(u_nonods*ndim, device=dev, dtype=torch.float64)
-        Amat_sp, _ = ns_assemble.assemble(u_bc_in=[dummy, dummy],
-                                          f=dummy)
-        Kmat = Amat_sp.todense()[0:u_nonods*ndim, 0:u_nonods*ndim]
-        Kmatinv = np.linalg.inv(Kmat)
-        sf_nd_nb.set_data(Kmatinv=Kmatinv)
+        # Amat_sp, _ = ns_assemble.assemble(u_bc_in=[dummy, dummy],
+        #                                   f=dummy)
+        if sf_nd_nb.indices_st is None:
+            indices_st = []
+            values_st = []
+            rhs_np, indices_st, values_st = ns_assemble.assemble(
+                u_bc_in=[dummy, dummy],
+                f=dummy,
+                indices=indices_st,
+                values=values_st)
+            sf_nd_nb.set_data(
+                indices_st=indices_st,
+                values_st=values_st
+            )
+        else:
+            indices_st = sf_nd_nb.indices_st
+            values_st = sf_nd_nb.values_st
+        indices_ns = []
+        values_ns = []
+        indices_ns += indices_st
+        values_ns += values_st
+        if config.include_adv:
+            rhs_c, indices_ns, values_ns = ns_assemble.assemble_adv(
+                u_n,
+                [u_bc],
+                indices_ns,
+                values_ns)
+        Fmat_sp = ns_assemble.assemble_csr_mat(indices_ns, values_ns)
+        # rhs_all = rhs_np + rhs_c
+        Fmat = Fmat_sp.todense()[0:u_nonods*ndim, 0:u_nonods*ndim]
+        Fmatinv = np.linalg.inv(Fmat)
+        sf_nd_nb.set_data(Kmatinv=Fmatinv)
     else:
-        Kmatinv = sf_nd_nb.Kmatinv
+        Fmatinv = sf_nd_nb.Kmatinv
     x_in = x_rhs.view(-1).cpu().numpy()
-    x_out = np.matmul(Kmatinv, x_in)
+    x_out = np.matmul(Fmatinv, x_in)
     x_rhs *= 0
-    x_rhs += torch.tensor(x_out, device=dev, dtype=torch.float64).view(nele, u_nloc, ndim)
+    x_rhs += torch.tensor(x_out, device=dev, dtype=torch.float64).view(x_rhs.shape)
     return x_rhs
+
+
+def pre_precond_all(x_p, u_n, u_bc):
+    """
+    apply pressure preconditioner
+    x_p <- (- Q^-1 F_p L_p^-1) x_p
+    """
+    # apply L_p^-1
+    x_p_temp = torch.zeros_like(x_p, device=dev, dtype=torch.float64)
+    x_p_temp = pressure_matrix.pre_precond_invLp(x_p_temp, x_p)
+    x_p *= 0
+    x_p += x_p_temp.view(x_p.shape)
+
+    # apply -F_p  <- thisis the negative sign!
+    x_p = pressure_matrix.pre_precond_Fp(x_p, u_n, u_bc)
+
+    # apply Q^-1
+    x_p = pressure_matrix.pre_precond_invQ(x_p)
+
+    return x_p
+
+
+def vel_precond_all(x_u, x_p, u_n, u_bc):
+    """
+    apply velocity preconditioner
+    w_u <- K_u^-1 (x_u - G x_p)
+    """
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    x_temp = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
+    # x_u - G x_p
+    x_temp = get_residual_only(
+        r0=x_temp,
+        x_i=x_p,
+        x_rhs=x_u,
+        a00=False,
+        a01=True,
+        a10=False,
+        a11=False,
+    )
+    # move x_temp to x_u
+    x_u *= 0
+    x_u += x_temp.view(x_u.shape)
+    x_temp *= 0
+    # # left multiply K_u^-1
+    # x_temp = vel_precond_invK_mg(
+    #     x_u=x_temp,
+    #     x_rhs=x_u,
+    #     include_adv=config.include_adv,
+    #     u_n=u_n,
+    #     u_bc=u_bc,
+    # )
+    # # move x_temp to x_u
+    # x_u *= 0
+    # x_u += x_temp.view(x_u.shape)
+    x_u = vel_precond_invK_direct(
+        x_u,
+        u_n,
+        u_bc,
+    )
+    return x_u

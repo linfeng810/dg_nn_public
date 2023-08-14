@@ -120,9 +120,10 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1  # this is diffusion coefficient (viscosity)
+    mu = .0001  # this is diffusion coefficient (viscosity)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
+    include_adv = True  # if Navier-Stokes, include advection term.
     print('viscosity, hasNullSpade, is_pressure_stabilise?', mu, hasNullSpace, is_pressure_stablise)
 
 ####################

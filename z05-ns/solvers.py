@@ -194,20 +194,22 @@ def gmres_mg_solver(x_i, x_rhs,
                                u_bc=u_bc)
         # r0 = r0.view(nonods, ndim)  # why change view here...?
         # apply preconditioner
-        x_u_dummy *= 0
-        for icycle in range(1):
-            x_u_dummy = volume_mf_st.vel_blk_precon(
-                x_u_dummy,
-                r0_u,
-                include_adv=include_adv,
-                u_n=u_k,
-                u_bc=u_bc,
-            )
-        r0_u *= 0
-        r0_u += x_u_dummy
-        # print('r0_u norm: ', torch.linalg.norm(r0_u.view(-1)))
-        # r0_u = volume_mf_st.vel_blk_precon_direct_inv(r0_u)
-        r0_p = volume_mf_st.pre_blk_precon(r0_p)
+        # x_u_dummy *= 0
+        # for icycle in range(1):
+        #     x_u_dummy = volume_mf_st.vel_blk_precon(
+        #         x_u_dummy,
+        #         r0_u,
+        #         include_adv=include_adv,
+        #         u_n=u_k,
+        #         u_bc=u_bc,
+        #     )
+        # r0_u *= 0
+        # r0_u += x_u_dummy
+        # # print('r0_u norm: ', torch.linalg.norm(r0_u.view(-1)))
+        # # r0_u = volume_mf_st.vel_blk_precon_direct_inv(r0_u)
+        # r0_p = volume_mf_st.pre_blk_precon(r0_p)
+        r0_p = volume_mf_st.pre_precond_all(r0_p, u_k, u_bc)
+        r0_u = volume_mf_st.vel_precond_all(r0_u, r0_p, u_k, u_bc)
 
         # remove null space
         if type(nullspace) is not NoneType:
@@ -228,21 +230,26 @@ def gmres_mg_solver(x_i, x_rhs,
             w *= -1.
             # apply preconditioner
             # print('w_u position before:', w_u.data_ptr())
-            x_u_dummy *= 0
-            for icycle in range(1):
-                x_u_dummy = volume_mf_st.vel_blk_precon(
-                    x_u_dummy,
-                    w_u,
-                    include_adv=include_adv,
-                    u_n=u_k,
-                    u_bc=u_bc,
-                )
-            w_u *= 0
-            w_u += x_u_dummy
+            # x_u_dummy *= 0
+            # for icycle in range(1):
+            #     x_u_dummy = volume_mf_st.vel_blk_precon(
+            #         x_u_dummy,
+            #         w_u,
+            #         include_adv=include_adv,
+            #         u_n=u_k,
+            #         u_bc=u_bc,
+            #     )
+            # w_u *= 0
+            # w_u += x_u_dummy
+            # print('w_p position before:', w_p.data_ptr())
+            w_p = volume_mf_st.pre_precond_all(w_p, u_k, u_bc)
+            # print('w_p norm: ', torch.linalg.norm(w_p.view(-1)))
+            w_u = volume_mf_st.vel_precond_all(w_u, w_p, u_k, u_bc)
             # print('w_u norm: ', torch.linalg.norm(w_u.view(-1)))
             # w_u = volume_mf_st.vel_blk_precon_direct_inv(w_u)
+            # print('w_p position after:', w_p.data_ptr())
             # print('w_u position after:', w_u.data_ptr())
-            w_p = volume_mf_st.pre_blk_precon(w_p)
+            # w_p = volume_mf_st.pre_blk_precon(w_p)
             # w = w.view(-1)  # w_list is a 'view' of w
             for i in range(0, j+1):
                 h_m[i, j] = torch.linalg.vecdot(w, v_m[i, :])

@@ -359,6 +359,8 @@ def assemble_adv(u_n_in, u_bc_in, indices, values):
     # rhs
     rhs = np.zeros(u_nonods * ndim + p_nonods)
     # input
+    if type(u_n_in) is not np.ndarray:
+        u_n_in = u_n_in.cpu().numpy()
     u_n = u_n_in.reshape(-1)[0:u_nonods*ndim]  # u at last non-linear step
     u_bc = u_bc_in[0].view(nele, u_nloc, ndim).cpu().numpy()  # dirichlet bc
 

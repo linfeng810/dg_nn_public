@@ -27,6 +27,7 @@ from color import color2
 import multigrid_linearelastic as mg
 import bc_f
 import time
+import pressure_matrix
 
 starttime = time.time()
 
@@ -233,6 +234,12 @@ if (config.solver=='iterative') :
         x_i_n = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # last step soln
         u_n, p_n = volume_mf_st.slicing_x_i(x_i_n)
         u_k = torch.zeros(u_nonods * ndim, device=dev, dtype=torch.float64)  # non-linear velocity
+        # get pressure laplacian on P1CG, will be stored in
+        # sf_nd_nb.sfc_data_Lp
+        pressure_matrix.get_RAR_and_sfc_data_Lp(
+            whichc, ncolor,
+            fina, cola, ncola
+        )
         for itime in range(1, tstep):  # time loop
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
@@ -244,19 +251,20 @@ if (config.solver=='iterative') :
             r0 *= 0
 
             while nits < config.n_its_max:
+                sf_nd_nb.Kmatinv = None
                 u_k *= 0
                 u_k += x_i_list[0].view(u_k.shape)  # non-linear velocity
                 x_rhs *= 0
                 x_rhs = volume_mf_st.get_rhs(
                     x_rhs=x_rhs, u_bc=u_bc, f=f,
-                    include_adv=True,
+                    include_adv=config.include_adv,
                     u_n=u_n  # last *timestep* velocity
                 )
                 # get non-linear residual
                 r0 *= 0
                 r0 = volume_mf_st.get_residual_only(
                     r0, x_i, x_rhs,
-                    include_adv=True,
+                    include_adv=config.include_adv,
                     u_n=u_k,  # last *non-linear iteration step* velocity
                     u_bc=u_bc[0],
                 )
@@ -271,7 +279,7 @@ if (config.solver=='iterative') :
                     I_fc, I_cf,
                     whichc, ncolor,
                     fina, cola, ncola,
-                    include_adv=True,
+                    include_adv=config.include_adv,
                     u_n=u_k,
                     u_bc=u_bc[0]
                 )
@@ -304,7 +312,7 @@ if (config.solver=='iterative') :
                     x_i = solvers.gmres_mg_solver(
                         x_i, x_rhs,
                         tol=max(min(1.e-3*nr0l2, 1.e-3), 1.e-11),
-                        include_adv=True,
+                        include_adv=config.include_adv,
                         u_k=u_k,
                         u_bc=u_bc[0]
                     )
@@ -317,7 +325,7 @@ if (config.solver=='iterative') :
                 r0 *= 0
                 r0 = volume_mf_st.get_residual_only(
                     r0, x_i, x_rhs,
-                    include_adv=True,
+                    include_adv=config.include_adv,
                     u_n=u_k,
                     u_bc=u_bc[0],
                 )

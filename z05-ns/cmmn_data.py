@@ -26,8 +26,13 @@ class SfNdNb:
         self.I_dc = None  # prolongator from P1CG to P1DG
         self.I_cd = None  # restrictor from P1DG to P1CG
         self.RARmat = None  # operator on P1CG (velocity and pressure both here. they are same shape on P1CG)
-        self.sfc_data = SFCdata()
+        self.RARmat_Lp = None  # pressure laplacian on P1CG
+        self.sfc_data = SFCdata()  # sfc data for velocity block (adv + transient + diff)
+        self.sfc_data_Lp = SFCdata()  # sfc data for pressure laplacian
         self.Kmatinv = None  # velocity block of stokes problem
+        # velocity block of stokes problem - values and coordinates (coo format)
+        self.indices_st = None
+        self.values_st = None
 
     def set_data(self,
                  vel_func_space=None,
@@ -38,7 +43,10 @@ class SfNdNb:
                  I_cd=None,  # discontinuous P1DG to continuous P1CG prolongator
                  I_dc=None,  # continuous P1CG to discontinuous p1DG restrictor
                  RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
+                 RARmat_Lp=None,  # pressure laplacian on P1CG
                  Kmatinv=None,  # inverse of velocity block of stokes problem
+                 indices_st = None,
+                 values_st = None,
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -58,8 +66,14 @@ class SfNdNb:
             self.I_dc = I_dc
         if type(RARmat) != NoneType:
             self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
+        if type(RARmat_Lp) != NoneType:
+            self.RARmat_Lp = RARmat  # operator on P1CG, type: scipy csr sparse matrix
         if type(Kmatinv) != NoneType:
             self.Kmatinv = Kmatinv
+        if indices_st is not None:
+            self.indices_st = indices_st
+        if values_st is not None:
+            self.values_st = values_st
 
 
 class SFCdata:
