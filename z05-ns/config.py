@@ -78,8 +78,8 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 20
-n_tol = 1.e-10
+n_its_max = 30
+n_tol = 1.e-7
 relax_coeff = 1.
 
 ####################
@@ -120,11 +120,16 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = .0001  # this is diffusion coefficient (viscosity)
+    mu = 1/2000  # this is diffusion coefficient (viscosity)
+    _Re = int(1/mu)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
     include_adv = True  # if Navier-Stokes, include advection term.
-    print('viscosity, hasNullSpade, is_pressure_stabilise?', mu, hasNullSpace, is_pressure_stablise)
+    print('viscosity, Re, hasNullSpade, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
+
+    isSetInitial = False  # whether to use a precalculated fields (u and p) as initial condition
+    initDataFile = 'Re100.pt'
+    print('initial condition: '+initDataFile)
 
 ####################
 # discretisation settings
@@ -136,5 +141,5 @@ print('Surface jump penalty coefficient eta_e: ', eta_e)
 no_batch = 1
 print('No of batch: ', no_batch)
 
-case_name = '_'+problem+'_p'+str(ele_p)+'p'+str(ele_p_pressure)+\
+case_name = '_'+problem+'Re'+str(_Re)+'_p'+str(ele_p)+'p'+str(ele_p_pressure)+\
             '_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.

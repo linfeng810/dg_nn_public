@@ -51,7 +51,7 @@ tstart = config.tstart
 print('computation on ',dev)
 
 # define element
-quad_degree = config.ele_p*2
+quad_degree = config.ele_p*3
 vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev)
 pre_ele = Element(ele_order=config.ele_p_pressure, gi_order=quad_degree, edim=ndim,dev=dev)
 print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ', quad_degree)
@@ -240,6 +240,59 @@ if (config.solver=='iterative') :
             whichc, ncolor,
             fina, cola, ncola
         )
+
+        # solve a stokes problem as initial velocity
+        if False:
+            x_i *= 0
+            x_i += x_i_n  # use last timestep p as start value
+            r0 *= 0
+            x_rhs *= 0
+            x_rhs = volume_mf_st.get_rhs(
+                x_rhs=x_rhs, u_bc=u_bc, f=f,
+                include_adv=config.include_adv,
+                u_n=u_n  # last *timestep* velocity
+            )
+            RARvalues = integral_mf.calc_RAR_mf_color(
+                I_fc, I_cf,
+                whichc, ncolor,
+                fina, cola, ncola,
+                include_adv=config.include_adv,
+                u_n=u_k,
+                u_bc=u_bc[0]
+            )
+            from scipy.sparse import bsr_matrix
+
+            if not config.is_sfc:
+                RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
+                                 shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
+                sf_nd_nb.set_data(RARmat=RAR.tocsr())
+            # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
+            RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
+            # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+            space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+                mg.mg_on_P0CG_prep(fina, cola, RARvalues)
+            sf_nd_nb.sfc_data.set_data(
+                space_filling_curve_numbering=space_filling_curve_numbering,
+                variables_sfc=variables_sfc,
+                nlevel=nlevel,
+                nodes_per_level=nodes_per_level
+            )
+
+            if config.linear_solver == 'gmres-mg':
+                x_i, _ = solvers.gmres_mg_solver(
+                    x_i, x_rhs,
+                    tol=config.tol,
+                    include_adv=False,
+                    u_k=u_k,
+                    u_bc=u_bc[0]
+                )
+            print('finishing solving stokes problem as initial conidtion.')
+            x_i_n *= 0
+            x_i_n += x_i
+
+        if config.isSetInitial:
+            x_i_n += torch.load(config.initDataFile)
+
         for itime in range(1, tstep):  # time loop
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
@@ -249,6 +302,8 @@ if (config.solver=='iterative') :
             nr0l2 = 1  # non-linear solver residual l2 norm
             nits = 0  # newton iteration step
             r0 *= 0
+
+            total_its = 0  # total linear iteration number / restart
 
             while nits < config.n_its_max:
                 sf_nd_nb.Kmatinv = None
@@ -309,13 +364,14 @@ if (config.solver=='iterative') :
                     # nullspace = nullspace.view(1, -1)
                     # x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol,
                     #                               nullspace=nullspace)  # min(1.e-3*nr0l2, 1.e-3))
-                    x_i = solvers.gmres_mg_solver(
+                    x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=max(min(1.e-3*nr0l2, 1.e-3), 1.e-11),
+                        tol=1e-12,  # max(min(1.e-5*nr0l2, 1.e-5), 1.e-11),
                         include_adv=config.include_adv,
                         u_k=u_k,
                         u_bc=u_bc[0]
                     )
+                    total_its += its
                 elif config.linear_solver == 'right-gmres-mg':
                     raise ValueError('right-gmre-mg solver is not implemented!')
                     x_i = solvers.right_gmres_mg_solver(x_i, x_rhs, config.tol)
@@ -344,6 +400,9 @@ if (config.solver=='iterative') :
             x_i_n *= 0
             x_i_n += x_i  # store this step in case we want to use this for next timestep
 
+            # save x_i at this Re to reuse as the initial condition for higher Re
+            torch.save(x_i, 'Re'+str(config._Re)+'.pt')
+
             # get l2 error
             x_ana = bc_f.ana_soln(config.problem)
             u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
@@ -353,6 +412,7 @@ if (config.solver=='iterative') :
             print('l infinity error is: \n',
                   'velocity ', u_linf, '\n',
                   'pressure ', p_linf)
+            print('total its / restart ', total_its)
 
             # combine inner/inter element contribution
             u_all[itime, :, :, :] = x_i_list[0].cpu().numpy()

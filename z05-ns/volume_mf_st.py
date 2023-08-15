@@ -1645,19 +1645,20 @@ def vel_precond_invK_direct(x_rhs, u_n, u_bc):
     return x_rhs
 
 
-def pre_precond_all(x_p, u_n, u_bc):
+def pre_precond_all(x_p, include_adv, u_n, u_bc):
     """
     apply pressure preconditioner
     x_p <- (- Q^-1 F_p L_p^-1) x_p
     """
-    # apply L_p^-1
-    x_p_temp = torch.zeros_like(x_p, device=dev, dtype=torch.float64)
-    x_p_temp = pressure_matrix.pre_precond_invLp(x_p_temp, x_p)
-    x_p *= 0
-    x_p += x_p_temp.view(x_p.shape)
+    if include_adv:
+        # apply L_p^-1
+        x_p_temp = torch.zeros_like(x_p, device=dev, dtype=torch.float64)
+        x_p_temp = pressure_matrix.pre_precond_invLp(x_p_temp, x_p)
+        x_p *= 0
+        x_p += x_p_temp.view(x_p.shape)
 
-    # apply -F_p  <- thisis the negative sign!
-    x_p = pressure_matrix.pre_precond_Fp(x_p, u_n, u_bc)
+        # apply -F_p  <- thisis the negative sign!
+        x_p = pressure_matrix.pre_precond_Fp(x_p, u_n, u_bc)
 
     # apply Q^-1
     x_p = pressure_matrix.pre_precond_invQ(x_p)

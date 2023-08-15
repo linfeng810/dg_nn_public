@@ -208,7 +208,7 @@ def gmres_mg_solver(x_i, x_rhs,
         # # print('r0_u norm: ', torch.linalg.norm(r0_u.view(-1)))
         # # r0_u = volume_mf_st.vel_blk_precon_direct_inv(r0_u)
         # r0_p = volume_mf_st.pre_blk_precon(r0_p)
-        r0_p = volume_mf_st.pre_precond_all(r0_p, u_k, u_bc)
+        r0_p = volume_mf_st.pre_precond_all(r0_p, include_adv, u_k, u_bc)
         r0_u = volume_mf_st.vel_precond_all(r0_u, r0_p, u_k, u_bc)
 
         # remove null space
@@ -242,7 +242,7 @@ def gmres_mg_solver(x_i, x_rhs,
             # w_u *= 0
             # w_u += x_u_dummy
             # print('w_p position before:', w_p.data_ptr())
-            w_p = volume_mf_st.pre_precond_all(w_p, u_k, u_bc)
+            w_p = volume_mf_st.pre_precond_all(w_p, include_adv, u_k, u_bc)
             # print('w_p norm: ', torch.linalg.norm(w_p.view(-1)))
             w_u = volume_mf_st.vel_precond_all(w_u, w_p, u_k, u_bc)
             # print('w_u norm: ', torch.linalg.norm(w_u.view(-1)))
@@ -280,7 +280,7 @@ def gmres_mg_solver(x_i, x_rhs,
         r0l2 = torch.linalg.norm(r0)
         print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
         its += 1
-    return x_i
+    return x_i, its
 
 
 # def right_gmres_mg_solver(
