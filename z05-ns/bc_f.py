@@ -393,8 +393,8 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
                 x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
                 x = x_inod[0]
                 y = x_inod[1]
-                u_bc[0][inod // nloc, inod % nloc, 0] = 1./4*(x-2)**2*x**2*y*(y**2-2)
-                u_bc[0][inod // nloc, inod % nloc, 1] = -1./4*x*(x**2-3*x+2)*y**2*(y**2-4)
+                u_bc[0][inod // nloc, inod % nloc, 0] = (x**2*y*(y**2 - 2)*(x - 2)**2)/4
+                u_bc[0][inod // nloc, inod % nloc, 1] = -(x*y**2*(y**2 - 4)*(x**2 - 3*x + 2))/4
         # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
         for ibc in range(1, len(bc_node_list)):
             print('=== in bc_f : has neumann bc ===')
@@ -406,45 +406,38 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
                 x = x_inod[0]
                 y = x_inod[1]
                 # unsymmetry stress formulation
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = (y**2*(y**4 - 2*y**2 + 8))/128 - (8*y)/(5*Re) \
-                                                          + 8./(5*Re) - 1408./33075
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = (y**2*(y**2 - 4))/4
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                    (y ** 2 * (y ** 4 - 2 * y ** 2 + 8)) / 128 - (8 * y) / (5 * Re) + 8 / (5 * Re) - 1408 / 33075
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = (y**2*(y**2 - 4))/(4*Re)
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
         # t = 0
         x = torch.tensor(x_all[:, 0], device=dev)
         y = torch.tensor(x_all[:, 1], device=dev)
 
         # unsymmetric stress formulation
-        f[:, 0] = ((y ** 3 * (x ** 2 - 3 * x + 2)) / 2
-                   + (y * (y ** 2 - 4) * (x ** 2 - 3 * x + 2)) / 2
-                   - y * (y ** 2 - 2) * (x - 2) ** 2
-                   - (y * (30 * x * (
-                            y ** 2 - 2) - 10 * x ** 2 * y ** 2 + 15 * x ** 3 - 3 * x ** 4 - 20 * y ** 2 + 40)) / (
-                               5 * Re)
-                   + (x * y ** 3 * (2 * x - 3)) / 2 - (3 * x ** 2 * y * (x - 2) ** 2) / 2 - x ** 2 * y * (y ** 2 - 2)
-                   - (x ** 3 * y ** 2 * (x - 2) ** 4 * (y ** 4 - 2 * y ** 2 + 8)) / 32
-                   - (x ** 4 * y ** 2 * (x - 2) ** 3 * (y ** 4 - 2 * y ** 2 + 8)) / 32
-                   + (x * y * (12 * x ** 3 - 45 * x ** 2 + 20 * x * y ** 2
-                               - 30 * y ** 2 + 60)) / (5 * Re) - 2 * x * y * (2 * x - 4) * (y ** 2 - 2)
-                   + (x * y * (2 * x - 3) * (y ** 2 - 4)) / 2
-                   - (x * y ** 2 * (y ** 2 - 4) * (
-                            (x ** 2 * y ** 2 * (x - 2) ** 2) / 2 + (x ** 2 * (y ** 2 - 2) * (x - 2) ** 2) / 4) * (
-                                  x ** 2 - 3 * x + 2)) / 4
-                   + (x ** 2 * y * (y ** 2 - 2) * ((x ** 2 * y * (2 * x - 4) * (y ** 2 - 2)) / 4 + (
-                            x * y * (y ** 2 - 2) * (x - 2) ** 2) / 2) * (x - 2) ** 2) / 4)
-        f[:, 1] = x * (y ** 2 - 4) * (x ** 2 - 3 * x + 2) - (x ** 2 * y ** 2 * (2 * x - 4)) / 2 - (
-                    x * (y ** 2 - 2) * (x - 2) ** 2) / 2 - (x ** 2 * (2 * x - 4) * (y ** 2 - 2)) / 4 + (
-                              y ** 2 * (2 * x - 3) * (y ** 2 - 4)) / 2 - (x * (
-                    30 * x * (y ** 2 - 2) - 10 * x ** 2 * y ** 2 + 15 * x ** 3 - 3 * x ** 4 - 20 * y ** 2 + 40)) / (
-                              5 * Re) + 5 * x * y ** 2 * (x ** 2 - 3 * x + 2) - x * y ** 2 * (x - 2) ** 2 + (
-                              x * y ** 2 * (y ** 2 - 4)) / 2 + (x * y * (20 * y * x ** 2 - 60 * y * x + 40 * y)) / (
-                              5 * Re) - (x ** 4 * y * (x - 2) ** 4 * (y ** 4 - 2 * y ** 2 + 8)) / 64 + (
-                              x ** 4 * y ** 2 * (- 4 * y ** 3 + 4 * y) * (x - 2) ** 4) / 128 - (
-                              x ** 2 * y * (y ** 2 - 2) * (x - 2) ** 2 * (
-                                  (y ** 2 * (y ** 2 - 4) * (x ** 2 - 3 * x + 2)) / 4 + (
-                                      x * y ** 2 * (2 * x - 3) * (y ** 2 - 4)) / 4)) / 4 + (
-                              x * y ** 2 * (y ** 2 - 4) * ((x * y ** 3 * (x ** 2 - 3 * x + 2)) / 2 + (
-                                  x * y * (y ** 2 - 4) * (x ** 2 - 3 * x + 2)) / 2) * (x ** 2 - 3 * x + 2)) / 4
+        f[:, 0] = \
+            (x * y * (12 * x ** 3 - 45 * x ** 2 + 20 * x * y ** 2 - 30 * y ** 2 + 60)) / (5 * Re) - (
+                        y * (30 * x * (y ** 2 - 2) - 10 * x ** 2 * y ** 2 + 15 * x ** 3 - 3 * x ** 4 - 20 * y ** 2 + 40)) / (
+                        5 * Re) - (3 * x ** 2 * y * (x - 2) ** 2) / (2 * Re) - (
+                        x ** 3 * y ** 2 * (x - 2) ** 4 * (y ** 4 - 2 * y ** 2 + 8)) / 32 - (
+                        x ** 4 * y ** 2 * (x - 2) ** 3 * (y ** 4 - 2 * y ** 2 + 8)) / 32 - (
+                        (y * (y ** 2 - 2) * (x - 2) ** 2) / 2 + (x ** 2 * y * (y ** 2 - 2)) / 2 + x * y * (2 * x - 4) * (
+                            y ** 2 - 2)) / Re - (x * y ** 2 * (y ** 2 - 4) * (
+                        (x ** 2 * y ** 2 * (x - 2) ** 2) / 2 + (x ** 2 * (y ** 2 - 2) * (x - 2) ** 2) / 4) * (
+                                                            x ** 2 - 3 * x + 2)) / 4 + (x ** 2 * y * (y ** 2 - 2) * (
+                        (x ** 2 * y * (2 * x - 4) * (y ** 2 - 2)) / 4 + (x * y * (y ** 2 - 2) * (x - 2) ** 2) / 2) * (
+                                                                                                   x - 2) ** 2) / 4
+        f[:, 1] = \
+            ((x * (y ** 2 - 4) * (x ** 2 - 3 * x + 2)) / 2 + (5 * x * y ** 2 * (x ** 2 - 3 * x + 2)) / 2) / Re + (
+                    (y ** 2 * (2 * x - 3) * (y ** 2 - 4)) / 2 + (x * y ** 2 * (y ** 2 - 4)) / 2) / Re - (
+                    x * (30 * x * (y ** 2 - 2) - 10 * x ** 2 * y ** 2 + 15 * x ** 3 - 3 * x ** 4 - 20 * y ** 2 + 40)) / (
+                    5 * Re) + (x * y * (20 * y * x ** 2 - 60 * y * x + 40 * y)) / (5 * Re) - (
+                    x ** 4 * y * (x - 2) ** 4 * (y ** 4 - 2 * y ** 2 + 8)) / 64 + (
+                    x ** 4 * y ** 2 * (- 4 * y ** 3 + 4 * y) * (x - 2) ** 4) / 128 - (
+                    x ** 2 * y * (y ** 2 - 2) * (x - 2) ** 2 * ((y ** 2 * (y ** 2 - 4) * (x ** 2 - 3 * x + 2)) / 4 + (
+                        x * y ** 2 * (2 * x - 3) * (y ** 2 - 4)) / 4)) / 4 + (x * y ** 2 * (y ** 2 - 4) * (
+                    (x * y ** 3 * (x ** 2 - 3 * x + 2)) / 2 + (x * y * (y ** 2 - 4) * (x ** 2 - 3 * x + 2)) / 2) * (
+                                                                                        x ** 2 - 3 * x + 2)) / 4
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'kovasznay' and ndim == 2:
         Re = torch.tensor(1/config.mu, device=dev, dtype=torch.float64)
@@ -635,16 +628,17 @@ def ana_soln(problem):
             x = x_inod[0]
             y = x_inod[1]
 
-            u[inod // u_nloc, inod % u_nloc, 0] = 1./4*(x-2)**2*x**2*y*(y**2-2)
-            u[inod // u_nloc, inod % u_nloc, 1] = -1./4*x*(x**2-3*x+2)*y**2*(y**2-4)
+            u[inod // u_nloc, inod % u_nloc, 0] = (x**2*y*(y**2 - 2)*(x - 2)**2)/4
+            u[inod // u_nloc, inod % u_nloc, 1] = -(x*y**2*(y**2 - 4)*(x**2 - 3*x + 2))/4
         for inod in range(p_nonods):
             x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
             x = x_inod[0]
             y = x_inod[1]
 
-            p[inod // p_nloc, inod % p_nloc] = (x*y*(3*x**4-15*x**3+10*x**2*y**2-30*x*(y**2-2)+20*(y**2-2)))/5/Re \
-                - 1./128*(x-2)**4*x**4*y**2*(y**4-2*y**2+8) \
-                - 8./(5*Re) + 1408./33075  # make ave pre be 0
+            p[inod // p_nloc, inod % p_nloc] = \
+                1408 / 33075 - (x * y * (
+                            30 * x * (y ** 2 - 2) - 10 * x ** 2 * y ** 2 + 15 * x ** 3 - 3 * x ** 4 - 20 * y ** 2 + 40)) / (
+                            5 * Re) - (x ** 4 * y ** 2 * (x - 2) ** 4 * (y ** 4 - 2 * y ** 2 + 8)) / 128 - 8 / (5 * Re)
     elif problem == 'kovasznay' and ndim == 2:
         # from Farrell 2019
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
