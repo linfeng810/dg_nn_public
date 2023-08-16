@@ -78,14 +78,15 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 30
+n_its_max = 50
 n_tol = 1.e-7
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
-problem = 'kovasznay'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'ldc'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+# or 'ldc' = lid-driven cavity
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -120,9 +121,9 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1/2000  # this is diffusion coefficient (viscosity)
+    mu = 1/5000  # this is diffusion coefficient (viscosity)
     _Re = int(1/mu)
-    hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
+    hasNullSpace = True  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
     include_adv = True  # if Navier-Stokes, include advection term.
     print('viscosity, Re, hasNullSpade, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
@@ -130,6 +131,11 @@ if True:
     isSetInitial = False  # whether to use a precalculated fields (u and p) as initial condition
     initDataFile = 'Re100.pt'
     print('initial condition: '+initDataFile)
+
+# Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
+# c.f. Burman & Hansbo CMAME 2004
+isES = True
+gammaES = 2.5e-2  # stabilisation parameter
 
 ####################
 # discretisation settings
@@ -143,3 +149,4 @@ print('No of batch: ', no_batch)
 
 case_name = '_'+problem+'Re'+str(_Re)+'_p'+str(ele_p)+'p'+str(ele_p_pressure)+\
             '_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
+print('case name is: '+case_name)

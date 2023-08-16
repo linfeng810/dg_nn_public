@@ -148,13 +148,6 @@ if False:
     p = p.view(pre_func_space.nonods)
     x = pre_func_space.x_all[:, 0]
     p += torch.tensor(np.sin(x), device=dev)
-# output to vtk
-vtk = output.File(config.filename+config.case_name+'_v%d.vtu' % 0)
-vtk.write_vector(u, 'velocity', sf_nd_nb.vel_func_space)
-vtk.write_end()
-vtk = output.File(config.filename+config.case_name+'_p%d.vtu' % 0)
-vtk.write_scaler(p, 'pressure', sf_nd_nb.pre_func_space)
-vtk.write_end()
 
 # u = torch.ones_like(u)
 u_all = np.empty([tstep, nele, vel_ele.nloc, ndim])
@@ -242,7 +235,7 @@ if (config.solver=='iterative') :
         )
 
         # solve a stokes problem as initial velocity
-        if False:
+        if True:
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
             r0 *= 0
@@ -292,6 +285,14 @@ if (config.solver=='iterative') :
 
         if config.isSetInitial:
             x_i_n += torch.load(config.initDataFile)
+
+        # save initial condition to vtk
+        vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % 0)
+        vtk.write_vector(u, 'velocity', sf_nd_nb.vel_func_space)
+        vtk.write_end()
+        vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % 0)
+        vtk.write_scaler(p, 'pressure', sf_nd_nb.pre_func_space)
+        vtk.write_end()
 
         for itime in range(1, tstep):  # time loop
             x_i *= 0
@@ -362,11 +363,17 @@ if (config.solver=='iterative') :
                     # nullspace = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
                     # nullspace[u_nonods * ndim:-1] += 1.
                     # nullspace = nullspace.view(1, -1)
-                    # x_i = solvers.gmres_mg_solver(x_i, x_rhs, config.tol,
-                    #                               nullspace=nullspace)  # min(1.e-3*nr0l2, 1.e-3))
+                    # x_i, its = solvers.gmres_mg_solver(
+                    #     x_i, x_rhs,
+                    #     tol=1e-12,  # max(min(1.e-5*nr0l2, 1.e-5), 1.e-11),
+                    #     include_adv=config.include_adv,
+                    #     u_k=u_k,
+                    #     u_bc=u_bc[0],
+                    #     nullspace=nullspace,
+                    # )
                     x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=1e-12,  # max(min(1.e-5*nr0l2, 1.e-5), 1.e-11),
+                        tol=max(min(1.e-5*nr0l2, 1.e-5), 1.e-11),
                         include_adv=config.include_adv,
                         u_k=u_k,
                         u_bc=u_bc[0]

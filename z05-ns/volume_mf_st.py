@@ -239,8 +239,8 @@ def get_residual_only(r0, x_i, x_rhs,
             include_adv, u_n, u_bc,
             a00, a01, a10, a11
         )
-    # if include_p and config.hasNullSpace:
-    #     r0[-1] -= x_i[-1]  # this effectively add 1 to the last diagonal entry in pressure block to remove null space.
+    if a10 and config.hasNullSpace:
+        r0[-1] -= x_i[-1]  # this effectively add 1 to the last diagonal entry in pressure block to remove null space.
         # print(r0.shape, x_i.shape)
     # r0[0] = r0[0].view(nele * u_nloc, ndim)
     # r0[1] = r0[1].view(-1)
@@ -519,6 +519,17 @@ def _s_res_fi(
             torch.eye(ndim, device=dev, dtype=torch.float64),
         )
         K *= config.mu
+        # Edge stabilisation (vel gradient penalty term)
+        if config.isES:
+            # \gamma_e h^2 [v_i / x_j] [u_i / x_j]
+            K += torch.einsum(
+                'b,bjmg,bjng,bg,kl->bmknl',
+                config.gammaES * h**2,  # (batch_in)
+                snx,  # (batch_in, ndim, nloc, sngi)
+                snx,  # (batch_in, ndim, nloc, sngi)
+                sdetwei,  # (batch_in, sngi)
+                torch.eye(ndim, device=dev, dtype=torch.float64),
+            ) * (.5)
         if include_adv:
             # get upwind vel
             wknk_ave = torch.einsum(
@@ -578,6 +589,17 @@ def _s_res_fi(
             torch.eye(ndim, device=dev, dtype=torch.float64),
         ) * (-1.)  # because n2 \cdot n1 = -1
         K *= config.mu
+        # Edge stabilisation (vel gradient penalty term)
+        if config.isES:
+            # \gamma_e h^2 [v_i / x_j] [u_i / x_j]
+            K += torch.einsum(
+                'b,bjmg,bjng,bg,kl->bmknl',
+                config.gammaES * h ** 2,  # (batch_in)
+                snx,  # (batch_in, ndim, nloc, sngi)
+                snx_nb,  # (batch_in, ndim, nloc, sngi)
+                sdetwei,  # (batch_in, sngi)
+                torch.eye(ndim, device=dev, dtype=torch.float64),
+            ) * (-.5)
         if include_adv:
             K += -torch.einsum(
                 'bg,bmg,bng,bg,ij->bminj',

@@ -196,9 +196,10 @@ def assemble(u_bc_in, f, indices, values):
                     # mu_e = 2. * eta_e / (np.power(np.sum(detwei[ele, :]), 1./ndim) +
                     #                      np.power(np.sum(detwei[ele2, :]), 1./ndim))
                     if ndim == 3:
-                        mu_e = eta_e / np.sqrt(np.sum(sdetwei[ele, iface, :]))
+                        h = np.sqrt(np.sum(sdetwei[ele, iface, :]))
                     else:
-                        mu_e = eta_e / np.sum(sdetwei[ele, iface, :])
+                        h = np.sum(sdetwei[ele, iface, :])
+                    mu_e = eta_e / h
                     # mu_e = eta_e / .5  # TOOO: temporarily change to 1 to debug (compare to other code)
                     # print('ele, iface, mu_e, ele2', ele, iface, mu_e, ele2)
                     glb_iface2 = nbf[glb_iface]
@@ -215,16 +216,21 @@ def assemble(u_bc_in, f, indices, values):
                                 vnux = 0  # [v_i n_k][du_i / dx_k]
                                 vxun = 0  # [dv_i/ dx_k][u_i n_k]
                                 nn = 0
+                                vxux = 0
                                 for kdim in range(ndim):
                                     vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
                                                    snx[ele, iface, kdim, jnod, :] * sdetwei[ele, iface, :])
                                     vxun += np.sum(snx[ele, iface, kdim, inod, :] * sn[iface, jnod, :] *
                                                    snormal[ele, iface, kdim] * sdetwei[ele, iface, :])
+                                    vxux += np.sum(snx[ele, iface, kdim, jnod, :] *
+                                                   snx[ele, iface, kdim, inod, :] *
+                                                   sdetwei[ele, iface, :]) * \
+                                            h**2 * config.gammaES * 0.5
                                 nn += np.sum(sn[iface, inod, :] * sn[iface, jnod, :] *
                                              sdetwei[ele, iface, :]) * mu_e
                                 # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                                 indices.append([glb_inod, glb_jnod])
-                                values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu)
+                                values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * config.isES)
                             # G
                             for jnod in range(p_nloc):
                                 glb_jnod = nele * u_nloc * ndim + ele * p_nloc + jnod
@@ -242,6 +248,7 @@ def assemble(u_bc_in, f, indices, values):
                                 vnux = 0  # [v_i n_k][du_i / dx_k]
                                 vxun = 0  # [dv_i/ dx_k][u_i n_k]
                                 nn = 0
+                                vxux = 0
                                 for kdim in range(ndim):
                                     vnux += np.sum(sn[iface, inod, :] * snormal[ele, iface, kdim] *
                                                    snx[ele2, iface2, kdim, jnod2, u_gi_align[alnmt[glb_iface]]] *
@@ -249,11 +256,15 @@ def assemble(u_bc_in, f, indices, values):
                                     vxun += np.sum(snx[ele, iface, kdim, inod, :] *
                                                    sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
                                                    snormal[ele2, iface2, kdim] * sdetwei[ele, iface, :])
+                                    vxux += np.sum(snx[ele2, iface2, kdim, jnod2, u_gi_align[alnmt[glb_iface]]] *
+                                                   snx[ele, iface, kdim, inod, :] *
+                                                   sdetwei[ele, iface, :]) * \
+                                            h ** 2 * config.gammaES * (-0.5)
                                 nn += np.sum(sn[iface, inod, :] * sn[iface2, jnod2, u_gi_align[alnmt[glb_iface]]] *
                                              sdetwei[ele, iface, :]) * mu_e * (-1.)
                                 # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
                                 indices.append([glb_inod, glb_jnod2])
-                                values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu)
+                                values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * config.isES)
                             # G
                             for jnod2 in range(p_nloc):
                                 glb_jnod2 = nele * u_nloc * ndim + ele2 * p_nloc + jnod2

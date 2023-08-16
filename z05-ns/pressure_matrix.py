@@ -308,6 +308,16 @@ def _s_res_fi(
         gamma_e,  # (batch_in)
     )
     K *= config.mu
+    # Edge stabilisation (vel gradient penalty term)
+    if config.isES:
+        # \gamma_e h^2 [q / x_j] [p / x_j]
+        K += torch.einsum(
+            'b,bjmg,bjng,bg->bmn',
+            config.gammaES * h ** 2,  # (batch_in)
+            sqx,  # (batch_in, ndim, nloc, sngi)
+            sqx,  # (batch_in, ndim, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+        ) * (.5)
     if include_adv:
         # get upwind vel
         wknk_ave = torch.einsum(
@@ -363,6 +373,16 @@ def _s_res_fi(
         gamma_e,  # (batch_in)
     ) * (-1.)  # because n2 \cdot n1 = -1
     K *= config.mu
+    # Edge stabilisation (vel gradient penalty term)
+    if config.isES:
+        # \gamma_e h^2 [q / x_j] [p / x_j]
+        K += torch.einsum(
+            'b,bjmg,bjng,bg->bmn',
+            config.gammaES * h ** 2,  # (batch_in)
+            sqx,  # (batch_in, ndim, nloc, sngi)
+            sqx_nb,  # (batch_in, ndim, nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+        ) * (-.5)
     if include_adv:
         K += -torch.einsum(
             'bg,bmg,bng,bg->bmn',
