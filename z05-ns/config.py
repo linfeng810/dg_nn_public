@@ -6,6 +6,7 @@ import sys
 import cmmn_data
 import time
 # from function_space import FuncSpace, Element
+from parse_terminal_input import args
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
@@ -18,19 +19,27 @@ torch.manual_seed(0)
 #####################################################
 # time step settings
 #####################################################
-dt = 1e8 # timestep
-tstart=0 # starting time
-tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
-isTransient=False # decide if we are doing transient simulation
-solver='iterative' # 'direct' or 'iterative'
+dt = 0.5  # timestep
+if args.dt is not None:
+    dt = args.dt
+tstart = 0  # starting time
+tend = 1.  # end time
+isTransient = True  # decide if we are doing transient simulation
+if isTransient:
+    time_order = 1  # time discretisation order
+    print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order)
+solver = 'iterative'  # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
 filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
-filename='z32-square-mesh/square_poiseuille.msh'
-if len(sys.argv) > 1:
-    filename = sys.argv[1]
+# filename='z32-square-mesh/square_poiseuille.msh'
+filename = 'z32-square-mesh/square.msh'
+if args.filename is not None:
+    filename = args.filename
+# if len(sys.argv) > 1:
+#     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
 
@@ -55,11 +64,11 @@ mg_smooth_its = 1
 pre_smooth_its = 3
 post_smooth_its = 3  # thus we have a V(pre,post)-cycle
 smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
-if len(sys.argv) > 2:
-    smooth_start_level = int(sys.argv[2])
-if len(sys.argv) > 3:
-    pre_smooth_its = int(sys.argv[3])
-    post_smooth_its = int(sys.argv[3])
+# if len(sys.argv) > 2:
+#     smooth_start_level = int(sys.argv[2])
+# if len(sys.argv) > 3:
+#     pre_smooth_its = int(sys.argv[3])
+#     post_smooth_its = int(sys.argv[3])
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
@@ -71,22 +80,22 @@ print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_it
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
-gmres_m = 20  # restart
-gmres_its = 20  # max GMRES steps
+gmres_m = 80  # restart
+gmres_its = 5  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 50
+n_its_max = 30
 n_tol = 1.e-7
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
-problem = 'ldc'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
-# or 'ldc' = lid-driven cavity
+problem = 'tgv'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+# or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -121,21 +130,22 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1/5000  # this is diffusion coefficient (viscosity)
+    mu = 1/50  # this is diffusion coefficient (viscosity)
     _Re = int(1/mu)
     hasNullSpace = True  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
     include_adv = True  # if Navier-Stokes, include advection term.
-    print('viscosity, Re, hasNullSpade, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
+    print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
 
-    isSetInitial = False  # whether to use a precalculated fields (u and p) as initial condition
+    isSetInitial = False  # whether to use a precalculated fields (u and p) in a file as initial condition
     initDataFile = 'Re100.pt'
     print('initial condition: '+initDataFile)
 
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
 # c.f. Burman & Hansbo CMAME 2004
-isES = True
-gammaES = 2.5e-2  # stabilisation parameter
+# this will make iterative solver less effective!
+isES = False
+gammaES = 5e-3  # stabilisation parameter
 
 ####################
 # discretisation settings

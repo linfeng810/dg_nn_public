@@ -12,6 +12,7 @@ import numpy as np
 from types import NoneType
 from tqdm import tqdm
 import config
+import ns_assemble
 from config import sf_nd_nb
 # import materials
 # we sould be able to reuse all multigrid functions in linear-elasticity in hyper-elasticity
@@ -309,12 +310,11 @@ def _k_res_one_batch(
                           torch.eye(ndim, device=dev, dtype=torch.float64)
                           ) \
             * config.mu
-            # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)\
         if config.isTransient:
             # ni nj
             for idim in range(ndim):
                 K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) \
-                                          * config.rho / config.dt
+                                          * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
         if include_adv:
             K += torch.einsum(
                 'lg,bli,bing,mg,bg,jk->bmjnk',
@@ -898,7 +898,7 @@ def _k_rhs_one_batch(
     if config.isTransient:
         u_n = u_n.view(-1, u_nloc, ndim)
         rhs[0][idx_in, ...] += torch.einsum(
-            'bmg,bng,bg,ij,bnj->bmi',
+            'mg,ng,bg,ij,bnj->bmi',
             n,
             n,
             ndetwei,
@@ -1628,11 +1628,12 @@ def vel_precond_invK_direct(x_rhs, u_n, u_bc):
         dummy = torch.zeros(u_nonods*ndim, device=dev, dtype=torch.float64)
         # Amat_sp, _ = ns_assemble.assemble(u_bc_in=[dummy, dummy],
         #                                   f=dummy)
+        dummy_u_bc = [dummy for _ in sf_nd_nb.vel_func_space.bc_node_list]
         if sf_nd_nb.indices_st is None:
             indices_st = []
             values_st = []
             rhs_np, indices_st, values_st = ns_assemble.assemble(
-                u_bc_in=[dummy, dummy],
+                u_bc_in=dummy_u_bc,
                 f=dummy,
                 indices=indices_st,
                 values=values_st)
@@ -1678,6 +1679,22 @@ def pre_precond_all(x_p, include_adv, u_n, u_bc):
         x_p_temp = pressure_matrix.pre_precond_invLp(x_p_temp, x_p)
         x_p *= 0
         x_p += x_p_temp.view(x_p.shape)
+        # if sf_nd_nb.Lpmatinv is None:
+        #     print('we re going to find the direct inverse of pressure Laplacian')
+        #     p_nonods = sf_nd_nb.pre_func_space.nonods
+        #     # get Lp inv
+        #     idx_lp = []
+        #     val_lp = []
+        #     idx_lp, val_lp = ns_assemble.pressure_laplacian_assemble(idx_lp, val_lp)
+        #     Lpmat = ns_assemble.assemble_csr_mat(idx_lp, val_lp, (p_nonods, p_nonods))
+        #     Lpmatinv = np.linalg.inv(Lpmat.todense())
+        #     sf_nd_nb.Lpmatinv = Lpmatinv
+        # else:
+        #     Lpmatinv = sf_nd_nb.Lpmatinv
+        # x_in = x_p.view(-1).cpu().numpy()
+        # x_out = np.matmul(Lpmatinv, x_in)
+        # x_p *= 0
+        # x_p += torch.tensor(x_out, device=dev, dtype=torch.float64).view(x_p.shape)
 
         # apply -F_p  <- thisis the negative sign!
         x_p = pressure_matrix.pre_precond_Fp(x_p, u_n, u_bc)
@@ -1709,20 +1726,20 @@ def vel_precond_all(x_u, x_p, u_n, u_bc):
     x_u *= 0
     x_u += x_temp.view(x_u.shape)
     x_temp *= 0
-    # # left multiply K_u^-1
-    # x_temp = vel_precond_invK_mg(
-    #     x_u=x_temp,
-    #     x_rhs=x_u,
-    #     include_adv=config.include_adv,
-    #     u_n=u_n,
-    #     u_bc=u_bc,
-    # )
-    # # move x_temp to x_u
-    # x_u *= 0
-    # x_u += x_temp.view(x_u.shape)
-    x_u = vel_precond_invK_direct(
-        x_u,
-        u_n,
-        u_bc,
+    # left multiply K_u^-1
+    x_temp = vel_precond_invK_mg(
+        x_u=x_temp,
+        x_rhs=x_u,
+        include_adv=config.include_adv,
+        u_n=u_n,
+        u_bc=u_bc,
     )
+    # move x_temp to x_u
+    x_u *= 0
+    x_u += x_temp.view(x_u.shape)
+    # x_u = vel_precond_invK_direct(
+    #     x_u,
+    #     u_n,
+    #     u_bc,
+    # )
     return x_u

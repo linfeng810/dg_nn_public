@@ -159,7 +159,7 @@ def bc_f(ndim, bc, u, x_all, prob: str):
     return u, f, fNorm
 
 
-def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
+def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
     nloc = sf_nd_nb.vel_func_space.element.nloc
     nonods = sf_nd_nb.vel_func_space.nonods
     u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
@@ -510,12 +510,45 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str):
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'tgv' and ndim == 2:  # taylor-green vortex
+        if t is None:
+            raise ValueError('should provide time when getting bc condition for taylor-green vortex problem.')
+        Re = torch.tensor(1/config.mu, device=dev, dtype=torch.float64)
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                u_bc[0][inod // nloc, inod % nloc, 0] = \
+                    -torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * x) * torch.sin(torch.pi * y)
+                u_bc[0][inod // nloc, inod % nloc, 1] = \
+                    torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * torch.sin(torch.pi * x)
+        # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
+        for ibc in range(1, len(bc_node_list)):
+            print('=== in bc_f : has neumann bc === but please dont have this for tgv problem')
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                # unsymmetry stress formulation
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
         raise Exception('the problem '+prob+' is not defined in bc_f.py')
     return u_bc, f, fNorm
 
 
-def ana_soln(problem):
+def ana_soln(problem, t=None):
     """get analytical solution"""
     from volume_mf_st import slicing_x_i
     ndim = config.ndim
@@ -638,7 +671,7 @@ def ana_soln(problem):
             x = x_inod[0]
             y = x_inod[1]
             z = x_inod[2]
-            p[inod // p_nloc, inod % p_nloc] = -torch.exp(-2*t)*(torch.exp(2*x)/2 + torch.exp(2*y)/2 + torch.exp(2*z)/2 
+            p[inod // p_nloc, inod % p_nloc] = -torch.exp(-2*t)*(torch.exp(2*x)/2 + torch.exp(2*y)/2 + torch.exp(2*z)/2
                                                                  + torch.exp(x + y)*torch.cos(y + z)*torch.sin(x + z)
                                                                  + torch.exp(x + z)*torch.cos(x + y)*torch.sin(y + z)
                                                                  + torch.exp(y + z)*torch.cos(x + z)*torch.sin(x + y))
@@ -706,6 +739,34 @@ def ana_soln(problem):
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
         u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+    elif problem == 'tgv' and ndim == 2:
+        # taylor green vortex
+        u_nloc = sf_nd_nb.vel_func_space.element.nloc
+        p_nloc = sf_nd_nb.pre_func_space.element.nloc
+        nele = config.nele
+        u_nonods = u_nloc * nele
+        p_nonods = p_nloc * nele
+        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+        u, p = slicing_x_i(u_ana)
+        if t is None:
+            raise ValueError('should provide t when using taylor-green vortex analytical soln')
+        Re = torch.tensor(1/config.mu, device=dev, dtype=torch.float64)
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+            x = x_inod[0]
+            y = x_inod[1]
+
+            u[inod // u_nloc, inod % u_nloc, 0] = \
+                -torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * x) * torch.sin(torch.pi * y)
+            u[inod // u_nloc, inod % u_nloc, 1] = \
+                torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * torch.sin(torch.pi * x)
+        for inod in range(p_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+            x = x_inod[0]
+            y = x_inod[1]
+            p[inod // p_nloc, inod % p_nloc] = \
+                -torch.exp(-(4 * torch.pi ** 2 * t) / Re) * (torch.cos(2 * torch.pi * x) / 4 + torch.cos(
+                    2 * torch.pi * y) / 4)
     else:
         raise Exception('problem analytical solution not detined for '+problem)
     return u_ana

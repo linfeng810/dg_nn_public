@@ -4,6 +4,7 @@ from tqdm import tqdm
 import time, os.path
 from scipy.sparse import csr_matrix, linalg
 import config
+import volume_mf_st
 from config import sf_nd_nb
 if config.ndim == 2:
     from shape_function import get_det_nlx as get_det_nlx
@@ -131,7 +132,7 @@ def _k_res_one_batch(
     K += torch.einsum('bimg,bing,bg->bmn', qx, qx, ndetwei) * config.mu
     if config.isTransient:
         # ni nj
-        K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho / config.dt
+        K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
     if include_adv:
         K += torch.einsum(
             'lg,bli,bing,mg,bg->bmn',
@@ -172,7 +173,7 @@ def _s_res_one_batch(
 
     # separate nbf to get internal face list and boundary face list
     F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
-    # for boundary faces, only include dirichlet boundary faces
+    # for boundary faces, only include velocity Neumann boundary faces (which is the Diri bc for pressure)
     F_b = torch.where(torch.logical_and(
         torch.logical_and(alnmt < 0, sf_nd_nb.vel_func_space.glb_bcface_type == 0),
         idx_in_f))[0]  # boundary face
@@ -968,3 +969,74 @@ def pre_precond_invQ(x_p):
     x_p *= 0
     x_p += x_temp
     return x_p.view(-1)
+
+
+def _apply_discrete_laplacian(x_in, x_p):
+    """
+    given a vector x_p, apply
+    x_in <- x_in - (B Q^{-1} B^T) x_p
+
+    this can be used to apply multigrid to approximate
+    inv( B Q^{-1} B^T )
+
+    ** I just realise it's impossible to get the diagonal of BQ-1Bt
+    matrix-freely, so we can't use this. **
+    """
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    p_nonods = sf_nd_nb.pre_func_space.nonods
+    x_u_temp = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
+    x_p_temp = torch.zeros(p_nonods, device=dev, dtype=torch.float64)
+    u_dummy = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
+    p_dummy = torch.zeros(p_nonods, device=dev, dtype=torch.float64)
+
+    # G x_p  (or B^T x_p)
+    x_u_temp = volume_mf_st.get_residual_only(
+        r0=x_u_temp,
+        x_i=x_p,
+        x_rhs=p_dummy,
+        a00=False,
+        a01=True,
+        a10=False,
+        a11=False,
+    )
+    x_u_temp *= -1
+
+    # Q^{-1} x_u
+    # get shape functions
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    n = sf_nd_nb.vel_func_space.element.n
+    nx, ndetwei = get_det_nlx(
+        nlx=sf_nd_nb.vel_func_space.element.nlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
+        weight=sf_nd_nb.vel_func_space.element.weight,
+        nloc=u_nloc,
+        ngi=sf_nd_nb.vel_func_space.element.ngi
+    )
+    Q = torch.einsum(
+        'mg,ng,bg->bmn',
+        n,
+        n,
+        ndetwei
+    )
+    invQ = torch.linalg.inv(Q)
+    x_u_temp = torch.einsum(
+        'bmn,bni->bmi',
+        invQ,
+        x_u_temp.view(nele, u_nloc, ndim)
+    )
+
+    # D x_u  (or B x_u, or G^T x_u)
+    x_p_temp = volume_mf_st.get_residual_only(
+        r0=x_p_temp,
+        x_i=x_u_temp,
+        x_rhs=u_dummy,
+        a00=False,
+        a01=False,
+        a10=True,
+        a11=False,
+    )
+    x_p_temp *= -1
+
+    x_in *= 0
+    x_in += x_p_temp
+    return x_in
