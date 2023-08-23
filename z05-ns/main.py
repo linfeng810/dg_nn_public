@@ -306,6 +306,11 @@ if (config.solver=='iterative') :
             p_ana = x_i_n[u_nonods * ndim:u_nonods * ndim + p_nonods]
             p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
 
+        x_i *= 0
+        x_i += x_i_n
+        u_all[0, :, :, :] = x_i_list[0].cpu().numpy()
+        p_all[0, ...] = x_i_list[1].cpu().numpy()
+
         # save initial condition to vtk
         vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % 0)
         vtk.write_vector(u_n, 'velocity', sf_nd_nb.vel_func_space)
@@ -321,6 +326,7 @@ if (config.solver=='iterative') :
         for itime in range(1, tstep):  # time loop
             # for the starting steps, use 1st, 2nd then 3rd order BDF.
             if True and itime < config.time_order:  # has analytical soln
+                print('itime = ', itime, 'getting ana soln...')
                 t += dt
                 x_i *= 0
                 x_i += bc_f.ana_soln(config.problem, t=t)
@@ -328,25 +334,6 @@ if (config.solver=='iterative') :
                 # if converges,
                 x_i_n *= 0
                 x_i_n += x_i  # store this step in case we want to use this for next timestep
-
-                # get l2 error
-                x_ana = bc_f.ana_soln(config.problem, t=t)
-                if config.hasNullSpace:
-                    # remove average from pressure
-                    p_ave = ns_assemble.get_ave_pressure(x_i_list[1].cpu().numpy())
-                    x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
-                    p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
-                    p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
-                    p_ana -= p_ana_ave
-                u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
-                print('after solving, l2 error is: \n',
-                      'velocity ', u_l2, '\n',
-                      'pressure ', p_l2)
-                print('l infinity error is: \n',
-                      'velocity ', u_linf, '\n',
-                      'pressure ', p_linf)
-                print('total its / restart ', total_its)
-                total_its = 0
 
                 # combine inner/inter element contribution
                 u_all[itime, :, :, :] = x_i_list[0].cpu().numpy()
@@ -519,23 +506,6 @@ if (config.solver=='iterative') :
             # save x_i at this Re to reuse as the initial condition for higher Re
             torch.save(x_i, 'Re'+str(config._Re)+'.pt')
 
-            # get l2 error
-            x_ana = bc_f.ana_soln(config.problem, t=t)
-            if config.hasNullSpace:
-                # remove average from pressure
-                p_ave = ns_assemble.get_ave_pressure(x_i_list[1].cpu().numpy())
-                x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
-                p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
-                p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
-                p_ana -= p_ana_ave
-            u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
-            print('after solving, l2 error is: \n',
-                  'velocity ', u_l2, '\n',
-                  'pressure ', p_l2)
-            print('l infinity error is: \n',
-                  'velocity ', u_linf, '\n',
-                  'pressure ', p_linf)
-            print('total its / restart ', total_its)
             total_its = 0
 
             # combine inner/inter element contribution
@@ -549,6 +519,24 @@ if (config.solver=='iterative') :
             vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
             vtk.write_scaler(x_i_list[1], 'pressure', sf_nd_nb.pre_func_space)
             vtk.write_end()
+
+        # get l2 error
+        x_ana = bc_f.ana_soln(config.problem, t=t)
+        if config.hasNullSpace:
+            # remove average from pressure
+            p_ave = ns_assemble.get_ave_pressure(x_i_list[1].cpu().numpy())
+            x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
+            p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
+            p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
+            p_ana -= p_ana_ave
+        u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
+        print('after solving, l2 error is: \n',
+              'velocity ', u_l2, '\n',
+              'pressure ', p_l2)
+        print('l infinity error is: \n',
+              'velocity ', u_linf, '\n',
+              'pressure ', p_linf)
+        print('total its / restart ', total_its)
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 

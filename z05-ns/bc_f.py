@@ -528,7 +528,7 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                     torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * torch.sin(torch.pi * x)
         # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
         for ibc in range(1, len(bc_node_list)):
-            print('=== in bc_f : has neumann bc === but please dont have this for tgv problem')
+            print('=== in bc_f : has neumann bc === but please try to avoid having this for tgv problem')
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
                 if not bci[inod]:
@@ -537,8 +537,11 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                 x = x_inod[0]
                 y = x_inod[1]
                 # unsymmetry stress formulation
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                    torch.exp(-(4 * torch.pi ** 2 * t) / Re) * (np.cos(2 * torch.pi) / 4 + torch.cos(2 * torch.pi * y) / 4) + (
+                                torch.pi * torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.sin(torch.pi * y) * np.sin(torch.pi)) / Re
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = \
+                    (torch.pi * torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * np.cos(torch.pi)) / Re
 
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
