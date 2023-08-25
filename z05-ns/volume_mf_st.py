@@ -1787,3 +1787,63 @@ def backward_GS_precond_all(x_u, x_p, u_n, u_bc):
     # apply Q^-1
     x_p = pressure_matrix.pre_precond_invQ(x_p)
     return x_p
+
+
+def vel_precond_all_only_Mass(x_u, x_p):
+    """
+    apply velocity preconditioner
+    w_u <- M_u^-1 (x_u - G x_p)
+    """
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    x_temp = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
+    # x_u - G x_p
+    x_temp = get_residual_only(
+        r0=x_temp,
+        x_i=x_p,
+        x_rhs=x_u,
+        a00=False,
+        a01=True,
+        a10=False,
+        a11=False,
+    )
+
+    # left multiply M^-1 (here M is velocity space mass matrix)
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    x_temp = x_temp.view(nele, u_nloc, ndim)
+    v = sf_nd_nb.vel_func_space.element.n
+    _, vdetwei = get_det_nlx(
+        nlx=sf_nd_nb.vel_func_space.element.nlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
+        weight=sf_nd_nb.vel_func_space.element.weight,
+        nloc=u_nloc,
+        ngi=sf_nd_nb.vel_func_space.element.ngi
+    )
+    M = torch.einsum(
+        'mg,ng,bg->bmn',
+        v,
+        v,
+        vdetwei
+    ) / config.dt * sf_nd_nb.bdfscm.gamma  # velocity mass matrix /dt * gamma (BDF coeff)
+    M = torch.linalg.inv(M)
+    x_temp = torch.einsum('bmn,bni->bmi', M, x_temp)
+    # move x_temp to x_u
+    x_u *= 0
+    x_u += x_temp.view(x_u.shape)
+    x_temp *= 0
+
+    return x_u
+
+
+def pre_precond_all_only_Lp(x_p, include_adv):
+    """
+    apply pressure preconditioner
+    x_p <- (gamma/dt L_p)^-1 x_p
+    """
+    if include_adv:
+        # apply L_p^-1
+        x_p_temp = torch.zeros_like(x_p, device=dev, dtype=torch.float64)
+        x_p_temp = pressure_matrix.pre_precond_invLp(x_p_temp, x_p) / sf_nd_nb.bdfscm.gamma * config.dt
+        x_p *= 0
+        x_p += x_p_temp.view(x_p.shape)
+
+    return x_p
