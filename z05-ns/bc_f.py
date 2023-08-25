@@ -482,6 +482,7 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
     elif prob == 'ldc' and ndim == 2:  # lid-driven cavity
         for ibc in range(1):
             bci = bc_node_list[ibc]
+            u_m = 1.  # max velocity @ boundary
             for inod in range(bci.shape[0]):
                 if not bci[inod]:  # this is not a boundary node
                     continue
@@ -491,7 +492,9 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                 if torch.abs(y) < 1e-10 or torch.abs(x) < 1e-10 or torch.abs(x-1) < 1e-10:
                     u_bc[0][inod // nloc, inod % nloc, 0] = 0
                 else:
-                    u_bc[0][inod // nloc, inod % nloc, 0] = (1 - (2*x - 1)**4)
+                    u_bc[0][inod // nloc, inod % nloc, 0] = (1 - (2*x - 1)**4) * u_m
+                    if config.isTransient:  # ramp up
+                        u_bc[0][inod // nloc, inod % nloc, 0] *= np.min(t, 1.0)
                 u_bc[0][inod // nloc, inod % nloc, 1] = 0
         # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
         for ibc in range(1, len(bc_node_list)):

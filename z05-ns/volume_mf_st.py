@@ -240,7 +240,7 @@ def get_residual_only(r0, x_i, x_rhs,
             include_adv, u_n, u_bc,
             a00, a01, a10, a11
         )
-    if a10 and config.hasNullSpace:
+    if a00 and a10 and config.hasNullSpace:
         r0[-1] -= x_i[-1]  # this effectively add 1 to the last diagonal entry in pressure block to remove null space.
         # print(r0.shape, x_i.shape)
     # r0[0] = r0[0].view(nele * u_nloc, ndim)
@@ -265,7 +265,7 @@ def _k_res_one_batch(
     ~mu/|e|^2 in S~ NO S in this block-diagonal preconditioning
     """
     batch_in = diagK.shape[0]
-    include_p = a01
+    include_p = a01 or a10
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
@@ -279,6 +279,9 @@ def _k_res_one_batch(
     elif not a00 and a01:
         r0_u = r0.view(batch_in, u_nloc, ndim)
         x_i_p = x_i.view(batch_in, p_nloc)
+    elif not a00 and a10:
+        r0_p = r0.view(batch_in, p_nloc)
+        x_i_u = x_i.view(batch_in, u_nloc, ndim)
     diagK = diagK.view(-1, u_nloc, ndim)
     bdiagK = bdiagK.view(-1, u_nloc, ndim, u_nloc, ndim)
     diagS = diagS.view(-1, p_nloc, p_nloc)
@@ -432,7 +435,7 @@ def _s_res_fi(
     """internal faces"""
     batch_in = f_i.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
-    include_p = a01
+    include_p = a01 or a10
     # get element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
@@ -444,6 +447,9 @@ def _s_res_fi(
     elif not a00 and a01:
         r_u = r_in.view(nele, u_nloc, ndim)
         x_i_p = x_i_in.view(nele, p_nloc)
+    elif not a00 and a10:
+        r_p = r_in.view(nele, p_nloc)
+        x_i_u = x_i_in.view(nele, u_nloc, ndim)
 
     # shape function on this side
     snx, sdetwei, snormal = sdet_snlx(
@@ -481,13 +487,14 @@ def _s_res_fi(
     if ndim == 3:
         h = torch.sqrt(h)
     gamma_e = config.eta_e / h
-    if include_p:
+    if a01:
         p_ith = x_i_p[E_F_i, ...]
         p_inb = x_i_p[E_F_inb, ...]
-
-    if a00:
+    if a00 or a10:
         u_ith = x_i_u[E_F_i, ...]
         u_inb = x_i_u[E_F_inb, ...]
+
+    if a00:
         # K block
         K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim, device=dev, dtype=torch.float64)
         # this side
@@ -704,7 +711,7 @@ def _s_res_fb(
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     if batch_in < 1:  # nothing to do here.
         return r_in, diagK, bdiagK
-    include_p = a01
+    include_p = a01 or a10
     # get element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
@@ -716,6 +723,9 @@ def _s_res_fb(
     elif not a00 and a01:
         r_u = r_in.view(nele, u_nloc, ndim)
         x_i_p = x_i_in.view(nele, p_nloc)
+    elif not a00 and a10:
+        r_p = r_in.view(nele, p_nloc)
+        x_i_u = x_i_in.view(nele, u_nloc, ndim)
 
     # shape function
     snx, sdetwei, snormal = sdet_snlx(
@@ -736,11 +746,12 @@ def _s_res_fb(
     else:
         gamma_e = config.eta_e / torch.sum(sdetwei, -1)
 
-    if include_p:
+    if a01:
         p_ith = x_i_p[E_F_b, ...]
+    if a00 or a10:
+        u_ith = x_i_u[E_F_b, ...]
 
     if a00:
-        u_ith = x_i_u[E_F_b, ...]
         # block K
         K = torch.zeros(batch_in, u_nloc, ndim, u_nloc, ndim,
                         device=dev, dtype=torch.float64)
@@ -1743,3 +1754,36 @@ def vel_precond_all(x_u, x_p, u_n, u_bc):
     #     u_bc,
     # )
     return x_u
+
+
+def backward_GS_precond_all(x_u, x_p, u_n, u_bc):
+    """
+    do an additional step for backward GS
+    """
+    p_nonods = sf_nd_nb.pre_func_space.nonods
+    x_temp = torch.zeros(p_nonods, device=dev, dtype=torch.float64)
+    # x_p - G^T x_u
+    x_temp = get_residual_only(
+        r0=x_temp,
+        x_i=x_u,
+        x_rhs=x_p,
+        a00=False,
+        a01=False,
+        a10=True,
+        a11=False,
+    )
+    # move x_temp to x_p
+    x_p *= 0
+    x_p += x_temp.view(x_p.shape)
+    x_temp *= 0
+
+    # apply P_s^-1
+    # apply L_p^-1
+    x_temp = pressure_matrix.pre_precond_invLp(x_temp, x_p)
+    x_p *= 0
+    x_p += x_temp.view(x_p.shape)
+    # apply -F_p  <- thisis the negative sign!
+    x_p = pressure_matrix.pre_precond_Fp(x_p, u_n, u_bc)
+    # apply Q^-1
+    x_p = pressure_matrix.pre_precond_invQ(x_p)
+    return x_p

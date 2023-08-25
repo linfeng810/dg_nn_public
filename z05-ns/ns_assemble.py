@@ -88,8 +88,11 @@ def assemble(u_bc_in, f, indices, values):
                     jdim = idim
                     glb_jloc = ele*u_nloc*ndim + jloc * ndim + jdim
                     # print('     glb_jloc', glb_jloc)
+                    value = nxnx[ele, iloc, jloc]
+                    if config.isTransient:
+                        value += nn[ele, iloc, jloc] * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
                     indices.append([glb_iloc, glb_jloc])
-                    values.append(nxnx[ele, iloc, jloc])
+                    values.append(value)
                 # G
                 for jloc in range(p_nloc):
                     glb_jloc = nele*u_nloc*ndim + p_nloc*ele + jloc
