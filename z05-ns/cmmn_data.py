@@ -70,7 +70,7 @@ class SfNdNb:
         if type(RARmat) != NoneType:
             self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
         if type(RARmat_Lp) != NoneType:
-            self.RARmat_Lp = RARmat  # operator on P1CG, type: scipy csr sparse matrix
+            self.RARmat_Lp = RARmat_Lp  # operator on P1CG, type: scipy csr sparse matrix
         if type(Kmatinv) != NoneType:
             self.Kmatinv = Kmatinv
         if indices_st is not None:
