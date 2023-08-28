@@ -14,7 +14,7 @@ else:
     from shape_function import sdet_snlx_3d as sdet_snlx
 
 
-def assemble(u_bc_in, f, indices, values):
+def assemble(u_bc_in, f, indices, values, add_mass_to_precond=False):
     u_nonods = sf_nd_nb.vel_func_space.nonods
     p_nonods = sf_nd_nb.pre_func_space.nonods
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -91,6 +91,8 @@ def assemble(u_bc_in, f, indices, values):
                     value = nxnx[ele, iloc, jloc]
                     if config.isTransient:
                         value += nn[ele, iloc, jloc] * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
+                    elif add_mass_to_precond:
+                        value += nn[ele, iloc, jloc] * sf_nd_nb.fict_mass_coeff
                     indices.append([glb_iloc, glb_jloc])
                     values.append(value)
                 # G

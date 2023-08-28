@@ -35,6 +35,8 @@ class SfNdNb:
         self.indices_st = None
         self.values_st = None
         self.bdfscm = None  # bdf scheme
+        self.add_mass_to_precond = None  # add mass matrix to preconditioner (velocity block)
+        self.fict_mass_coeff = 1.  # multiply coefficient to fictitious mass matrix (added to velocity blk precond)
 
     def set_data(self,
                  vel_func_space=None,

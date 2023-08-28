@@ -42,6 +42,10 @@ if args.filename is not None:
 #     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
+sf_nd_nb.add_mass_to_precond = False  # add mass matrix to velocity block preconditioner
+sf_nd_nb.fict_mass_coeff = 100.  # coefficient multiply to mass matrix add to vel blk precond
+print('add mass matrix to velocity block preconditioner? (to make it diagonal dominant)', sf_nd_nb.add_mass_to_precond,
+      'coeff', sf_nd_nb.fict_mass_coeff)
 
 # mesh info
 nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements

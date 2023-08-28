@@ -75,7 +75,8 @@ def calc_RAR_mf_color(
                                     include_adv=include_adv,
                                     u_n=u_n,
                                     u_bc=u_bc,
-                                    a00=True, a01=False, a10=False, a11=False)
+                                    a00=True, a01=False, a10=False, a11=False,
+                                    add_mass_to_precond=sf_nd_nb.add_mass_to_precond)
             ARm *= -1.  # (p3dg_nonods, ndim)
             # RARm = multi_grid.p3dg_to_p1dg_restrictor(ARm)  # (p1dg_nonods, )
             RARm *= 0
@@ -94,7 +95,8 @@ def calc_RAR_mf_color(
 def get_residual_and_smooth_once(
         r0_in, x_i_in, x_rhs,
         include_adv=False, u_n=None, u_bc=None,
-        a00=True, a01=False, a10=False, a11=False
+        a00=True, a01=False, a10=False, a11=False,
+        add_mass_to_precond=False,
 ):
     """update residual, then do one (block-) Jacobi smooth.
     Block matrix structure:
@@ -137,7 +139,8 @@ def get_residual_and_smooth_once(
             diagK, bdiagK, diagS,
             idx_in,
             include_adv, u_n,
-            a00, a01, a10, a11
+            a00, a01, a10, a11,
+            add_mass_to_precond
         )
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
@@ -178,7 +181,8 @@ def get_residual_and_smooth_once(
 
 def get_residual_only(r0, x_i, x_rhs,
                       include_adv=False, u_n=None, u_bc=None,
-                      a00=True, a01=True, a10=True, a11=False):
+                      a00=True, a01=True, a10=True, a11=False,
+                      add_mass_to_precond=False):
     """update residual,
         Block matrix structure:
         [ K    G ]
@@ -229,7 +233,8 @@ def get_residual_only(r0, x_i, x_rhs,
                                                     diagK, bdiagK, diagS,
                                                     idx_in,
                                                     include_adv, u_n,
-                                                    a00, a01, a10, a11)
+                                                    a00, a01, a10, a11,
+                                                    add_mass_to_precond)
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
@@ -254,7 +259,8 @@ def _k_res_one_batch(
         idx_in,
         include_adv,
         u_n,
-        a00, a01, a10, a11
+        a00, a01, a10, a11,
+        add_mass_to_precond=False,
 ):
     """this contains volume integral part of the residual update
     let velocity shape function be N, pressure be Q
@@ -318,6 +324,9 @@ def _k_res_one_batch(
             for idim in range(ndim):
                 K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) \
                                           * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
+        elif add_mass_to_precond:
+            for idim in range(ndim):
+                K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) * sf_nd_nb.fict_mass_coeff
         if include_adv:
             K += torch.einsum(
                 'lg,bli,bing,mg,bg,jk->bmjnk',
@@ -1551,14 +1560,16 @@ def vel_precond_invK_mg(x_u, x_rhs, include_adv, u_n=None, u_bc=None):
         r0, x_u = get_residual_and_smooth_once(
             r0, x_u, x_rhs=x_rhs,
             include_adv=include_adv, u_n=u_n, u_bc=u_bc,
-            a00=True, a01=False, a10=False, a11=False
+            a00=True, a01=False, a10=False, a11=False,
+            add_mass_to_precond=sf_nd_nb.add_mass_to_precond
         )
 
     # get residual on PnDG
     r0 *= 0
     r0 = get_residual_only(r0, x_u, x_rhs=x_rhs,
                            include_adv=include_adv, u_n=u_n, u_bc=u_bc,
-                           a00=True, a01=False, a10=False, a11=False)
+                           a00=True, a01=False, a10=False, a11=False,
+                           add_mass_to_precond=sf_nd_nb.add_mass_to_precond)
 
     # restrict residual
     if not config.is_pmg:
@@ -1610,7 +1621,8 @@ def vel_precond_invK_mg(x_u, x_rhs, include_adv, u_n=None, u_bc=None):
         r0, x_u = get_residual_and_smooth_once(
             r0, x_u, x_rhs=x_rhs,
             include_adv=include_adv, u_n=u_n, u_bc=u_bc,
-            a00=True, a01=False, a10=False, a11=False
+            a00=True, a01=False, a10=False, a11=False,
+            add_mass_to_precond=sf_nd_nb.add_mass_to_precond
         )
     # print('x_rhs norm: ', torch.linalg.norm(x_rhs.view(-1)), 'r0 norm: ', torch.linalg.norm(r0.view(-1)))
     return x_u.view(nele, nloc, ndim)
@@ -1647,7 +1659,9 @@ def vel_precond_invK_direct(x_rhs, u_n, u_bc):
                 u_bc_in=dummy_u_bc,
                 f=dummy,
                 indices=indices_st,
-                values=values_st)
+                values=values_st,
+                add_mass_to_precond=sf_nd_nb.add_mass_to_precond
+            )
             sf_nd_nb.set_data(
                 indices_st=indices_st,
                 values_st=values_st
