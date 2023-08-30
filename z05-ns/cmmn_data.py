@@ -37,6 +37,7 @@ class SfNdNb:
         self.bdfscm = None  # bdf scheme
         self.add_mass_to_precond = None  # add mass matrix to preconditioner (velocity block)
         self.fict_mass_coeff = 1.  # multiply coefficient to fictitious mass matrix (added to velocity blk precond)
+        self.isTransient = False  # if we're solving transient eq
 
     def set_data(self,
                  vel_func_space=None,

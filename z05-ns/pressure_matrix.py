@@ -130,7 +130,7 @@ def _k_res_one_batch(
 
     # Nx_i Nx_j
     K += torch.einsum('bimg,bing,bg->bmn', qx, qx, ndetwei) * config.mu
-    if config.isTransient:
+    if sf_nd_nb.isTransient:
         # ni nj
         K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
     if include_adv:
@@ -513,7 +513,7 @@ def _calc_RAR_mf_color(
     ARm = torch.zeros(nonods, device=dev, dtype=torch.float64)
     RARm = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
     mask = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)  # color vec
-    for color in tqdm(range(1, ncolor + 1)):
+    for color in tqdm(range(1, ncolor + 1), disable=config.disabletqdm):
         # print('color: ', color)
         mask *= 0
         mask += torch.tensor((whichc == color),

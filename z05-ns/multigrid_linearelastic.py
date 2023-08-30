@@ -224,9 +224,9 @@ def mg_on_P0CG_prep(fina, cola, RARvalues):
     nele = config.nele
     ncola = cola.shape[0]
     start_time = time.time()
-    print('to get space filling curve...', time.time() - start_time)
+    # print('to get space filling curve...', time.time() - start_time)
     if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
-        print('pre-calculated sfc exists. readin from file...')
+        # print('pre-calculated sfc exists. readin from file...')
         sfc = np.load(config.filename[:-4] + '_sfc.npy')
     else:
         _, sfc = \
@@ -234,7 +234,7 @@ def mg_on_P0CG_prep(fina, cola, RARvalues):
                 cola + 1, fina + 1, starting_node, graph_trim, ncurve
             )  # note that fortran array index start from 1, so cola and fina should +1.
         np.save(config.filename[:-4] + '_sfc.npy', sfc)
-    print('to get sfc operators...', time.time() - start_time)
+    # print('to get sfc operators...', time.time() - start_time)
 
     # get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(cg_nonods) + 1
@@ -265,7 +265,7 @@ def mg_on_P0CG_prep(fina, cola, RARvalues):
         #         config.smooth_start_level = level
         #         break
         config.smooth_start_level += nlevel
-    print('start_level: ', config.smooth_start_level)
+    # print('start_level: ', config.smooth_start_level)
     variables_sfc = []
     for level in range(config.smooth_start_level + 1):
         variables_sfc.append(get_a_diaga(

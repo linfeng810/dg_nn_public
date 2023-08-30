@@ -221,7 +221,7 @@ def gmres_mg_solver(x_i, x_rhs,
         v_m[0, :] += r0 / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
         w_u, w_p = volume_mf_st.slicing_x_i(w)
-        for j in tqdm(range(0, m)):
+        for j in tqdm(range(0, m), disable=config.disabletqdm):
             w *= 0
             w = get_residual_only(r0=w,
                                   x_i=v_m[j, :],

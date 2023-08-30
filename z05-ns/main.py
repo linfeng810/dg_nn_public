@@ -127,10 +127,13 @@ print('4. time elapsed, ',time.time()-starttime)
 u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
                                prob=config.problem,
                                t=0)
-
+# output to vtk
+vtk = output.File('bc_diri.vtu')
+vtk.write_vector(u_bc[0], 'velocity', sf_nd_nb.vel_func_space)
+vtk.write_end()
 # print(u)
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
-if not config.isTransient:
+if not sf_nd_nb.isTransient:
     tstep = 2
 else:
     sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=config.time_order))
@@ -244,21 +247,23 @@ if (config.solver=='iterative') :
         )
 
         # solve a stokes problem as initial velocity
-        if False:
+        if True:
+            print('going to solve steady stokes problem as initial condition')
+            sf_nd_nb.isTransient = False  # temporarily omit transient terms
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
             r0 *= 0
             x_rhs *= 0
             x_rhs = volume_mf_st.get_rhs(
                 x_rhs=x_rhs, u_bc=u_bc, f=f,
-                include_adv=config.include_adv,
+                include_adv=False,
                 u_n=u_n  # last *timestep* velocity
             )
             RARvalues = integral_mf.calc_RAR_mf_color(
                 I_fc, I_cf,
                 whichc, ncolor,
                 fina, cola, ncola,
-                include_adv=config.include_adv,
+                include_adv=False,
                 u_n=u_k,
                 u_bc=u_bc[0]
             )
@@ -292,7 +297,9 @@ if (config.solver=='iterative') :
             x_i_n *= 0
             x_i_n += x_i
 
-        if config.isTransient:
+            sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
+
+        elif sf_nd_nb.isTransient:
             x_i_n *= 0
             x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
 
@@ -325,7 +332,7 @@ if (config.solver=='iterative') :
 
         for itime in range(1, tstep):  # time loop
             # for the starting steps, use 1st, 2nd then 3rd order BDF.
-            if True and itime < config.time_order:  # has analytical soln
+            if False and itime < config.time_order:  # has analytical soln
                 print('itime = ', itime, 'getting ana soln...')
                 t += dt
                 x_i *= 0
@@ -349,7 +356,7 @@ if (config.solver=='iterative') :
 
                 continue
 
-            if config.isTransient:
+            if sf_nd_nb.isTransient:
                 if itime <= config.time_order:
                     if itime == 1:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=1))
@@ -410,7 +417,9 @@ if (config.solver=='iterative') :
                 x_rhs = volume_mf_st.get_rhs(
                     x_rhs=x_rhs, u_bc=u_bc, f=f,
                     include_adv=config.include_adv,
-                    u_n=alpha_u_n  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
+                    u_n=alpha_u_n,  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
+                    isAdvExp=config.isAdvExp,  # whether to treat advection explicity
+                    u_k=alpha_u_n,  # non-lienar velocity
                 )
                 # get non-linear residual
                 r0 *= 0
@@ -469,7 +478,7 @@ if (config.solver=='iterative') :
                     # )
                     x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=max(min(1.e-3*nr0l2, 1.e-3), 1.e-11),
+                        tol=max(min(1.e-1*nr0l2, 1.e-1), 1.e-11),  # config.tol,
                         include_adv=config.include_adv,
                         u_k=u_k,
                         u_bc=u_bc[0]
@@ -504,8 +513,8 @@ if (config.solver=='iterative') :
             x_i_n += x_i  # store this step in case we want to use this for next timestep
 
             # save x_i at this Re to reuse as the initial condition for higher Re
-            torch.save(x_i, 'Re'+str(config._Re)+'.pt')
-
+            torch.save(x_i, 'Re'+str(config._Re)+'_t%.2f.pt' % t)
+            print('total its / restart ', total_its)
             total_its = 0
 
             # combine inner/inter element contribution
@@ -520,23 +529,29 @@ if (config.solver=='iterative') :
             vtk.write_scaler(x_i_list[1], 'pressure', sf_nd_nb.pre_func_space)
             vtk.write_end()
 
-        # get l2 error
-        x_ana = bc_f.ana_soln(config.problem, t=t)
-        if config.hasNullSpace:
-            # remove average from pressure
-            p_ave = ns_assemble.get_ave_pressure(x_i_list[1].cpu().numpy())
-            x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
-            p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
-            p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
-            p_ana -= p_ana_ave
-        u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
-        print('after solving, l2 error is: \n',
-              'velocity ', u_l2, '\n',
-              'pressure ', p_l2)
-        print('l infinity error is: \n',
-              'velocity ', u_linf, '\n',
-              'pressure ', p_linf)
-        print('total its / restart ', total_its)
+            # get l2 error
+            x_ana = bc_f.ana_soln(config.problem, t=t)
+            x_ana[0:u_nonods*ndim] += torch.tensor(
+                u_all[itime - 1, :, :, :],
+                device=dev, dtype=torch.float64).view(-1)
+            x_ana[u_nonods * ndim: u_nonods*ndim + p_nonods] += torch.tensor(
+                p_all[itime - 1, ...],
+                device=dev, dtype=torch.float64).view(-1)
+            if config.hasNullSpace:
+                # remove average from pressure
+                p_ave = ns_assemble.get_ave_pressure(x_i_list[1].cpu().numpy())
+                x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
+                p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
+                p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
+                p_ana -= p_ana_ave
+            u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
+            print('after solving, compare to previous timestep, l2 error is: \n',
+                  'velocity ', u_l2, '\n',
+                  'pressure ', p_l2)
+            print('l infinity error is: \n',
+                  'velocity ', u_linf, '\n',
+                  'pressure ', p_linf)
+            # print('total its / restart ', total_its)
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
@@ -684,7 +699,7 @@ if config.solver == 'direct':
     # np.savetxt('Amat_assemble.txt', Amat_np, delimiter=',')
     print('doing writing. im goingt o solve', time.time()-starttime)
     x_sol = np.zeros(u_nonods*ndim+p_nonods, dtype=np.float64)
-    for nit in tqdm(range(config.n_its_max)):
+    for nit in tqdm(range(config.n_its_max), disable=config.disabletqdm):
         # non-linear iteration
         indices_ns = []
         values_ns = []

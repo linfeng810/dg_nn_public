@@ -10,6 +10,7 @@ from parse_terminal_input import args
 
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
+disabletqdm = False
 #
 # device
 dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -22,20 +23,22 @@ torch.manual_seed(0)
 dt = 0.5  # timestep
 if args.dt is not None:
     dt = args.dt
-tstart = 0  # starting time
-tend = 1.  # end time
+tstart = 0.  # starting time
+tend = 10.  # end time
 isTransient = True  # decide if we are doing transient simulation
+isAdvExp = False  # treat advection term explicitly
 if isTransient:
     time_order = 1  # time discretisation order
-    print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order)
+    print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order, 'treat adv explicitly?', isAdvExp)
 solver = 'iterative'  # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
 filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
-# filename='z32-square-mesh/square_poiseuille.msh'
-filename = 'z32-square-mesh/square.msh'
+filename='z32-square-mesh/square_poiseuille_r2.msh'
+# filename = 'z32-square-mesh/square.msh'
+# filename = 'z34-bfs/bfs_r1.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -46,6 +49,7 @@ sf_nd_nb.add_mass_to_precond = False  # add mass matrix to velocity block precon
 sf_nd_nb.fict_mass_coeff = 100.  # coefficient multiply to mass matrix add to vel blk precond
 print('add mass matrix to velocity block preconditioner? (to make it diagonal dominant)', sf_nd_nb.add_mass_to_precond,
       'coeff', sf_nd_nb.fict_mass_coeff)
+sf_nd_nb.isTransient = isTransient
 
 # mesh info
 nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
@@ -57,7 +61,7 @@ ndim = 2  # dimesnion of the problem
 
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
-tol = 1.e-10  # convergence tolerance for linear solver (e.g. MG)
+tol = 1.e-7  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = tol  # convergence criteria
@@ -85,21 +89,22 @@ print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
 gmres_m = 80  # restart
-gmres_its = 5  # max GMRES steps
+gmres_its = 10  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
-    print('gmres paraters: restart=', gmres_m)
+    print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
 
 # non-linear iteration parameters
-n_its_max = 30
-n_tol = 1.e-7
+n_its_max = 15
+n_tol = 1.e-6
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
-problem = 'tgv'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'bfs'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
+# or 'bfs' = backward facing step
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -134,15 +139,17 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1/50  # this is diffusion coefficient (viscosity)
+    mu = 1./109.5  # this is diffusion coefficient (viscosity)
     _Re = int(1/mu)
-    hasNullSpace = True  # to remove null space, adding 1 to a pressure diagonal node
+    hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
     include_adv = True  # if Navier-Stokes, include advection term.
+    if isAdvExp:
+        include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
 
     isSetInitial = False  # whether to use a precalculated fields (u and p) in a file as initial condition
-    initDataFile = 'Re100.pt'
+    initDataFile = 'Re109_t20.00.pt'
     print('initial condition: '+initDataFile)
 
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
@@ -163,4 +170,5 @@ print('No of batch: ', no_batch)
 
 case_name = '_'+problem+'Re'+str(_Re)+'_p'+str(ele_p)+'p'+str(ele_p_pressure)+\
             '_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
+# case_name = '_bfsRe109_p3p2_20230828-190846'
 print('case name is: '+case_name)

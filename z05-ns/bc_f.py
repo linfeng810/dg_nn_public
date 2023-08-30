@@ -493,8 +493,8 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                     u_bc[0][inod // nloc, inod % nloc, 0] = 0
                 else:
                     u_bc[0][inod // nloc, inod % nloc, 0] = (1 - (2*x - 1)**4) * u_m
-                    if config.isTransient:  # ramp up
-                        u_bc[0][inod // nloc, inod % nloc, 0] *= np.min([1.0, t])
+                    # if config.isTransient:  # ramp up
+                    #     u_bc[0][inod // nloc, inod % nloc, 0] *= np.min([1.0, t])
                 u_bc[0][inod // nloc, inod % nloc, 1] = 0
         # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
         for ibc in range(1, len(bc_node_list)):
@@ -582,6 +582,36 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                                 u_m * torch.pi * torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.sin(torch.pi * y) * np.sin(torch.pi)) / Re
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = \
                     u_m * (torch.pi * torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * np.cos(torch.pi)) / Re
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'bfs' and ndim == 2:
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                u_bc[0][inod // nloc, inod % nloc, 0] = 0
+                u_bc[0][inod // nloc, inod % nloc, 1] = 0
+                if torch.abs(x + 2) < 1e-10:  # this is inlet
+                    u_bc[0][inod // nloc, inod % nloc, 0] = 1 - y ** 2
+        # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
+        for ibc in range(1, len(bc_node_list)):
+            print('=== in bc_f : has neumann bc ===')
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                # unsymmetry stress formulation
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
 
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
@@ -774,8 +804,8 @@ def ana_soln(problem, t=None):
             y = x_inod[1]
             lamb = Re / 2 - torch.sqrt(Re ** 2 / 4 + 4 * np.pi ** 2)
             p[inod // p_nloc, inod % p_nloc] = - torch.exp(2 * lamb * x)/2
-    elif problem == 'ldc' and ndim == 2:
-        print("====WARNING====:no analytical soln exists for ldc problem...")
+    elif problem == 'ldc' or problem == 'bfs' and ndim == 2:
+        print("====WARNING====:no analytical soln exists for ldc/bfs problem...")
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
         p_nloc = sf_nd_nb.pre_func_space.element.nloc
         nele = config.nele
@@ -840,5 +870,5 @@ def ana_soln(problem, t=None):
                 -torch.exp(-(4 * torch.pi ** 2 * t) / Re) * (torch.cos(2 * torch.pi * x) / 4 + torch.cos(
                     2 * torch.pi * y) / 4) * u_m**2
     else:
-        raise Exception('problem analytical solution not detined for '+problem)
+        raise Exception('problem analytical solution not defined for '+problem)
     return u_ana

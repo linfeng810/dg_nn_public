@@ -77,7 +77,7 @@ def assemble(u_bc_in, f, indices, values, add_mass_to_precond=False):
 
     f = f.view(nele, u_nloc, ndim).cpu().numpy()
     rhs[0:u_nonods*ndim] += np.einsum('bmn, bni->bmi', nn, f).reshape(u_nonods*ndim)
-    for ele in tqdm(range(nele)):
+    for ele in tqdm(range(nele), disable=config.disabletqdm):
         # K and G
         for iloc in range(u_nloc):
             for idim in range(ndim):
@@ -89,7 +89,7 @@ def assemble(u_bc_in, f, indices, values, add_mass_to_precond=False):
                     glb_jloc = ele*u_nloc*ndim + jloc * ndim + jdim
                     # print('     glb_jloc', glb_jloc)
                     value = nxnx[ele, iloc, jloc]
-                    if config.isTransient:
+                    if sf_nd_nb.isTransient:
                         value += nn[ele, iloc, jloc] * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
                     elif add_mass_to_precond:
                         value += nn[ele, iloc, jloc] * sf_nd_nb.fict_mass_coeff
@@ -123,7 +123,7 @@ def assemble(u_bc_in, f, indices, values, add_mass_to_precond=False):
     u_gi_align = sf_nd_nb.vel_func_space.element.gi_align.cpu().numpy()
     q_gi_align = sf_nd_nb.pre_func_space.element.gi_align.cpu().numpy()
     if True:  # use python to assemble surface integral term (would be slow)
-        for ele in tqdm(range(nele)):
+        for ele in tqdm(range(nele), disable=config.disabletqdm):
             for iface in range(nface):
                 glb_iface = ele*nface + iface
                 glb_iface_type = glb_bcface_type[glb_iface]
@@ -414,7 +414,7 @@ def assemble_adv(u_n_in, u_bc_in, indices, values):
     wxduv = 0.5*np.einsum('bilg,bli,mg,ng,bg->bmn', nx, u_n, n, n, detwei)
     if not isTemam:
         wxduv *= 0
-    for ele in tqdm(range(nele)):
+    for ele in tqdm(range(nele), disable=config.disabletqdm):
         for iloc in range(u_nloc):
             for idim in range(ndim):
                 glb_iloc = ele*u_nloc*ndim + iloc * ndim + idim
@@ -436,7 +436,7 @@ def assemble_adv(u_n_in, u_bc_in, indices, values):
     # print('glb bcface type', glb_bcface_type)
     # print('alnmt', alnmt)
     u_gi_align = sf_nd_nb.vel_func_space.element.gi_align.cpu().numpy()
-    for ele in tqdm(range(nele)):
+    for ele in tqdm(range(nele), disable=config.disabletqdm):
         for iface in range(nface):
             glb_iface = ele*nface + iface
             glb_iface_type = glb_bcface_type[glb_iface]
@@ -662,7 +662,7 @@ def pressure_laplacian_assemble(indices, values):
     # volume integral
     qxqx = np.einsum('bkmg,bkng,bg->bmn', qx, qx, detwei) * config.mu
 
-    for ele in tqdm(range(nele)):
+    for ele in tqdm(range(nele), disable=config.disabletqdm):
         # K and G
         for iloc in range(p_nloc):
             glb_iloc = ele*p_nloc + iloc
@@ -684,7 +684,7 @@ def pressure_laplacian_assemble(indices, values):
     # print('alnmt', alnmt)
     q_gi_align = sf_nd_nb.pre_func_space.element.gi_align.cpu().numpy()
     if True:  # use python to assemble surface integral term (would be slow)
-        for ele in tqdm(range(nele)):
+        for ele in tqdm(range(nele), disable=config.disabletqdm):
             for iface in range(nface):
                 glb_iface = ele*nface + iface
                 glb_iface_type = glb_bcface_type[glb_iface]
