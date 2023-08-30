@@ -8,3 +8,5 @@ __pycache__/
 *.tmp
 *.so
 *.o
+*.pt
+*.vtu
