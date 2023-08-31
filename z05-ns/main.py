@@ -246,8 +246,13 @@ if (config.solver=='iterative') :
             fina, cola, ncola
         )
 
+        # DEBUG: assemble Lp col by col
+        if False:
+            import Lp_assemble_colbycol
+            Lpmat = Lp_assemble_colbycol.vanilla_assemble_Lp()
+            np.savetxt('Lpmat_colbycolassemble.txt', Lpmat.todense(), delimiter=',')
         # solve a stokes problem as initial velocity
-        if True:
+        if sf_nd_nb.isTransient and not config.isSetInitial:
             print('going to solve steady stokes problem as initial condition')
             sf_nd_nb.isTransient = False  # temporarily omit transient terms
             x_i *= 0
@@ -299,11 +304,11 @@ if (config.solver=='iterative') :
 
             sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
 
-        elif sf_nd_nb.isTransient:
+        elif sf_nd_nb.isTransient and not config.isSetInitial:
             x_i_n *= 0
             x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
 
-        if config.isSetInitial:
+        elif config.isSetInitial:
             x_i_n *= 0
             x_i_n += torch.load(config.initDataFile)
 
@@ -513,7 +518,7 @@ if (config.solver=='iterative') :
             x_i_n += x_i  # store this step in case we want to use this for next timestep
 
             # save x_i at this Re to reuse as the initial condition for higher Re
-            torch.save(x_i, 'Re'+str(config._Re)+'_t%.2f.pt' % t)
+            torch.save(x_i, config.filename + config.case_name + '_t%.2f.pt' % t)
             print('total its / restart ', total_its)
             total_its = 0
 

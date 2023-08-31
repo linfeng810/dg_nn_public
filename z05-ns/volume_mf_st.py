@@ -1764,8 +1764,8 @@ def pre_precond_all(x_p, include_adv, u_n, u_bc):
     apply pressure preconditioner
     x_p <- (- Q^-1 F_p L_p^-1) x_p
     """
-    # if include_adv:
-    if True:
+    if include_adv:
+    # if True:
         # apply L_p^-1
         x_p_temp = torch.zeros_like(x_p, device=dev, dtype=torch.float64)
         x_p_temp = pressure_matrix.pre_precond_invLp(x_p_temp, x_p)
