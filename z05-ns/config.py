@@ -20,15 +20,15 @@ torch.manual_seed(0)
 #####################################################
 # time step settings
 #####################################################
-dt = 0.5  # timestep
+dt = 0.005  # timestep
 if args.dt is not None:
     dt = args.dt
-tstart = 0.  # starting time
-tend = 10.  # end time
+tstart = 0  # starting time
+tend = 8.  # end time
 isTransient = True  # decide if we are doing transient simulation
 isAdvExp = False  # treat advection term explicitly
 if isTransient:
-    time_order = 1  # time discretisation order
+    time_order = 3  # time discretisation order
     print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order, 'treat adv explicitly?', isAdvExp)
 solver = 'iterative'  # 'direct' or 'iterative'
 
@@ -61,7 +61,7 @@ ndim = 2  # dimesnion of the problem
 
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
-tol = 1.e-7  # convergence tolerance for linear solver (e.g. MG)
+tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = tol  # convergence criteria
@@ -89,22 +89,23 @@ print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
 gmres_m = 80  # restart
-gmres_its = 10  # max GMRES steps
+gmres_its = 5  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
 
 # non-linear iteration parameters
 n_its_max = 15
-n_tol = 1.e-6
+n_tol = 1.e-7
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
-problem = 'bfs'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'fpc'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
+# or 'fpc' = flow-past cylinder
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
@@ -139,7 +140,7 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1./109.5  # this is diffusion coefficient (viscosity)
+    mu = 1.e-3  # this is diffusion coefficient (viscosity)
     _Re = int(1/mu)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
@@ -148,9 +149,12 @@ if True:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
 
-    isSetInitial = False  # whether to use a precalculated fields (u and p) in a file as initial condition
-    initDataFile = 'Re109_t20.00.pt'
-    print('initial condition: '+initDataFile)
+    initialCondition = 1  # 1. use zero as initial condition
+    # 2. solve steady stokes as initial condition
+    # 3. to use a precalculated fields (u and p) in a file as initial condition
+    if initialCondition == 3:
+        initDataFile = 'Re109_t20.00.pt'
+        print('use this data file as initial condition: '+initDataFile)
 
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
 # c.f. Burman & Hansbo CMAME 2004
