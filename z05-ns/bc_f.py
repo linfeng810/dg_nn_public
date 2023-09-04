@@ -616,6 +616,43 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'fpc' and ndim == 2:  # flow-past cylinder
+        if t is None:
+            raise ValueError('should provide time when getting bc condition for flow-past cylinder problem.')
+        u_m = 1.5  # max velocity
+        T = 8  # half period
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
+                    u_bc[0][inod // nloc, inod % nloc, 0] = \
+                        u_m * 4 * y * (0.41 - y) / 0.41**2 * torch.sin(
+                            torch.tensor(torch.pi * t / T, device=dev, dtype=torch.float64))
+                else:
+                    u_bc[0][inod // nloc, inod % nloc, 0] = 0
+                u_bc[0][inod // nloc, inod % nloc, 1] = 0
+        # neumann bc (at x=1 plane) the rest are neumann bc... what a raw assumption
+        for ibc in range(1, len(bc_node_list)):
+            print('=== in bc_f : has neumann bc ===')
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                # unsymmetry stress formulation
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
         raise Exception('the problem '+prob+' is not defined in bc_f.py')
     return u_bc, f, fNorm
@@ -804,8 +841,8 @@ def ana_soln(problem, t=None):
             y = x_inod[1]
             lamb = Re / 2 - torch.sqrt(Re ** 2 / 4 + 4 * np.pi ** 2)
             p[inod // p_nloc, inod % p_nloc] = - torch.exp(2 * lamb * x)/2
-    elif problem == 'ldc' or problem == 'bfs' and ndim == 2:
-        print("====WARNING====:no analytical soln exists for ldc/bfs problem...")
+    elif problem == 'ldc' or problem == 'bfs' or problem == 'fpc' and ndim == 2:
+        print("====WARNING====:no analytical soln exists for %s problem..." % problem)
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
         p_nloc = sf_nd_nb.pre_func_space.element.nloc
         nele = config.nele

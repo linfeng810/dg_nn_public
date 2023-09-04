@@ -252,7 +252,7 @@ if (config.solver=='iterative') :
             Lpmat = Lp_assemble_colbycol.vanilla_assemble_Lp()
             np.savetxt('Lpmat_colbycolassemble.txt', Lpmat.todense(), delimiter=',')
         # solve a stokes problem as initial velocity
-        if sf_nd_nb.isTransient and not config.isSetInitial:
+        if config.initialCondition == 2:
             print('going to solve steady stokes problem as initial condition')
             sf_nd_nb.isTransient = False  # temporarily omit transient terms
             sf_nd_nb.add_mass_to_precond = False
@@ -306,11 +306,11 @@ if (config.solver=='iterative') :
             sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
             sf_nd_nb.add_mass_to_precond = config.add_mass_to_precond
 
-        elif sf_nd_nb.isTransient and not config.isSetInitial:
+        elif config.initialCondition == 1:
             x_i_n *= 0
             x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
 
-        elif config.isSetInitial:
+        elif config.initialCondition == 3:
             x_i_n *= 0
             x_i_n += torch.load(config.initDataFile)
 
