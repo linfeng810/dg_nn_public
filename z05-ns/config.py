@@ -20,11 +20,11 @@ torch.manual_seed(0)
 #####################################################
 # time step settings
 #####################################################
-dt = 0.5  # timestep
+dt = 1  # timestep
 if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
-tend = 10.  # end time
+tend = 10 * dt  # end time
 isTransient = True  # decide if we are doing transient simulation
 isAdvExp = False  # treat advection term explicitly
 if isTransient:
@@ -38,18 +38,20 @@ solver = 'iterative'  # 'direct' or 'iterative'
 filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
 filename='z32-square-mesh/square_poiseuille_r2.msh'
 # filename = 'z32-square-mesh/square.msh'
-# filename = 'z34-bfs/bfs_r1.msh'
+filename = 'z34-bfs/bfs.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
 #     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
-sf_nd_nb.add_mass_to_precond = False  # add mass matrix to velocity block preconditioner
-sf_nd_nb.fict_mass_coeff = 100.  # coefficient multiply to mass matrix add to vel blk precond
+add_mass_to_precond = True
+sf_nd_nb.add_mass_to_precond = add_mass_to_precond  # add mass matrix to velocity block preconditioner
+sf_nd_nb.fict_dt = 0.0625  # coefficient multiply to mass matrix add to vel blk precond
 print('add mass matrix to velocity block preconditioner? (to make it diagonal dominant)', sf_nd_nb.add_mass_to_precond,
-      'coeff', sf_nd_nb.fict_mass_coeff)
+      'coeff', sf_nd_nb.fict_dt)
 sf_nd_nb.isTransient = isTransient
+sf_nd_nb.dt = dt
 
 # mesh info
 nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
@@ -139,7 +141,7 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1./109.5  # this is diffusion coefficient (viscosity)
+    mu = 1./10000  # this is diffusion coefficient (viscosity)
     _Re = int(1/mu)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
@@ -149,7 +151,7 @@ if True:
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
 
     isSetInitial = False  # whether to use a precalculated fields (u and p) in a file as initial condition
-    initDataFile = 'Re109_t20.00.pt'
+    initDataFile = 'Re109_t10.00.pt'
     print('initial condition: '+initDataFile)
 
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)

@@ -133,7 +133,7 @@ def _k_res_one_batch(
     if include_adv:
         if sf_nd_nb.isTransient:
             # ni nj
-            K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
+            K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
         K += torch.einsum(
             'lg,bli,bing,mg,bg->bmn',
             v,

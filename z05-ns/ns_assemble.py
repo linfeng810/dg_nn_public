@@ -89,10 +89,10 @@ def assemble(u_bc_in, f, indices, values, add_mass_to_precond=False):
                     glb_jloc = ele*u_nloc*ndim + jloc * ndim + jdim
                     # print('     glb_jloc', glb_jloc)
                     value = nxnx[ele, iloc, jloc]
-                    if sf_nd_nb.isTransient:
-                        value += nn[ele, iloc, jloc] * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
-                    elif add_mass_to_precond:
-                        value += nn[ele, iloc, jloc] * sf_nd_nb.fict_mass_coeff
+                    if sf_nd_nb.isTransient or add_mass_to_precond:
+                        value += nn[ele, iloc, jloc] * config.rho / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
+                    # elif add_mass_to_precond:
+                    #     value += nn[ele, iloc, jloc] * sf_nd_nb.fict_mass_coeff
                     indices.append([glb_iloc, glb_jloc])
                     values.append(value)
                 # G

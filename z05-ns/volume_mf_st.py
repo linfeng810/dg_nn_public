@@ -319,14 +319,14 @@ def _k_res_one_batch(
                           torch.eye(ndim, device=dev, dtype=torch.float64)
                           ) \
             * config.mu
-        if sf_nd_nb.isTransient:
+        if sf_nd_nb.isTransient or add_mass_to_precond:
             # ni nj
             for idim in range(ndim):
                 K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) \
-                                          * config.rho / config.dt * sf_nd_nb.bdfscm.gamma
-        elif add_mass_to_precond:
-            for idim in range(ndim):
-                K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) * sf_nd_nb.fict_mass_coeff
+                                          * config.rho / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
+        # elif add_mass_to_precond:
+        #     for idim in range(ndim):
+        #         K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) * sf_nd_nb.fict_mass_coeff
         if include_adv:
             K += torch.einsum(
                 'lg,bli,bing,mg,bg,jk->bmjnk',
@@ -924,7 +924,7 @@ def _k_rhs_one_batch(
             ndetwei,
             torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
             u_n[idx_in, ...],
-        ) * config.rho / config.dt
+        ) * config.rho / sf_nd_nb.dt
 
     # # p \nabla.v contribution to vel rhs
     # rhs[0][idx_in, ...] += torch.einsum(
