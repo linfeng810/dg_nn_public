@@ -35,10 +35,11 @@ class SfNdNb:
         self.indices_st = None
         self.values_st = None
         self.bdfscm = None  # bdf scheme
-        self.add_mass_to_precond = None  # add mass matrix to preconditioner (velocity block)
+        self.use_fict_dt_in_vel_precond = None  # add mass matrix to preconditioner (velocity block)
         self.fict_dt = 0.  # fictitious time step for fictitious mass matrix (added to velocity blk precond)
         self.isTransient = False  # if we're solving transient eq
         self.dt = None  # timestep
+        self.isPetrovGalerkin = False  # flag to includign Petrov-Galerkin stabilisation term
 
     def set_data(self,
                  vel_func_space=None,

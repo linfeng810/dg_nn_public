@@ -45,10 +45,11 @@ if args.filename is not None:
 #     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
-add_mass_to_precond = True
-sf_nd_nb.add_mass_to_precond = add_mass_to_precond  # add mass matrix to velocity block preconditioner
+use_fict_dt_in_vel_precond = False
+sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
 sf_nd_nb.fict_dt = 0.0625  # coefficient multiply to mass matrix add to vel blk precond
-print('add mass matrix to velocity block preconditioner? (to make it diagonal dominant)', sf_nd_nb.add_mass_to_precond,
+print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
+      sf_nd_nb.use_fict_dt_in_vel_precond,
       'coeff', sf_nd_nb.fict_dt)
 sf_nd_nb.isTransient = isTransient
 sf_nd_nb.dt = dt
@@ -161,8 +162,12 @@ if True:
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
 # c.f. Burman & Hansbo CMAME 2004
 # this will make iterative solver less effective!
-isES = False
+isES = True
 gammaES = 5e-3  # stabilisation parameter
+# Petrov-Galerkin stabilisation
+isPetrovGalerkin = False
+sf_nd_nb.isPetrovGalerkin = isPetrovGalerkin
+print('is Edge stabilisation?', isES, gammaES, 'is Petrov Galerkin Stabilisation?', isPetrovGalerkin)
 
 ####################
 # discretisation settings

@@ -255,7 +255,7 @@ if (config.solver=='iterative') :
         if config.initialCondition == 2:
             print('going to solve steady stokes problem as initial condition')
             sf_nd_nb.isTransient = False  # temporarily omit transient terms
-            sf_nd_nb.add_mass_to_precond = False
+            sf_nd_nb.use_fict_dt_in_vel_precond = False
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
             r0 *= 0
@@ -304,7 +304,7 @@ if (config.solver=='iterative') :
             x_i_n += x_i
 
             sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
-            sf_nd_nb.add_mass_to_precond = config.add_mass_to_precond
+            sf_nd_nb.use_fict_dt_in_vel_precond = config.use_fict_dt_in_vel_precond
 
         elif config.initialCondition == 1:
             x_i_n *= 0
@@ -443,7 +443,7 @@ if (config.solver=='iterative') :
                     # non-linear iteration converged
                     break
                 # prepare for MG on SFC-coarse grids
-                if config.add_mass_to_precond:  # change mass matrix magnitude in vel blk preconditioner
+                if config.use_fict_dt_in_vel_precond:  # change mass matrix magnitude in vel blk preconditioner
                     sf_nd_nb.dt = sf_nd_nb.fict_dt
                 RARvalues = integral_mf.calc_RAR_mf_color(
                     I_fc, I_cf,
@@ -453,7 +453,7 @@ if (config.solver=='iterative') :
                     u_n=u_k,
                     u_bc=u_bc[0]
                 )
-                if config.add_mass_to_precond:  # change back to real timestep
+                if config.use_fict_dt_in_vel_precond:  # change back to real timestep
                     sf_nd_nb.dt = config.dt
                 from scipy.sparse import bsr_matrix
 
