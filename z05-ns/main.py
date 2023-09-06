@@ -15,6 +15,7 @@ from tqdm import tqdm
 import cmmn_data
 import config
 import output
+import petrov_galerkin
 import shape_function
 import volume_mf_st
 from function_space import FuncSpace, Element
@@ -337,6 +338,12 @@ if (config.solver=='iterative') :
 
         alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
 
+        if sf_nd_nb.isPetrovGalerkin:  # get projection operator
+            sf_nd_nb.projection_one_order_lower = petrov_galerkin.get_projection_one_order_lower(
+                k=vel_func_space.element.ele_order,
+                ndim=config.ndim
+            )
+
         for itime in range(1, tstep):  # time loop
             # for the starting steps, use 1st, 2nd then 3rd order BDF.
             if False and itime < config.time_order:  # has analytical soln
@@ -418,6 +425,8 @@ if (config.solver=='iterative') :
 
             while nits < config.n_its_max:
                 sf_nd_nb.Kmatinv = None
+                if sf_nd_nb.isPetrovGalerkin:
+                    sf_nd_nb.tau_pg = None
                 u_k *= 0
                 u_k += x_i_list[0].view(u_k.shape)  # non-linear velocity
                 x_rhs *= 0

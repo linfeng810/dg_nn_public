@@ -13,6 +13,7 @@ from types import NoneType
 from tqdm import tqdm
 import config
 import ns_assemble
+import petrov_galerkin
 from config import sf_nd_nb
 # import materials
 # we sould be able to reuse all multigrid functions in linear-elasticity in hyper-elasticity
@@ -337,6 +338,29 @@ def _k_res_one_batch(
                 ndetwei,
                 torch.eye(ndim, device=dev, dtype=torch.float64)
             )
+            if sf_nd_nb.isPetrovGalerkin:
+                # first get tau, but only update tau at the start of one nonlinear step
+                if sf_nd_nb.tau_pg is None:
+                    tau = petrov_galerkin.get_pg_tau(
+                        u=x_i_u[idx_in, ...],
+                        w=u_n[idx_in, ...],
+                        v=n,
+                        vx=nx,
+                        q=q,
+                        detwei=ndetwei,
+                        batch_in=batch_in
+                    )  # (batch_in, ndim, ngi)
+                    sf_nd_nb.tau_pg = tau
+                else:
+                    tau = sf_nd_nb.tau_pg
+                K += torch.einsum(
+                    'bing,big,bimg,bg,ij->bminj',
+                    nx,  # (batch_in, ndim, u_nloc, ngi)
+                    tau,  # (batch_in, ndim, ngi)
+                    nx,  # (batch_in, ndim, u_nloc, ngi)
+                    ndetwei,  # (batch_in, ngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64)
+                )
         # update residual of velocity block K
         r0_u[idx_in, ...] -= torch.einsum('bminj,bnj->bmi', K, x_i_u[idx_in, ...])
         # get diagonal of velocity block K
@@ -1797,7 +1821,7 @@ def pre_precond_all(x_p, include_adv, u_n, u_bc):
     return x_p
 
 
-def vel_precond_all(x_u, x_p, u_n, u_bc):
+def vel_precond_all(x_u, x_p, u_n, u_bc, include_adv=True):
     """
     apply velocity preconditioner
     w_u <- K_u^-1 (x_u - G x_p)
@@ -1822,7 +1846,7 @@ def vel_precond_all(x_u, x_p, u_n, u_bc):
     x_temp = vel_precond_invK_mg(
         x_u=x_temp,
         x_rhs=x_u,
-        include_adv=config.include_adv,
+        include_adv=include_adv,
         u_n=u_n,
         u_bc=u_bc,
     )

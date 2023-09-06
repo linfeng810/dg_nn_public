@@ -39,7 +39,10 @@ class SfNdNb:
         self.fict_dt = 0.  # fictitious time step for fictitious mass matrix (added to velocity blk precond)
         self.isTransient = False  # if we're solving transient eq
         self.dt = None  # timestep
-        self.isPetrovGalerkin = False  # flag to includign Petrov-Galerkin stabilisation term
+        self.isPetrovGalerkin = False  # flag to including Petrov-Galerkin stabilisation term
+        self.projection_one_order_lower = None  # project high-order element to one-order lower element (used in getting
+                                                # Petrov-Galerkin residual
+        self.tau_pg = None  # tau_PG used in Petrov-Galerkin stabilisation
 
     def set_data(self,
                  vel_func_space=None,
