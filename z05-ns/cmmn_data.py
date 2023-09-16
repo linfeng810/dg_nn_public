@@ -40,9 +40,11 @@ class SfNdNb:
         self.isTransient = False  # if we're solving transient eq
         self.dt = None  # timestep
         self.isPetrovGalerkin = False  # flag to including Petrov-Galerkin stabilisation term
+        self.isPetrovGalerkinFace = False  # flag to also include PG stab on surface
         self.projection_one_order_lower = None  # project high-order element to one-order lower element (used in getting
                                                 # Petrov-Galerkin residual
-        self.tau_pg = None  # tau_PG used in Petrov-Galerkin stabilisation
+        self.nits = 0  # current non-linear step is the (nits)-th step.
+        self.its = 0  # current linear step is the (its)-th step.
 
     def set_data(self,
                  vel_func_space=None,

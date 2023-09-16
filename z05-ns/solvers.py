@@ -180,10 +180,10 @@ def gmres_mg_solver(x_i, x_rhs,
     x_dummy = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
     x_u_dummy, x_p_dummy = volume_mf_st.slicing_x_i(x_dummy)
     r0l2 = 1.
-    its = 0
+    sf_nd_nb.its = 0
     e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
     e_1[0] += 1
-    while r0l2 > tol and its < config.gmres_its:
+    while r0l2 > tol and sf_nd_nb.its < config.gmres_its:
         h_m *= 0
         v_m *= 0
         r0 *= 0
@@ -266,6 +266,7 @@ def gmres_mg_solver(x_i, x_rhs,
                 w = remove_nullspace(w, nullspace)
             h_m[j+1, j] = torch.linalg.norm(w)
             v_m[j+1, :] += w / h_m[j+1, j]
+            sf_nd_nb.its += 1
         # solve least-square problem
         q, r = torch.linalg.qr(h_m, mode='complete')  # h_m: (m+1)xm, q: (m+1)x(m+1), r: (m+1)xm
         e_1[0] = 0
@@ -284,9 +285,8 @@ def gmres_mg_solver(x_i, x_rhs,
                                u_bc=u_bc)
         # r0 = r0.view(-1)
         r0l2 = torch.linalg.norm(r0)
-        print('its=', its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
-        its += 1
-    return x_i, its
+        print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
+    return x_i, sf_nd_nb.its
 
 
 # def right_gmres_mg_solver(

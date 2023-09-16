@@ -118,3 +118,29 @@ class FuncSpace(object):
         self.nbf = torch.tensor(self.nbf, device=dev)
         self.alnmt = torch.tensor(self.alnmt, device=dev)
         self.glb_bcface_type = torch.tensor(self.glb_bcface_type, device=dev)
+        self.cell_volume = None  # to store element volume
+        self._get_cell_volume()
+
+    def _get_cell_volume(self):
+        """this is to get element volume and store in self.cell_volume"""
+        n = self.element.n
+        import shape_function
+        if self.ndim == 3:
+            _, ndetwei = shape_function.get_det_nlx_3d(
+                nlx=self.element.nlx,
+                x_loc=self.x_ref_in,
+                weight=self.element.weight,
+                nloc=self.element.nloc,
+                ngi=self.element.ngi
+            )
+        elif self.ndim == 2:
+            _, ndetwei = shape_function.get_det_nlx(
+                nlx=self.element.nlx,
+                x_loc=self.x_ref_in,
+                weight=self.element.weight,
+                nloc=self.element.nloc,
+                ngi=self.element.ngi
+            )
+        else:
+            raise Exception('function space must reside in either 3D or 2D domain')
+        self.cell_volume = torch.sum(ndetwei, dim=-1)

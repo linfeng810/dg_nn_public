@@ -28,7 +28,7 @@ tend = 10 * dt  # end time
 isTransient = True  # decide if we are doing transient simulation
 isAdvExp = False  # treat advection term explicitly
 if isTransient:
-    time_order = 3  # time discretisation order
+    time_order = 1  # time discretisation order
     print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order, 'treat adv explicitly?', isAdvExp)
 solver = 'iterative'  # 'direct' or 'iterative'
 
@@ -92,7 +92,7 @@ print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
 gmres_m = 80  # restart
-gmres_its = 5  # max GMRES steps
+gmres_its = 400  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
@@ -105,7 +105,7 @@ relax_coeff = 1.
 ####################
 # material property
 ####################
-problem = 'fpc'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'bfs'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -162,12 +162,15 @@ if True:
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
 # c.f. Burman & Hansbo CMAME 2004
 # this will make iterative solver less effective!
-isES = True
+isES = False
 gammaES = 5e-3  # stabilisation parameter
 # Petrov-Galerkin stabilisation
 isPetrovGalerkin = False
+isPetrovGalerkinFace = False
 sf_nd_nb.isPetrovGalerkin = isPetrovGalerkin
-print('is Edge stabilisation?', isES, gammaES, 'is Petrov Galerkin Stabilisation?', isPetrovGalerkin)
+sf_nd_nb.isPetrovGalerkinFace = isPetrovGalerkinFace
+print('is Edge stabilisation?', isES, gammaES,
+      'is Petrov Galerkin Stabilisation? on face?', isPetrovGalerkin, isPetrovGalerkinFace)
 
 ####################
 # discretisation settings

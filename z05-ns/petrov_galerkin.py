@@ -3,8 +3,15 @@ import numpy as np
 import config
 from config import sf_nd_nb
 
+epsilon = 1e-8  # safeguard to avoid divide by zero
+gamma = 2 ** (config.ele_p - 2)
+# gamma = 0.005
+# gamma = 0.0086  # doesnt work. doesnt make any difference.
+alpha_1 = 0.125 * gamma
+alpha_2 = 2 * gamma
 
-def get_pg_tau(u, w, v, vx, q, detwei, batch_in: int):
+
+def get_pg_tau(u, w, v, vx, cell_volume, batch_in: int):
     """
     get petrov-galerkin tau term.
 
@@ -28,11 +35,8 @@ def get_pg_tau(u, w, v, vx, q, detwei, batch_in: int):
     tau: tau_pg, to be used in the PG diffusion term
         shape (batch_in, ndim, ngi)
     """
-    epsilon = 1e-8  # safeguard to avoid divide by zero
-    gamma = 2 ** (sf_nd_nb.vel_func_space.element.ele_order - 2)
-    alpha_1 = 0.125 * gamma
-    alpha_2 = 2 * gamma
-    h = torch.sum(detwei, dim=-1)
+    h = torch.zeros(batch_in, device=config.dev, dtype=torch.float64)
+    h += cell_volume
     if config.ndim == 2:
         h = torch.sqrt(h)
     else:
@@ -86,6 +90,96 @@ def get_pg_tau(u, w, v, vx, q, detwei, batch_in: int):
         h,  # (batch_in)
         torch.reciprocal(epsilon + 1. / config.ndim * torch.sum(torch.abs(u_star), dim=-2) *
                          torch.sum(torch.square(gradu), dim=-2))  # (batch_in, ndim, ngi)
+    )
+
+    # tau_max
+    # assuming always transient
+    tau_max = h ** 2 / sf_nd_nb.dt
+    tau_max = tau_max.unsqueeze(-1).unsqueeze(-1).expand(tau_1.shape)
+
+    # eventually, tau
+    tau = torch.minimum(tau_1, torch.minimum(tau_2, tau_max)) * config.rho
+
+    return tau
+
+
+def get_pg_tau_on_face(u, w, v, vx, cell_volume, batch_in: int):
+    """
+    get petrov-galerkin tau term on element face (for surface integral).
+
+    tau = rho * min(tau_max, tau_1, tau_2}. for details, see document.
+
+    input:
+    u: field that undergoes advection-diffusion (this is velocity in NS momentum equation)
+        shape (batch_in, u_nloc, ndim)
+    w: advection velocity
+        shape (batch_in, u_nloc, ndim)
+    v, vx: velocity shape function and its derivative
+        shape (batch_in, u_nloc, sngi)
+        shape (batch_in, ndim, u_nloc, sngi)
+    cell_volume: volume of the element
+        shape (batch_in)
+    batch_in: number of elements in this batch
+
+    output:
+    tau: tau_pg, to be used in the PG diffusion term
+        shape (batch_in, ndim, sngi)
+    """
+    h = torch.zeros(batch_in, device=config.dev, dtype=torch.float64)
+    h += cell_volume
+    if config.ndim == 2:
+        h = torch.sqrt(h)
+    else:
+        h = torch.pow(h, 1. / 3.)
+
+    # first get residual (difference of gradient in high and low order representation)
+    gradu = torch.einsum(
+        'bjng,bni->bijg',
+        vx,
+        u
+    )  # du_i / dx_j
+    gradu_low = torch.einsum(
+        'mn,bjng,bni->bijg',
+        sf_nd_nb.projection_one_order_lower,  # (p_nloc, u_nloc)
+        vx,  # (batch_in, ndim, u_nloc, sngi)
+        u,  # (batch_in, u_nloc, sngi)
+    )  # low-order representation of grad u
+    w_on_quad = torch.einsum(
+        'bmj,bmg->bjg',
+        w,  # (batch_in, u_nloc, ndim)
+        v,  # (batch_in, u_nloc, sngi)
+    )
+    r = torch.einsum(
+        'bjg,bijg->big',
+        w_on_quad,  # (batch_in, ndim, sngi)
+        gradu - gradu_low,  # (batch_in, ndim, ndim, sngi)
+    )  # residual of each component on each quadrature points
+
+    # tau_1
+    tau_1 = alpha_1 * torch.einsum(
+        'big,b,big->big',  # (batch_in, ndim, sngi)
+        torch.abs(r),  # residual (batch_in, ndim, sngi)
+        h,  # ele size (batch_in)
+        torch.reciprocal(epsilon + 1./config.ndim * torch.sum(torch.abs(gradu), dim=-2)),
+            # (batch_in, ndim, sngi)
+    )
+
+    # u*
+    u_star = torch.einsum(
+        'bkg,bikg,big,bijg->bijg',
+        w_on_quad,  # (batch_in, ndim, sngi)
+        gradu,  # (batch_in, ndim, ndim, sngi)
+        torch.reciprocal(epsilon + torch.sum(torch.square(gradu), dim=-2)),  # (batch_in, ndim, sngi)
+        gradu,  # (batch_in, ndim, ndim, sngi)
+    )  # takes different value for each u component (i), u_star itself has ndim components (j)
+
+    # tau_2
+    tau_2 = alpha_2 * torch.einsum(
+        'big,b,big->big',
+        torch.square(r),  # (batch_in, ndim, sngi)
+        h,  # (batch_in)
+        torch.reciprocal(epsilon + 1. / config.ndim * torch.sum(torch.abs(u_star), dim=-2) *
+                         torch.sum(torch.square(gradu), dim=-2))  # (batch_in, ndim, sngi)
     )
 
     # tau_max

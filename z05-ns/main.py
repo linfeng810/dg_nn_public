@@ -72,6 +72,8 @@ pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev)
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
+# get cell volume
+
 
 print('nele=', nele)
 # config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
@@ -418,15 +420,13 @@ if (config.solver=='iterative') :
             r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
             its = 0  # linear solver iteration
             nr0l2 = 1  # non-linear solver residual l2 norm
-            nits = 0  # newton iteration step
+            sf_nd_nb.nits = 0  # newton iteration step
             r0 *= 0
 
             total_its = 0  # total linear iteration number / restart
 
-            while nits < config.n_its_max:
+            while sf_nd_nb.nits < config.n_its_max:
                 sf_nd_nb.Kmatinv = None
-                if sf_nd_nb.isPetrovGalerkin:
-                    sf_nd_nb.tau_pg = None
                 u_k *= 0
                 u_k += x_i_list[0].view(u_k.shape)  # non-linear velocity
                 x_rhs *= 0
@@ -447,7 +447,7 @@ if (config.solver=='iterative') :
                 )
                 nr0l2 = torch.linalg.norm(r0)  # stokes is linear prob, we will simply use linear residual as the non-linear residual
                 print('============')
-                print('nits = ', nits, 'non-linear residual = ', nr0l2.cpu().numpy())
+                print('nits = ', sf_nd_nb.nits, 'non-linear residual = ', nr0l2.cpu().numpy())
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
                     break
@@ -526,7 +526,7 @@ if (config.solver=='iterative') :
 
                 # nr0l2 = r0l2
 
-                nits += 1
+                sf_nd_nb.nits += 1
 
             # if converges,
             x_i_n *= 0

@@ -339,22 +339,17 @@ def _k_res_one_batch(
                 torch.eye(ndim, device=dev, dtype=torch.float64)
             )
             if sf_nd_nb.isPetrovGalerkin:
-                # first get tau, but only update tau at the start of one nonlinear step
-                if sf_nd_nb.tau_pg is None:
-                    tau = petrov_galerkin.get_pg_tau(
-                        u=x_i_u[idx_in, ...],
+                # get tau for petrov galerkin, but only update tau at the start of one nonlinear step
+                tau = petrov_galerkin.get_pg_tau(
+                        u=u_n[idx_in, ...],
                         w=u_n[idx_in, ...],
                         v=n,
                         vx=nx,
-                        q=q,
-                        detwei=ndetwei,
+                        cell_volume=sf_nd_nb.vel_func_space.cell_volume[idx_in],
                         batch_in=batch_in
                     )  # (batch_in, ndim, ngi)
-                    sf_nd_nb.tau_pg = tau
-                else:
-                    tau = sf_nd_nb.tau_pg
                 K += torch.einsum(
-                    'bing,big,bimg,bg,ij->bminj',
+                    'bjng,big,bjmg,bg,ik->bmink',
                     nx,  # (batch_in, ndim, u_nloc, ngi)
                     tau,  # (batch_in, ndim, ngi)
                     nx,  # (batch_in, ndim, u_nloc, ngi)
@@ -448,7 +443,7 @@ def _s_res_one_batch(
                 r0, f_b[idx_iface], E_F_b[idx_iface],
                 x_i,
                 diagK, bdiagK, batch_start_idx,
-                include_adv, u_bc,
+                include_adv, u_bc, u_n,
                 a00, a01, a10, a11
             )
     else:
@@ -592,6 +587,58 @@ def _s_res_fi(
                 sdetwei,  # (bathc_in, sngi)
                 torch.eye(ndim, device=dev, dtype=torch.float64)
             )
+            if sf_nd_nb.isPetrovGalerkinFace:
+                # get petrov galerkin diffusivity, but only update if this is the 1st non-linear step
+                tau_pg = petrov_galerkin.get_pg_tau_on_face(
+                    u=u_n[E_F_i, :, :],
+                    w=u_n[E_F_i, :, :],
+                    v=sn,
+                    vx=snx,
+                    cell_volume=sf_nd_nb.vel_func_space.cell_volume[E_F_i],
+                    batch_in=batch_in
+                )
+                tau_pg_nb = petrov_galerkin.get_pg_tau_on_face(
+                    u=u_n[E_F_inb, :, :],
+                    w=u_n[E_F_inb, :, :],
+                    v=sn_nb,
+                    vx=snx_nb,
+                    cell_volume=sf_nd_nb.vel_func_space.cell_volume[E_F_inb],
+                    batch_in=batch_in
+                )
+                tau_pg *= 0.5
+                tau_pg_nb *= 0.5
+                tau_pg += tau_pg_nb
+                # this side
+                # [v_i n_j] {du_i / dx_j tau_pg_i}  consistent term
+                K += torch.einsum(
+                    'bmg,bj,bjng,blg,bg,kl->bmknl',
+                    sn,  # (batch_in, nloc, sngi)
+                    snormal,  # (batch_in, ndim)
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
+                ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+                # {dv_i / dx_j} [u_i n_j tau_pg_i]  symmetry term
+                K += torch.einsum(
+                    'bjmg,bng,bj,blg,bg,kl->bmknl',
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    sn,  # (batch_in, nloc, sngi)
+                    snormal,  # (batch_in, ndim)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
+                ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+                # \gamma_e * [v_i][u_i]  penalty term
+                K += torch.einsum(
+                    'bmg,bng,bjg,bg,b,ij->bminj',
+                    sn,  # (batch_in, nloc, sngi)
+                    sn,  # (batch_in, nloc, sngi)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    gamma_e,  # (batch_in)
+                    torch.eye(ndim, device=dev, dtype=torch.float64),
+                )
         # update residual
         r_u[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
         # put diagonal into diagK and bdiagK
@@ -649,6 +696,38 @@ def _s_res_fi(
                 sdetwei,  # (bathc_in, sngi)
                 torch.eye(ndim, device=dev, dtype=torch.float64)
             ) * (-1.)
+            if sf_nd_nb.isPetrovGalerkinFace:
+                # other side
+                # [v_i n_j] {du_i / dx_j tau_pg_i}  consistent term
+                K += torch.einsum(
+                    'bmg,bj,bjng,blg,bg,kl->bmknl',
+                    sn,  # (batch_in, nloc, sngi)
+                    snormal,  # (batch_in, ndim)
+                    snx_nb,  # (batch_in, ndim, nloc, sngi)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64)
+                ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+                # {dv_i / dx_j} [u_i n_j tau_pg_i]  symmetry term
+                K += torch.einsum(
+                    'bjmg,bng,bj,blg,bg,kl->bmknl',
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    sn_nb,  # (batch_in, nloc, sngi)
+                    snormal_nb,  # (batch_in, ndim)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64)
+                ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+                # \gamma_e * [v_i][u_i tau_pg_i]  penalty term
+                K += torch.einsum(
+                    'bmg,bng,bjg,bg,b,ij->bminj',
+                    sn,  # (batch_in, nloc, sngi)
+                    sn_nb,  # (batch_in, nloc, sngi)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    gamma_e,  # (batch_in)
+                    torch.eye(ndim, device=dev, dtype=torch.float64),
+                ) * (-1.)  # because n2 \cdot n1 = -1
         # update residual
         r_u[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_inb)
         del K
@@ -736,7 +815,7 @@ def _s_res_fb(
         r_in, f_b, E_F_b,
         x_i_in,
         diagK, bdiagK, batch_start_idx,
-        include_ave, u_bc,
+        include_ave, u_bc, u_n,
         a00, a01, a10, a11
 ):
     """boundary faces"""
@@ -833,6 +912,46 @@ def _s_res_fb(
                 sdetwei,  # (batch_in, sngi)
                 torch.eye(ndim, device=dev, dtype=torch.float64)
             )
+            if False: #  sf_nd_nb.isPetrovGalerkinFace:
+                # get tau_pg
+                tau_pg = petrov_galerkin.get_pg_tau_on_face(
+                    u=u_n[E_F_b, ...],
+                    w=u_n[E_F_b, ...],
+                    v=sn,
+                    vx=snx,
+                    cell_volume=sf_nd_nb.vel_func_space.cell_volume[E_F_b],
+                    batch_in=batch_in,
+                )
+                # [vi nj] {du_i / dx_j}  consistent term
+                K -= torch.einsum(
+                    'bmg,bj,bjng,blg,bg,kl->bmknl',
+                    sn,  # (batch_in, nloc, sngi)
+                    snormal,  # (batch_in, ndim)
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64)
+                )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+                # {dv_i / dx_j} [ui nj]  symmetry term
+                K -= torch.einsum(
+                    'bjmg,bng,bj,blg,bg,kl->bmknl',
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    sn,  # (batch_in, nloc, sngi)
+                    snormal,  # (batch_in, ndim)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64)
+                )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+                # \gamma_e [v_i] [u_i]  penalty term
+                K += torch.einsum(
+                    'bmg,bng,bjg,bg,b,ij->bminj',
+                    sn,  # (batch_in, nloc, sngi)
+                    sn,  # (batch_in, nloc, sngi)
+                    tau_pg,  # (batch_in, ndim, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    gamma_e,  # (batch_in)
+                    torch.eye(ndim, device=dev, dtype=torch.float64)
+                )
         # update residual
         r_u[E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
         # put in diagonal
@@ -986,6 +1105,8 @@ def _s_rhs_one_batch(
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    if type(u_k) is torch.Tensor:
+        u_k = u_k.view(nele, u_nloc, ndim)
 
     # separate nbf to get internal face list and boundary face list
     F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
@@ -1034,7 +1155,7 @@ def _s_rhs_one_batch(
             rhs = _s_rhs_fb(
                 rhs,
                 f_b_d[idx_iface_d], E_F_b_d[idx_iface_d],
-                u_bc[0],
+                u_bc[0], u_k,
                 include_adv,
                 isAdvExp
             )
@@ -1144,7 +1265,7 @@ def _s_rhs_fi(
 
 def _s_rhs_fb(
         rhs_in, f_b, E_F_b,
-        u_bc,
+        u_bc, u_n,
         include_adv,
         isAdvExp
 ):
@@ -1249,6 +1370,37 @@ def _s_rhs_fb(
             torch.eye(ndim, device=dev, dtype=torch.float64),
             u_bc_th,  # (batch_in, u_nloc, ndim)
         )
+        if False:  # sf_nd_nb.isPetrovGalerkinFace:
+            # get tau_pg
+            tau_pg = petrov_galerkin.get_pg_tau_on_face(
+                u=u_n[E_F_b, ...],
+                w=u_n[E_F_b, ...],
+                v=sn,
+                vx=snx,
+                cell_volume=sf_nd_nb.vel_func_space.cell_volume[E_F_b],
+                batch_in=batch_in,
+            )
+            # 1.1 {dv_i / dx_j} [u_Di n_j tau_pg_i]
+            rhs[0][E_F_b, ...] -= torch.einsum(
+                'bjmg,bng,bj,bg,bni,big->bmi',
+                snx,  # (batch_in, ndim, u_nloc, sngi)
+                sn,  # (batch_in, u_nloc, sngi)
+                snormal,  # (batch_in, ndim)
+                sdetwei,  # (batch_in, sngi)
+                u_bc_th,  # (batch_in, u_nloc, ndim)
+                tau_pg,  # (batch_in, ndim, sngi)
+            )
+
+            # 1.2 \gamma_e [u_Di tau_pg_i] [v_i]
+            rhs[0][E_F_b, ...] += torch.einsum(
+                'b,bmg,bng,bg,bni,big->bmi',
+                gamma_e,  # (batch_in)
+                sn,  # (batch_in, u_nloc, sngi)
+                sn,
+                sdetwei,  # (batch_in, sngi)
+                u_bc_th,  # (batch_in, u_nloc, ndim)
+                tau_pg,  # (batch_in, ndim, sngi)
+            )
 
     return rhs_in
 
