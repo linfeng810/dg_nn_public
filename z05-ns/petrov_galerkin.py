@@ -2,13 +2,20 @@ import torch
 import numpy as np
 import config
 from config import sf_nd_nb
+if config.ndim == 2:
+    from shape_function import get_det_nlx as get_det_nlx
+    from shape_function import sdet_snlx as sdet_snlx
+else:
+    from shape_function import get_det_nlx_3d as get_det_nlx
+    from shape_function import sdet_snlx_3d as sdet_snlx
 
 epsilon = 1e-8  # safeguard to avoid divide by zero
-gamma = 2 ** (config.ele_p - 2)
+gamma = 2 ** (config.ele_p - 2) * 0.001
 # gamma = 0.005
 # gamma = 0.0086  # doesnt work. doesnt make any difference.
 alpha_1 = 0.125 * gamma
 alpha_2 = 2 * gamma
+print('===== PG gamma is %f =====' % (gamma))
 
 
 def get_pg_tau(u, w, v, vx, cell_volume, batch_in: int):
@@ -250,3 +257,29 @@ def get_projection_one_order_lower(k, ndim):
         else:
             raise ValueError('cannot find projection from %d- to %d- order element' % (k, k-1))
     return p
+
+
+def get_ave_vel(u):
+    """
+    get element-wise volume-averaged velocity
+    """
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    u = u.view(config.nele, u_nloc, config.ndim)
+    n = sf_nd_nb.vel_func_space.element.n
+    _, ndetwei = get_det_nlx(
+        nlx=sf_nd_nb.vel_func_space.element.nlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
+        weight=sf_nd_nb.vel_func_space.element.weight,
+        nloc=u_nloc,
+        ngi=sf_nd_nb.vel_func_space.element.ngi
+    )
+    cell_vol = sf_nd_nb.vel_func_space.cell_volume
+
+    u_ave = torch.einsum(
+        'ng,bni,bg,b->bi',
+        n,  # (batch_in, u_nloc, ngi)
+        u,  # (batch_in, u_nloc, ndim)
+        ndetwei,  # (batch_in, ngi)
+        torch.reciprocal(cell_vol),  # (batch_in)
+    )
+    return u_ave

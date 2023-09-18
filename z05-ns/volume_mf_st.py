@@ -356,6 +356,20 @@ def _k_res_one_batch(
                     ndetwei,  # (batch_in, ngi)
                     torch.eye(ndim, device=dev, dtype=torch.float64)
                 )
+            elif config.isGradDivStab:
+                # get tau for grad-div stabilisation
+                u_ave = sf_nd_nb.u_ave[idx_in, :]
+                u_ave_abs = torch.sqrt(torch.sum(torch.square(u_ave), dim=-1))  # (batch_in)
+                h = torch.pow(sf_nd_nb.vel_func_space.cell_volume[idx_in], 1./config.ndim)  # characteristic element len
+                tau = config.zeta * u_ave_abs * h / (sf_nd_nb.vel_func_space.element.ele_order + 1)  # (batch_in)
+                K += torch.einsum(
+                    'bing,b,bjmg,bg->bminj',
+                    nx,  # (batch_in, ndim, u_nloc, ngi)
+                    tau,  # (batch_in)
+                    nx,  # (batch_in, ndim, u_nloc, ngi)
+                    ndetwei,  # (batch_in, ngi)
+                    # torch.eye(ndim, device=dev, dtype=torch.float64)
+                )
         # update residual of velocity block K
         r0_u[idx_in, ...] -= torch.einsum('bminj,bnj->bmi', K, x_i_u[idx_in, ...])
         # get diagonal of velocity block K
@@ -639,6 +653,21 @@ def _s_res_fi(
                     gamma_e,  # (batch_in)
                     torch.eye(ndim, device=dev, dtype=torch.float64),
                 )
+            # elif config.isGradDivStab:
+            #     u_ave_th = sf_nd_nb.u_ave[E_F_i, :]
+            #     u_ave_nb = sf_nd_nb.u_ave[E_F_inb, :]
+            #     u_ave_abs_th = torch.sqrt(torch.sum(torch.square(u_ave_th), dim=-1))  # (batch_in)
+            #     u_ave_abs_nb = torch.sqrt(torch.sum(torch.square(u_ave_nb), dim=-1))  # (batch_in)
+            #     tau = 0.5 * config.zeta * (u_ave_abs_th + u_ave_abs_nb)  # (batch_in)
+            #     K += torch.einsum(
+            #         'bmg,bi,bng,bj,b,bg->bminj',
+            #         sn,  # (batch_in, nloc, sngi)
+            #         snormal,  # (batch_in, ndim)
+            #         sn,
+            #         snormal,
+            #         tau,
+            #         sdetwei,  # (batch_in, sngi)
+            #     )
         # update residual
         r_u[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_ith)
         # put diagonal into diagK and bdiagK
@@ -728,6 +757,16 @@ def _s_res_fi(
                     gamma_e,  # (batch_in)
                     torch.eye(ndim, device=dev, dtype=torch.float64),
                 ) * (-1.)  # because n2 \cdot n1 = -1
+            # elif config.isGradDivStab:
+            #     K += torch.einsum(
+            #         'bmg,bi,bng,bj,b,bg->bminj',
+            #         sn,  # (batch_in, nloc, sngi)
+            #         snormal,  # (batch_in, ndim)
+            #         sn_nb,
+            #         snormal_nb,
+            #         tau,
+            #         sdetwei,  # (batch_in, sngi)
+            #     )
         # update residual
         r_u[E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', K, u_inb)
         del K
@@ -912,7 +951,7 @@ def _s_res_fb(
                 sdetwei,  # (batch_in, sngi)
                 torch.eye(ndim, device=dev, dtype=torch.float64)
             )
-            if False: #  sf_nd_nb.isPetrovGalerkinFace:
+            if sf_nd_nb.isPetrovGalerkinFace:
                 # get tau_pg
                 tau_pg = petrov_galerkin.get_pg_tau_on_face(
                     u=u_n[E_F_b, ...],
@@ -1370,7 +1409,7 @@ def _s_rhs_fb(
             torch.eye(ndim, device=dev, dtype=torch.float64),
             u_bc_th,  # (batch_in, u_nloc, ndim)
         )
-        if False:  # sf_nd_nb.isPetrovGalerkinFace:
+        if sf_nd_nb.isPetrovGalerkinFace:
             # get tau_pg
             tau_pg = petrov_galerkin.get_pg_tau_on_face(
                 u=u_n[E_F_b, ...],

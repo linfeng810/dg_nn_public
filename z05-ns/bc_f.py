@@ -631,8 +631,9 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                 y = x_inod[1]
                 if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
                     u_bc[0][inod // nloc, inod % nloc, 0] = \
-                        u_m * 4 * y * (0.41 - y) / 0.41**2 * torch.sin(
-                            torch.tensor(torch.pi * t / T, device=dev, dtype=torch.float64))
+                        u_m * 4 * y * (0.41 - y) / 0.41**2
+                        # * torch.sin(
+                        #     torch.tensor(torch.pi * t / T, device=dev, dtype=torch.float64))
                 else:
                     u_bc[0][inod // nloc, inod % nloc, 0] = 0
                 u_bc[0][inod // nloc, inod % nloc, 1] = 0

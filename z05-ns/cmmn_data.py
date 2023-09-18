@@ -45,6 +45,7 @@ class SfNdNb:
                                                 # Petrov-Galerkin residual
         self.nits = 0  # current non-linear step is the (nits)-th step.
         self.its = 0  # current linear step is the (its)-th step.
+        self.u_ave = None  # volume-averaged velocity (nele, ndim)
 
     def set_data(self,
                  vel_func_space=None,
@@ -60,6 +61,7 @@ class SfNdNb:
                  indices_st=None,
                  values_st=None,
                  bdfscm=None,
+                 u_ave=None,  # volume averaged velocity (nele, ndim)
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -89,6 +91,8 @@ class SfNdNb:
             self.values_st = values_st
         if bdfscm is not None:
             self.bdfscm = bdfscm
+        if u_ave is not None:
+            self.u_ave = u_ave
 
 
 class SFCdata:

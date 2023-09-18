@@ -24,11 +24,11 @@ dt = 1  # timestep
 if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
-tend = 10 * dt  # end time
+tend = 1 * dt  # end time
 isTransient = True  # decide if we are doing transient simulation
 isAdvExp = False  # treat advection term explicitly
 if isTransient:
-    time_order = 1  # time discretisation order
+    time_order = 3  # time discretisation order
     print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order, 'treat adv explicitly?', isAdvExp)
 solver = 'iterative'  # 'direct' or 'iterative'
 
@@ -39,15 +39,16 @@ filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
 filename='z32-square-mesh/square_poiseuille_r2.msh'
 # filename = 'z32-square-mesh/square.msh'
 filename = 'z34-bfs/bfs.msh'
+filename = 'z33-fpc/fpc.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
 #     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
-use_fict_dt_in_vel_precond = False
+use_fict_dt_in_vel_precond = True
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
-sf_nd_nb.fict_dt = 0.0625  # coefficient multiply to mass matrix add to vel blk precond
+sf_nd_nb.fict_dt = 0.0025  # coefficient multiply to mass matrix add to vel blk precond
 print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
       sf_nd_nb.use_fict_dt_in_vel_precond,
       'coeff', sf_nd_nb.fict_dt)
@@ -99,13 +100,13 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
 
 # non-linear iteration parameters
 n_its_max = 15
-n_tol = 1.e-7
+n_tol = 1.e-6
 relax_coeff = 1.
 
 ####################
 # material property
 ####################
-problem = 'bfs'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'fpc'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -152,13 +153,14 @@ if True:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
 
-    initialCondition = 1  # 1. use zero as initial condition
+    initialCondition = 2  # 1. use zero as initial condition
     # 2. solve steady stokes as initial condition
     # 3. to use a precalculated fields (u and p) in a file as initial condition
     if initialCondition == 3:
         initDataFile = 'Re109_t20.00.pt'
         print('use this data file as initial condition: '+initDataFile)
 
+# === all kinds of stabilisation for convection-dominant flow ===
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
 # c.f. Burman & Hansbo CMAME 2004
 # this will make iterative solver less effective!
@@ -169,8 +171,12 @@ isPetrovGalerkin = False
 isPetrovGalerkinFace = False
 sf_nd_nb.isPetrovGalerkin = isPetrovGalerkin
 sf_nd_nb.isPetrovGalerkinFace = isPetrovGalerkinFace
+# grad-div stab + interior penalty stab (see Niklas Fehn 2021 TUM PhD thesis pp 50-51)
+isGradDivStab = False
+zeta = 1.  # stab coefficient
 print('is Edge stabilisation?', isES, gammaES,
-      'is Petrov Galerkin Stabilisation? on face?', isPetrovGalerkin, isPetrovGalerkinFace)
+      '\nis Petrov Galerkin Stabilisation? on face?', isPetrovGalerkin, isPetrovGalerkinFace,
+      '\nis grad-div stabilisation? coefficient is', isGradDivStab, zeta)
 
 ####################
 # discretisation settings

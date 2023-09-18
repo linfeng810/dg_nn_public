@@ -413,6 +413,10 @@ if (config.solver=='iterative') :
                 prob=config.problem,
                 t=t
             )
+            # if use grad-div stabilisation, get elementwise volume-averaged velocity here
+            if config.isGradDivStab:
+                u_ave = petrov_galerkin.get_ave_vel(u_n)
+                sf_nd_nb.set_data(u_ave=u_ave)
 
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
