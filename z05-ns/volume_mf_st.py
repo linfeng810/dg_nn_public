@@ -568,18 +568,19 @@ def _s_res_fi(
             torch.eye(ndim, device=dev, dtype=torch.float64),
         )
         K *= config.mu
-        # Edge stabilisation (vel gradient penalty term)
-        if config.isES:
-            # \gamma_e h^2 [v_i / x_j] [u_i / x_j]
-            K += torch.einsum(
-                'b,bjmg,bjng,bg,kl->bmknl',
-                config.gammaES * h**2,  # (batch_in)
-                snx,  # (batch_in, ndim, nloc, sngi)
-                snx,  # (batch_in, ndim, nloc, sngi)
-                sdetwei,  # (batch_in, sngi)
-                torch.eye(ndim, device=dev, dtype=torch.float64),
-            ) * (.5)
         if include_adv:
+            # Edge stabilisation (vel gradient penalty term)
+            if sf_nd_nb.isES:
+                u_ave = 0.5 * (sf_nd_nb.u_ave[E_F_i] + sf_nd_nb.u_ave[E_F_inb])  # (batch_in)
+                # \gamma_e h^2 [v_i / x_j] [u_i / x_j]
+                K += torch.einsum(
+                    'b,bjmg,bjng,bg,kl->bmknl',
+                    config.gammaES * h**2 * u_ave,  # (batch_in)
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64),
+                ) * (.5)
             # get upwind vel
             wknk_ave = torch.einsum(
                 'bmg,bmi,bi->bg',
@@ -705,18 +706,18 @@ def _s_res_fi(
             torch.eye(ndim, device=dev, dtype=torch.float64),
         ) * (-1.)  # because n2 \cdot n1 = -1
         K *= config.mu
-        # Edge stabilisation (vel gradient penalty term)
-        if config.isES:
-            # \gamma_e h^2 [v_i / x_j] [u_i / x_j]
-            K += torch.einsum(
-                'b,bjmg,bjng,bg,kl->bmknl',
-                config.gammaES * h ** 2,  # (batch_in)
-                snx,  # (batch_in, ndim, nloc, sngi)
-                snx_nb,  # (batch_in, ndim, nloc, sngi)
-                sdetwei,  # (batch_in, sngi)
-                torch.eye(ndim, device=dev, dtype=torch.float64),
-            ) * (-.5)
         if include_adv:
+            # Edge stabilisation (vel gradient penalty term)
+            if sf_nd_nb.isES:
+                # \gamma_e h^2 [v_i / x_j] [u_i / x_j]
+                K += torch.einsum(
+                    'b,bjmg,bjng,bg,kl->bmknl',
+                    config.gammaES * h ** 2 * u_ave,  # (batch_in)
+                    snx,  # (batch_in, ndim, nloc, sngi)
+                    snx_nb,  # (batch_in, ndim, nloc, sngi)
+                    sdetwei,  # (batch_in, sngi)
+                    torch.eye(ndim, device=dev, dtype=torch.float64),
+                ) * (-.5)
             K += -torch.einsum(
                 'bg,bmg,bng,bg,ij->bminj',
                 wknk_upwd,  # (batch_in, sngi)

@@ -259,6 +259,7 @@ if (config.solver=='iterative') :
             print('going to solve steady stokes problem as initial condition')
             sf_nd_nb.isTransient = False  # temporarily omit transient terms
             sf_nd_nb.use_fict_dt_in_vel_precond = False
+            sf_nd_nb.isES = False
             x_i *= 0
             x_i += x_i_n  # use last timestep p as start value
             r0 *= 0
@@ -308,6 +309,7 @@ if (config.solver=='iterative') :
 
             sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
             sf_nd_nb.use_fict_dt_in_vel_precond = config.use_fict_dt_in_vel_precond
+            sf_nd_nb.isES = config.isES
 
         elif config.initialCondition == 1:
             x_i_n *= 0
@@ -347,6 +349,7 @@ if (config.solver=='iterative') :
             )
 
         for itime in range(1, tstep):  # time loop
+            sf_nd_nb.ntime = itime
             # for the starting steps, use 1st, 2nd then 3rd order BDF.
             if False and itime < config.time_order:  # has analytical soln
                 print('itime = ', itime, 'getting ana soln...')
@@ -413,8 +416,8 @@ if (config.solver=='iterative') :
                 prob=config.problem,
                 t=t
             )
-            # if use grad-div stabilisation, get elementwise volume-averaged velocity here
-            if config.isGradDivStab:
+            # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
+            if config.isGradDivStab or sf_nd_nb.isES:
                 u_ave = petrov_galerkin.get_ave_vel(u_n)
                 sf_nd_nb.set_data(u_ave=u_ave)
 
@@ -439,7 +442,8 @@ if (config.solver=='iterative') :
                     include_adv=config.include_adv,
                     u_n=alpha_u_n,  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
                     isAdvExp=config.isAdvExp,  # whether to treat advection explicity
-                    u_k=alpha_u_n,  # non-lienar velocity
+                    u_k=u_k,  # non-lienar velocity
+                    # u_k=alpha_u_n,  # non-lienar velocity
                 )
                 # get non-linear residual
                 r0 *= 0

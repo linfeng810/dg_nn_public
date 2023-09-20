@@ -45,7 +45,9 @@ class SfNdNb:
                                                 # Petrov-Galerkin residual
         self.nits = 0  # current non-linear step is the (nits)-th step.
         self.its = 0  # current linear step is the (its)-th step.
+        self.ntime = 0  # current number of timestep
         self.u_ave = None  # volume-averaged velocity (nele, ndim)
+        self.isES = False  # edge-stabilisation or not
 
     def set_data(self,
                  vel_func_space=None,

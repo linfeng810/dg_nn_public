@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import config
 from config import sf_nd_nb
+import output
 if config.ndim == 2:
     from shape_function import get_det_nlx as get_det_nlx
     from shape_function import sdet_snlx as sdet_snlx
@@ -10,7 +11,7 @@ else:
     from shape_function import sdet_snlx_3d as sdet_snlx
 
 epsilon = 1e-8  # safeguard to avoid divide by zero
-gamma = 2 ** (config.ele_p - 2) * 0.001
+gamma = 2 ** (config.ele_p - 2) * 0.2
 # gamma = 0.005
 # gamma = 0.0086  # doesnt work. doesnt make any difference.
 alpha_1 = 0.125 * gamma
@@ -106,6 +107,28 @@ def get_pg_tau(u, w, v, vx, cell_volume, batch_in: int):
 
     # eventually, tau
     tau = torch.minimum(tau_1, torch.minimum(tau_2, tau_max)) * config.rho
+
+    debug = False
+    if debug:
+        # # output tau
+        # tau_on_node = torch.linalg.lstsq(
+        #     torch.transpose(v, dim0=0, dim1=1).unsqueeze(0).expand(tau.shape[0], v.shape[1], v.shape[0]),  # (ngi, u_nloc)
+        #     torch.transpose(tau, dim0=1, dim1=2),  # (nele, ngi, ndim)
+        # )
+        # # output to vtk
+        # vtk = output.File('tau_pg_v%d.vtu' % sf_nd_nb.nits)
+        # vtk.write_vector(tau_on_node[0].contiguous(), 'tau_pg', sf_nd_nb.vel_func_space)
+        # vtk.write_end()
+        if sf_nd_nb.its == 0:
+
+            # output value on gi points to csv file
+            from debug_out_field_on_gi import write_gi_data_to_csv
+            write_gi_data_to_csv(tau, sf_nd_nb.vel_func_space.element.ngi,
+                                 sf_nd_nb.vel_func_space,
+                                 'tau_pg_v_%d_%d.csv' % (sf_nd_nb.dt, sf_nd_nb.nits))
+            write_gi_data_to_csv(r, sf_nd_nb.vel_func_space.element.ngi,
+                                 sf_nd_nb.vel_func_space,
+                                 'res_pg_v_%d_%d.csv' % (sf_nd_nb.dt, sf_nd_nb.nits))
 
     return tau
 
@@ -261,7 +284,7 @@ def get_projection_one_order_lower(k, ndim):
 
 def get_ave_vel(u):
     """
-    get element-wise volume-averaged velocity
+    get element-wise volume-averaged velocity magnitude
     """
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     u = u.view(config.nele, u_nloc, config.ndim)
@@ -282,4 +305,5 @@ def get_ave_vel(u):
         ndetwei,  # (batch_in, ngi)
         torch.reciprocal(cell_vol),  # (batch_in)
     )
+    u_ave = torch.sqrt(torch.sum(torch.square(u_ave), dim=1))
     return u_ave

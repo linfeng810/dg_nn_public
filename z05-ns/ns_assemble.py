@@ -235,7 +235,7 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
                                              sdetwei[ele, iface, :]) * mu_e
                                 # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                                 indices.append([glb_inod, glb_jnod])
-                                values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * config.isES)
+                                values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
                             # G
                             for jnod in range(p_nloc):
                                 glb_jnod = nele * u_nloc * ndim + ele * p_nloc + jnod
@@ -269,7 +269,7 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
                                              sdetwei[ele, iface, :]) * mu_e * (-1.)
                                 # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
                                 indices.append([glb_inod, glb_jnod2])
-                                values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * config.isES)
+                                values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
                             # G
                             for jnod2 in range(p_nloc):
                                 glb_jnod2 = nele * u_nloc * ndim + ele2 * p_nloc + jnod2
@@ -759,7 +759,7 @@ def pressure_laplacian_assemble(indices, values):
                                          sdetwei[ele, iface, :]) * mu_e
                             # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
-                            values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * config.isES)
+                            values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
 
                         # other side
                         # K
@@ -784,6 +784,6 @@ def pressure_laplacian_assemble(indices, values):
                                          sdetwei[ele, iface, :]) * mu_e * (-1.)
                             # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
                             indices.append([glb_inod, glb_jnod2])
-                            values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * config.isES)
+                            values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
 
     return indices, values

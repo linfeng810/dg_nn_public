@@ -164,8 +164,9 @@ if True:
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
 # c.f. Burman & Hansbo CMAME 2004
 # this will make iterative solver less effective!
-isES = False
-gammaES = 5e-3  # stabilisation parameter
+isES = True
+gammaES = 0.01  # stabilisation parameter
+sf_nd_nb.isES = isES
 # Petrov-Galerkin stabilisation
 isPetrovGalerkin = False
 isPetrovGalerkinFace = False
