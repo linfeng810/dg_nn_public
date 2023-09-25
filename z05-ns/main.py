@@ -349,6 +349,7 @@ if (config.solver=='iterative') :
             )
 
         for itime in range(1, tstep):  # time loop
+            wall_time_start = time.time()
             sf_nd_nb.ntime = itime
             # for the starting steps, use 1st, 2nd then 3rd order BDF.
             if False and itime < config.time_order:  # has analytical soln
@@ -580,6 +581,8 @@ if (config.solver=='iterative') :
                   'velocity ', u_linf, '\n',
                   'pressure ', p_linf)
             # print('total its / restart ', total_its)
+
+            print('wall time on this timestep: ', time.time() - wall_time_start)
 
     np.savetxt('r0l2all.txt', np.asarray(r0l2all), delimiter=',')
 
