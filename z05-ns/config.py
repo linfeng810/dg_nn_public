@@ -45,6 +45,7 @@ if args.filename is not None:
 # if len(sys.argv) > 1:
 #     filename = sys.argv[1]
 mesh = meshio.read(filename) # mesh object
+isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
 use_fict_dt_in_vel_precond = True
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner

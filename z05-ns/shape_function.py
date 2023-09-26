@@ -1501,10 +1501,8 @@ class det_nlx(Module):
         # print(torch.cuda.memory_summary())
         return nx, det
 
-# local shape function at surface(s)
-# can pass in multiple elements in a batch
-# 
-def sdet_snlx(snlx, x_loc, sweight, nloc, sngi):
+
+def sdet_snlx(snlx, x_loc, sweight, nloc, sngi, sn=None):
     """
     # local shape function on element face
     can pass in multiple elements in a batch
@@ -1551,7 +1549,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc, sngi):
     x = x_loc[:,0,:].view(batch_in,1,nloc)
     y = x_loc[:,1,:].view(batch_in,1,nloc)
 
-    snlx = torch.tensor(snlx, device=dev)
+    # snlx = torch.tensor(snlx, device=dev)
     # print('x',x,'\ny',y)
     # print(torch.cuda.memory_summary())
     # first we calculate jacobian matrix (J^T) = [j11,j12;
@@ -1617,44 +1615,72 @@ def sdet_snlx(snlx, x_loc, sweight, nloc, sngi):
     del invj21 
     del invj22 
 
-    snx = torch.stack((snx1,snx2),dim=1)
-    
-    # now we calculate surface det
-    # IMPORTANT: we are assuming straight edges
-    sdet = torch.zeros(batch_in,nface,device=dev, dtype=torch.float64)
-    sdet[:,0] = torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1) # # face 0, local node 0 and 1
-    sdet[:,1] = torch.linalg.vector_norm(x_loc[:,:,1]-x_loc[:,:,2], dim=1) # # face 1, local node 1 and 2
-    sdet[:,2] = torch.linalg.vector_norm(x_loc[:,:,2]-x_loc[:,:,0], dim=1) # # face 2, local node 2 and 0
-    # print(x_loc)
-    # print(x_loc[:,:,0]-x_loc[:,:,1])
-    # print(torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1))
-    # print(sdet)
-    
-    # # face 1, local node 1 and 2
-    # sdetwei
-    sdetwei = torch.mul(sdet.unsqueeze(-1).expand(batch_in,nface,sngi), \
-        torch.tensor(sweight, device=dev).unsqueeze(0).unsqueeze(1).expand(batch_in,nface,sngi)) # sdetwei
-
-    # surface normal
-    snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=torch.float64)
-    # face 0 
-    iface = 0
-    idim = 0; snormal[:,iface,idim] = y[:,0,1] - y[:,0,0]
-    idim = 1; snormal[:,iface,idim] = x[:,0,0] - x[:,0,1]
-    # face 1
-    iface = 1
-    idim = 0; snormal[:,iface,idim] = y[:,0,2] - y[:,0,1]
-    idim = 1; snormal[:,iface,idim] = x[:,0,1] - x[:,0,2]
-    # face 3
-    iface = 2
-    idim = 0; snormal[:,iface,idim] = y[:,0,0] - y[:,0,2]
-    idim = 1; snormal[:,iface,idim] = x[:,0,2] - x[:,0,0]
-    # normalise
-    snormal = snormal/sdet.unsqueeze(-1).expand(batch_in,nface,ndim)
-
+    snx = torch.stack((snx1,snx2), dim=1)
     ## permute dimensions
     snx = torch.permute(snx, (4,0,1,2,3)) # (batch_in, nface, ndim, nloc, sngi)
     snx = snx.contiguous() # change memory storage so that we can view it in the future.
+
+    if not config.isoparametric:
+        # now we calculate surface det
+        # IMPORTANT: we are assuming straight edges
+        sdet = torch.zeros(batch_in,nface,device=dev, dtype=torch.float64)
+        sdet[:,0] = torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1) # # face 0, local node 0 and 1
+        sdet[:,1] = torch.linalg.vector_norm(x_loc[:,:,1]-x_loc[:,:,2], dim=1) # # face 1, local node 1 and 2
+        sdet[:,2] = torch.linalg.vector_norm(x_loc[:,:,2]-x_loc[:,:,0], dim=1) # # face 2, local node 2 and 0
+        # print(x_loc)
+        # print(x_loc[:,:,0]-x_loc[:,:,1])
+        # print(torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1))
+        # print(sdet)
+
+        # # face 1, local node 1 and 2
+        # sdetwei
+        sdetwei = torch.mul(sdet.unsqueeze(-1).expand(batch_in,nface,sngi), \
+            torch.tensor(sweight, device=dev).unsqueeze(0).unsqueeze(1).expand(batch_in,nface,sngi)) # sdetwei
+
+        # surface normal
+        snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=torch.float64)
+        # face 0
+        iface = 0
+        idim = 0; snormal[:,iface,idim] = y[:,0,1] - y[:,0,0]
+        idim = 1; snormal[:,iface,idim] = x[:,0,0] - x[:,0,1]
+        # face 1
+        iface = 1
+        idim = 0; snormal[:,iface,idim] = y[:,0,2] - y[:,0,1]
+        idim = 1; snormal[:,iface,idim] = x[:,0,1] - x[:,0,2]
+        # face 3
+        iface = 2
+        idim = 0; snormal[:,iface,idim] = y[:,0,0] - y[:,0,2]
+        idim = 1; snormal[:,iface,idim] = x[:,0,2] - x[:,0,0]
+        # normalise
+        snormal = snormal/sdet.unsqueeze(-1).expand(batch_in,nface,ndim)
+    else:  # iso-parametric geometry
+        deta_dlam = torch.tensor(
+            [[-1., 1. ],
+             [0,   -1.],
+             [1.,  0. ]],
+            device=dev, dtype=torch.float64
+        )
+        # surface det (det on line)
+        ddu = torch.einsum(
+            'fjng,bin,fn,fj->bfig',  # (nele, nface, ndim, sngi)
+            snlx,  # (nface, ndim, nloc, sngi)
+            x_loc,  # (nele, ndim, nloc)
+            sn.sum(-1) != 0,  # a mask to select nodes on face (nface, nloc)
+            deta_dlam,  # (nface, ndim)
+        )
+        abs_ddu = torch.linalg.vector_norm(ddu, dim=-2)  # (nele, nface, sngi)
+        sdetwei = torch.einsum(
+            'bfg,g->bfg',  # (nele, nface, sngi)
+            abs_ddu,  # (nele, nface, sngi)
+            sweight,  # (sngi)
+        )
+        # surface normal
+        snormal = torch.einsum(
+            'bfig,bfg,ij->bfjg',
+            ddu,
+            1./abs_ddu,
+            torch.tensor([[0,-1],[1,0]], device=dev, dtype=torch.float64)
+        )
     
     # print(snx.shape, sdetwei.shape)
 
@@ -1838,7 +1864,7 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc, ngi):
     return nx, detwei
 
 
-def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi):
+def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi, sn=None):
     """
     # local shape function on element face
     can pass in multiple elements in a batch
@@ -1919,53 +1945,86 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi):
                        invj,
                        snlx)
 
-    # now we calculate surface det
-    # IMPORTANT: we are assuming straight edges
-    sdet = torch.zeros(batch_in, nface, device=dev, dtype=torch.float64)
-    # face 0 node 2-1-3
-    sdet[:, 0] = torch.linalg.vector_norm(torch.linalg.cross(
-        x_loc[..., 1] - x_loc[..., 2], x_loc[..., 3] - x_loc[..., 2]
-    ), dim=1)
-    # face 1 node 0-2-3
-    sdet[:, 1] = torch.linalg.vector_norm(torch.linalg.cross(
-        x_loc[..., 2] - x_loc[..., 0], x_loc[..., 3] - x_loc[..., 0]
-    ), dim=1)
-    # face 2 node 1-0-3
-    sdet[:, 2] = torch.linalg.vector_norm(torch.linalg.cross(
-        x_loc[..., 0] - x_loc[..., 1], x_loc[..., 3] - x_loc[..., 1]
-    ), dim=1)
-    # face 3 node 0-1-2
-    sdet[:, 3] = torch.linalg.vector_norm(torch.linalg.cross(
-        x_loc[..., 1] - x_loc[..., 0], x_loc[..., 2] - x_loc[..., 0]
-    ), dim=1)
-    # sdet = torch.zeros(batch_in, nface, device=dev, dtype=torch.float64)
-    # sdet[:, 0] = torch.linalg.vector_norm(x_loc[:, :, 0] - x_loc[:, :, 1], dim=1)  # # face 0, local node 0 and 1
-    # sdet[:, 1] = torch.linalg.vector_norm(x_loc[:, :, 1] - x_loc[:, :, 2], dim=1)  # # face 1, local node 1 and 2
-    # sdet[:, 2] = torch.linalg.vector_norm(x_loc[:, :, 2] - x_loc[:, :, 0], dim=1)  # # face 2, local node 2 and 0
+    if not config.isoparametric:
+        # now we calculate surface det
+        # IMPORTANT: we are assuming straight edges
+        sdet = torch.zeros(batch_in, nface, device=dev, dtype=torch.float64)
+        # face 0 node 2-1-3
+        sdet[:, 0] = torch.linalg.vector_norm(torch.linalg.cross(
+            x_loc[..., 1] - x_loc[..., 2], x_loc[..., 3] - x_loc[..., 2]
+        ), dim=1)
+        # face 1 node 0-2-3
+        sdet[:, 1] = torch.linalg.vector_norm(torch.linalg.cross(
+            x_loc[..., 2] - x_loc[..., 0], x_loc[..., 3] - x_loc[..., 0]
+        ), dim=1)
+        # face 2 node 1-0-3
+        sdet[:, 2] = torch.linalg.vector_norm(torch.linalg.cross(
+            x_loc[..., 0] - x_loc[..., 1], x_loc[..., 3] - x_loc[..., 1]
+        ), dim=1)
+        # face 3 node 0-1-2
+        sdet[:, 3] = torch.linalg.vector_norm(torch.linalg.cross(
+            x_loc[..., 1] - x_loc[..., 0], x_loc[..., 2] - x_loc[..., 0]
+        ), dim=1)
+        # sdet = torch.zeros(batch_in, nface, device=dev, dtype=torch.float64)
+        # sdet[:, 0] = torch.linalg.vector_norm(x_loc[:, :, 0] - x_loc[:, :, 1], dim=1)  # # face 0, local node 0 and 1
+        # sdet[:, 1] = torch.linalg.vector_norm(x_loc[:, :, 1] - x_loc[:, :, 2], dim=1)  # # face 1, local node 1 and 2
+        # sdet[:, 2] = torch.linalg.vector_norm(x_loc[:, :, 2] - x_loc[:, :, 0], dim=1)  # # face 2, local node 2 and 0
 
-    # # face 1, local node 1 and 2
-    # sdetwei
-    # sdetwei = torch.mul(sdet.unsqueeze(-1).expand(batch_in, nface, sngi), \
-    #                     torch.tensor(sweight, device=dev).unsqueeze(0).unsqueeze(1).expand(batch_in, nface,
-    #                                                                                        sngi))  # sdetwei
-    sdetwei = torch.einsum('bf,g->bfg', sdet, sweight)
-    # surface normal
-    snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=torch.float64)
-    # face 0 node 2-1-3
-    snormal[:, 0, :] = torch.linalg.cross(
-        x_loc[..., 1] - x_loc[..., 2], x_loc[..., 3] - x_loc[..., 2]
-    ) / sdet[:, 0].view(batch_in, 1)
-    # face 1 node 0-2-3
-    snormal[:, 1, :] = torch.linalg.cross(
-        x_loc[..., 2] - x_loc[..., 0], x_loc[..., 3] - x_loc[..., 0]
-    ) / sdet[:, 1].view(batch_in, 1)
-    # face 2 node 1-0-3
-    snormal[:, 2, :] = torch.linalg.cross(
-        x_loc[..., 0] - x_loc[..., 1], x_loc[..., 3] - x_loc[..., 1]
-    ) / sdet[:, 2].view(batch_in, 1)
-    # face 3 node 0-1-2
-    snormal[:, 3, :] = torch.linalg.cross(
-        x_loc[..., 1] - x_loc[..., 0], x_loc[..., 2] - x_loc[..., 0]
-    ) / sdet[:, 3].view(batch_in, 1)
+        # # face 1, local node 1 and 2
+        # sdetwei
+        # sdetwei = torch.mul(sdet.unsqueeze(-1).expand(batch_in, nface, sngi), \
+        #                     torch.tensor(sweight, device=dev).unsqueeze(0).unsqueeze(1).expand(batch_in, nface,
+        #                                                                                        sngi))  # sdetwei
+        sdetwei = torch.einsum('bf,g->bfg', sdet, sweight)
+        # surface normal
+        snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=torch.float64)
+        # face 0 node 2-1-3
+        snormal[:, 0, :] = torch.linalg.cross(
+            x_loc[..., 1] - x_loc[..., 2], x_loc[..., 3] - x_loc[..., 2]
+        ) / sdet[:, 0].view(batch_in, 1)
+        # face 1 node 0-2-3
+        snormal[:, 1, :] = torch.linalg.cross(
+            x_loc[..., 2] - x_loc[..., 0], x_loc[..., 3] - x_loc[..., 0]
+        ) / sdet[:, 1].view(batch_in, 1)
+        # face 2 node 1-0-3
+        snormal[:, 2, :] = torch.linalg.cross(
+            x_loc[..., 0] - x_loc[..., 1], x_loc[..., 3] - x_loc[..., 1]
+        ) / sdet[:, 2].view(batch_in, 1)
+        # face 3 node 0-1-2
+        snormal[:, 3, :] = torch.linalg.cross(
+            x_loc[..., 1] - x_loc[..., 0], x_loc[..., 2] - x_loc[..., 0]
+        ) / sdet[:, 3].view(batch_in, 1)
+    else:  # iso-parametric geometry
+        # get detwei
+        drst_duv = torch.tensor([
+            [[0, 0], [0, 1], [1, 0]],  # face 2-1-3
+            [[1, 0], [0, 0], [0, 1]],  # face 0-2-3
+            [[0, 1], [1, 0], [0, 0]],  # face 1-0-3
+            [[-1, -1], [1, 0], [0, 1]],  # face 0-1-2
+        ], device=dev, dtype=torch.float64)  # (nface, ndim, ndim-1)
+        ddu_and_ddv = torch.einsum(
+            'fjng,bin,fn,fjk->bfigk',
+            snlx,
+            x_loc,
+            sn.sum(-1) != 0,
+            drst_duv,
+        )
+        ddu_x_ddv = torch.linalg.cross(
+            ddu_and_ddv[..., 0],
+            ddu_and_ddv[..., 1],
+            dim=2,
+        )  # partial phi / partial u  x  paritial phi / partial v. output shape (nele, nface, ndim, sngi)
+        abs_ddu_x_ddv = torch.linalg.vector_norm(ddu_x_ddv, dim=2)  # (nele, nface, sngi)
+        sdetwei = torch.einsum(
+            'bfg,g->bfg',  # (nele, nface, sngi)
+            abs_ddu_x_ddv,  # (nele, nface, sngi)
+            sweight,  # (sngi)
+        )
+        # get surface normal
+        snormal = torch.einsum(
+            'bfig,bfg->bfig',
+            ddu_x_ddv,
+            1./abs_ddu_x_ddv,
+        )
 
     return snx, sdetwei, snormal
