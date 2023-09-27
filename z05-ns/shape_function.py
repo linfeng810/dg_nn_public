@@ -1653,6 +1653,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc, sngi, sn=None):
         idim = 1; snormal[:,iface,idim] = x[:,0,2] - x[:,0,0]
         # normalise
         snormal = snormal/sdet.unsqueeze(-1).expand(batch_in,nface,ndim)
+        snormal = snormal.unsqueeze(-1).expand(batch_in, nface, ndim, sngi)
     else:  # iso-parametric geometry
         deta_dlam = torch.tensor(
             [[-1., 1. ],
@@ -1994,6 +1995,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi, sn=None):
         snormal[:, 3, :] = torch.linalg.cross(
             x_loc[..., 1] - x_loc[..., 0], x_loc[..., 2] - x_loc[..., 0]
         ) / sdet[:, 3].view(batch_in, 1)
+        snormal = snormal.unsqueeze(-1).expand(batch_in, nface, ndim, sngi)
     else:  # iso-parametric geometry
         # get detwei
         drst_duv = torch.tensor([

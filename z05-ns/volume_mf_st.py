@@ -499,12 +499,13 @@ def _s_res_fi(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
 
     # shape function on the other side
     snx_nb, _, snormal_nb = sdet_snlx(
@@ -512,15 +513,17 @@ def _s_res_fi(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     # get faces we want
     sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
-    snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim)
+    snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, sngi)
     # change gaussian points order on other side
     nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
     snx_nb = snx_nb[..., nb_aln]
+    snormal_nb = snormal_nb[..., nb_aln]
     # don't forget to change gaussian points order on sn_nb!
     sn_nb = sn_nb[..., nb_aln]
     nb_aln = sf_nd_nb.pre_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for pressure element
@@ -542,19 +545,19 @@ def _s_res_fi(
         # this side
         # [v_i n_j] {du_i / dx_j}  consistent term
         K += torch.einsum(
-            'bmg,bj,bjng,bg,kl->bmknl',
+            'bmg,bjg,bjng,bg,kl->bmknl',
             sn,  # (batch_in, nloc, sngi)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
             snx,  # (batch_in, ndim, nloc, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
         ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
         # {dv_i / dx_j} [u_i n_j]  symmetry term
         K += torch.einsum(
-            'bjmg,bng,bj,bg,kl->bmknl',
+            'bjmg,bng,bjg,bg,kl->bmknl',
             snx,  # (batch_in, ndim, nloc, sngi)
             sn,  # (batch_in, nloc, sngi)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
         ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
@@ -583,15 +586,15 @@ def _s_res_fi(
                 ) * (.5)
             # get upwind vel
             wknk_ave = torch.einsum(
-                'bmg,bmi,bi->bg',
+                'bmg,bmi,big->bg',
                 sn,  # (batch_in, u_nloc, sngi)
                 u_n[E_F_i, :, :],  # (batch_in, u_nloc, sngi)
-                snormal,  # (batch_in, ndim)
+                snormal,  # (batch_in, ndim, sngi)
             ) * 0.5 + torch.einsum(
-                'bmg,bmi,bi->bg',
+                'bmg,bmi,big->bg',
                 sn_nb,  # (batch_in, u_nloc, sngi)
                 u_n[E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
-                snormal,  # (batch_in, ndim)
+                snormal,  # (batch_in, ndim, sngi)
             ) * 0.5
             wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
             K += -torch.einsum(
@@ -626,9 +629,9 @@ def _s_res_fi(
                 # this side
                 # [v_i n_j] {du_i / dx_j tau_pg_i}  consistent term
                 K += torch.einsum(
-                    'bmg,bj,bjng,blg,bg,kl->bmknl',
+                    'bmg,bjg,bjng,blg,bg,kl->bmknl',
                     sn,  # (batch_in, nloc, sngi)
-                    snormal,  # (batch_in, ndim)
+                    snormal,  # (batch_in, ndim, sngi)
                     snx,  # (batch_in, ndim, nloc, sngi)
                     tau_pg,  # (batch_in, ndim, sngi)
                     sdetwei,  # (batch_in, sngi)
@@ -636,10 +639,10 @@ def _s_res_fi(
                 ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
                 # {dv_i / dx_j} [u_i n_j tau_pg_i]  symmetry term
                 K += torch.einsum(
-                    'bjmg,bng,bj,blg,bg,kl->bmknl',
+                    'bjmg,bng,bjg,blg,bg,kl->bmknl',
                     snx,  # (batch_in, ndim, nloc, sngi)
                     sn,  # (batch_in, nloc, sngi)
-                    snormal,  # (batch_in, ndim)
+                    snormal,  # (batch_in, ndim, sngi)
                     tau_pg,  # (batch_in, ndim, sngi)
                     sdetwei,  # (batch_in, sngi)
                     torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
@@ -680,19 +683,19 @@ def _s_res_fi(
         K *= 0
         # [v_i n_j] {du_i / dx_j}  consistent term
         K += torch.einsum(
-            'bmg,bj,bjng,bg,kl->bmknl',
+            'bmg,bjg,bjng,bg,kl->bmknl',
             sn,  # (batch_in, nloc, sngi)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
             snx_nb,  # (batch_in, ndim, nloc, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64)
         ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
         # {dv_i / dx_j} [u_i n_j]  symmetry term
         K += torch.einsum(
-            'bjmg,bng,bj,bg,kl->bmknl',
+            'bjmg,bng,bjg,bg,kl->bmknl',
             snx,  # (batch_in, ndim, nloc, sngi)
             sn_nb,  # (batch_in, nloc, sngi)
-            snormal_nb,  # (batch_in, ndim)
+            snormal_nb,  # (batch_in, ndim, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64)
         ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
@@ -730,9 +733,9 @@ def _s_res_fi(
                 # other side
                 # [v_i n_j] {du_i / dx_j tau_pg_i}  consistent term
                 K += torch.einsum(
-                    'bmg,bj,bjng,blg,bg,kl->bmknl',
+                    'bmg,bjg,bjng,blg,bg,kl->bmknl',
                     sn,  # (batch_in, nloc, sngi)
-                    snormal,  # (batch_in, ndim)
+                    snormal,  # (batch_in, ndim, sngi)
                     snx_nb,  # (batch_in, ndim, nloc, sngi)
                     tau_pg,  # (batch_in, ndim, sngi)
                     sdetwei,  # (batch_in, sngi)
@@ -740,10 +743,10 @@ def _s_res_fi(
                 ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
                 # {dv_i / dx_j} [u_i n_j tau_pg_i]  symmetry term
                 K += torch.einsum(
-                    'bjmg,bng,bj,blg,bg,kl->bmknl',
+                    'bjmg,bng,bjg,blg,bg,kl->bmknl',
                     snx,  # (batch_in, ndim, nloc, sngi)
                     sn_nb,  # (batch_in, nloc, sngi)
-                    snormal_nb,  # (batch_in, ndim)
+                    snormal_nb,  # (batch_in, ndim, sngi)
                     tau_pg,  # (batch_in, ndim, sngi)
                     sdetwei,  # (batch_in, sngi)
                     torch.eye(ndim, device=dev, dtype=torch.float64)
@@ -783,9 +786,9 @@ def _s_res_fi(
     # this side
     # [v_i n_i] {p}
     G += torch.einsum(
-        'bmg,bi,bng,bg->bmin',
+        'bmg,big,bng,bg->bmin',
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sq,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     ) * (0.5)
@@ -801,9 +804,9 @@ def _s_res_fi(
         G *= 0
         # {p} [v_i n_i]
         G += torch.einsum(
-            'bmg,bi,bng,bg->bmin',
+            'bmg,big,bng,bg->bmin',
             sn,  # (batch_in, u_nloc, sngi)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
             sq_nb,  # (batch_in, p_nloc, sngi)
             sdetwei,  # (batch_in, sngi)
         ) * (0.5)
@@ -814,10 +817,10 @@ def _s_res_fi(
         G *= 0
         # {q} [u_j n_j]
         G += torch.einsum(
-            'bmg,bng,bj,bg->bnjm',
+            'bmg,bng,bjg,bg->bnjm',
             sq,  # (batch_in, p_nloc, sngi)
             sn_nb,  # (batch_in, u_nloc, sngi)
-            snormal_nb,  # (batch_in, ndim)
+            snormal_nb,  # (batch_in, ndim, sngi)
             sdetwei,  # (batch_in, sngi)
         ) * (0.5)
         # update pressure residual from velocity divergence
@@ -885,14 +888,15 @@ def _s_res_fb(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     if include_p:
         sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim, sngi)
     if ndim == 3:
         gamma_e = config.eta_e / torch.sqrt(torch.sum(sdetwei, -1))
     else:
@@ -909,19 +913,19 @@ def _s_res_fb(
                         device=dev, dtype=torch.float64)
         # [vi nj] {du_i / dx_j}  consistent term
         K -= torch.einsum(
-            'bmg,bj,bjng,bg,kl->bmknl',
+            'bmg,bjg,bjng,bg,kl->bmknl',
             sn,  # (batch_in, nloc, sngi)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
             snx,  # (batch_in, ndim, nloc, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64)
         )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
         # {dv_i / dx_j} [ui nj]  symmetry term
         K -= torch.einsum(
-            'bjmg,bng,bj,bg,kl->bmknl',
+            'bjmg,bng,bjg,bg,kl->bmknl',
             snx,  # (batch_in, ndim, nloc, sngi)
             sn,  # (batch_in, nloc, sngi)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
             sdetwei,  # (batch_in, sngi)
             torch.eye(ndim, device=dev, dtype=torch.float64)
         )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
@@ -938,10 +942,10 @@ def _s_res_fb(
         if include_ave:
             # get upwind velocity
             wknk_ave = torch.einsum(
-                'bmg,bmi,bi->bg',
+                'bmg,bmi,big->bg',
                 sn,  # (batch_in, u_nloc, sngi)
                 u_bc[E_F_b, ...],  # (batch_in, u_nloc, ndim)
-                snormal,  # (batch_in, ndim)
+                snormal,  # (batch_in, ndim, sngi)
             )
             wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
             K += -torch.einsum(
@@ -964,9 +968,9 @@ def _s_res_fb(
                 )
                 # [vi nj] {du_i / dx_j}  consistent term
                 K -= torch.einsum(
-                    'bmg,bj,bjng,blg,bg,kl->bmknl',
+                    'bmg,bjg,bjng,blg,bg,kl->bmknl',
                     sn,  # (batch_in, nloc, sngi)
-                    snormal,  # (batch_in, ndim)
+                    snormal,  # (batch_in, ndim, sngi)
                     snx,  # (batch_in, ndim, nloc, sngi)
                     tau_pg,  # (batch_in, ndim, sngi)
                     sdetwei,  # (batch_in, sngi)
@@ -974,10 +978,10 @@ def _s_res_fb(
                 )  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
                 # {dv_i / dx_j} [ui nj]  symmetry term
                 K -= torch.einsum(
-                    'bjmg,bng,bj,blg,bg,kl->bmknl',
+                    'bjmg,bng,bjg,blg,bg,kl->bmknl',
                     snx,  # (batch_in, ndim, nloc, sngi)
                     sn,  # (batch_in, nloc, sngi)
-                    snormal,  # (batch_in, ndim)
+                    snormal,  # (batch_in, ndim, sngi)
                     tau_pg,  # (batch_in, ndim, sngi)
                     sdetwei,  # (batch_in, sngi)
                     torch.eye(ndim, device=dev, dtype=torch.float64)
@@ -1007,9 +1011,9 @@ def _s_res_fb(
                     device=dev, dtype=torch.float64)
     # [v_i n_i] {p}
     G += torch.einsum(
-        'bmg,bi,bng,bg->bmin',
+        'bmg,big,bng,bg->bmin',
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sq,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
     )
@@ -1232,12 +1236,13 @@ def _s_rhs_fi(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     # snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
 
     # shape function on the other side
     snx_nb, _, snormal_nb = sdet_snlx(
@@ -1245,7 +1250,8 @@ def _s_rhs_fi(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     # get faces we want
     sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
@@ -1269,15 +1275,15 @@ def _s_rhs_fi(
 
     # get upwind vel
     wknk_ave = torch.einsum(
-        'bmg,bmi,bi->bg',
+        'bmg,bmi,big->bg',
         sn,  # (batch_in, u_nloc, sngi)
         u_k_th,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
     ) * 0.5 + torch.einsum(
-        'bmg,bmi,bi->bg',
+        'bmg,bmi,big->bg',
         sn_nb,  # (batch_in, u_nloc, sngi)
         u_k_nb,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
     ) * 0.5
     wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
 
@@ -1334,13 +1340,14 @@ def _s_rhs_fb(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim, sngi)
     h = torch.sum(sdetwei, -1)
     if ndim == 3:
         h = torch.sqrt(h)
@@ -1351,10 +1358,10 @@ def _s_rhs_fb(
 
     # 1.1 {dv_i / dx_j} [u_Di n_j]
     rhs[0][E_F_b, ...] -= torch.einsum(
-        'bjmg,bng,bj,bg,bni->bmi',
+        'bjmg,bng,bjg,bg,bni->bmi',
         snx,  # (batch_in, ndim, u_nloc, sngi)
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_bc_th,  # (batch_in, u_nloc, ndim)
     ) * config.mu
@@ -1371,10 +1378,10 @@ def _s_rhs_fb(
 
     # 2. {q} [u_Di n_i]
     rhs[1][E_F_b, ...] += torch.einsum(
-        'bmg,bng,bi,bg,bni->bm',
+        'bmg,bng,big,bg,bni->bm',
         sq,  # (batch_in, p_nloc, sngi)
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_bc_th,  # (batch_in, u_nloc, ndim)
     )
@@ -1395,10 +1402,10 @@ def _s_rhs_fb(
         # bc contribution of advection term (in Navier-Stokes)
         # get upwind vel
         wknk_ave = torch.einsum(
-            'bmg,bmi,bi->bg',
+            'bmg,bmi,big->bg',
             sn,  # (batch_in, u_nloc, sngi)
             u_bc_th,  # (batch_in, u_nloc, ndim)
-            snormal,  # (batch_in, ndim)
+            snormal,  # (batch_in, ndim, sngi)
         )
         wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
         rhs[0][E_F_b, ...] += -torch.einsum(
@@ -1422,10 +1429,10 @@ def _s_rhs_fb(
             )
             # 1.1 {dv_i / dx_j} [u_Di n_j tau_pg_i]
             rhs[0][E_F_b, ...] -= torch.einsum(
-                'bjmg,bng,bj,bg,bni,big->bmi',
+                'bjmg,bng,bjg,bg,bni,big->bmi',
                 snx,  # (batch_in, ndim, u_nloc, sngi)
                 sn,  # (batch_in, u_nloc, sngi)
-                snormal,  # (batch_in, ndim)
+                snormal,  # (batch_in, ndim, sngi)
                 sdetwei,  # (batch_in, sngi)
                 u_bc_th,  # (batch_in, u_nloc, ndim)
                 tau_pg,  # (batch_in, ndim, sngi)
@@ -1469,13 +1476,14 @@ def _s_rhs_fb_neumann(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim, sngi)
     h = torch.sum(sdetwei, -1)
     if ndim == 3:
         h = torch.sqrt(h)
@@ -1648,12 +1656,13 @@ def _s_update_rhs_fi(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     sq = sf_nd_nb.pre_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
 
     # get faces we want
     sq_nb = sf_nd_nb.pre_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
@@ -1664,9 +1673,9 @@ def _s_update_rhs_fi(
 
     # this side {p} [v_i n_i]  (Gradient of p)
     rhs[0][E_F_i, ...] -= torch.einsum(
-        'bmg,bi,bng,bg,bn->bmi',
+        'bmg,big,bng,bg,bn->bmi',
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sq,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
         p_i[E_F_i, ...],  # (batch_in, p_nloc)
@@ -1674,9 +1683,9 @@ def _s_update_rhs_fi(
 
     # other side {p} [v_i n_i]  (Gradient of p)
     rhs[0][E_F_i, ...] -= torch.einsum(
-        'bmg,bi,bng,bg,bn->bmi',
+        'bmg,big,bng,bg,bn->bmi',
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sq_nb,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
         p_i[E_F_inb, ...],  # (batch_in, p_nloc)
@@ -1708,22 +1717,23 @@ def _s_update_rhs_fb(
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
-    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim, sngi)
     gamma_e = config.eta_e / torch.sum(sdetwei, -1)
 
     p_i_th = p_i[E_F_b, ...]
 
     # 4. grad p: {p} [v_i n_i]
     rhs[0][E_F_b, ...] -= torch.einsum(
-        'bmg,bi,bng,bg,bn->bmi',
+        'bmg,big,bng,bg,bn->bmi',
         sn,  # (batch_in, u_nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         sq,  # (batch_in, p_nloc, sngi)
         sdetwei,  # (batch_in, sngi)
         p_i_th,  # (batch_in, p_nloc)
