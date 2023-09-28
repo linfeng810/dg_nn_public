@@ -910,3 +910,57 @@ def ana_soln(problem, t=None):
     else:
         raise Exception('problem analytical solution not defined for '+problem)
     return u_ana
+
+
+def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
+    nloc = sf_nd_nb.vel_func_space.element.nloc
+    nonods = sf_nd_nb.vel_func_space.nonods
+    u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
+    if prob == 'fsi-test' and ndim == 3:
+        t = torch.tensor(t, device=dev, dtype=torch.float64)
+        for ibc in range(len(bc_node_list)):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                # t = 0
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                # u[inod//u_nloc, inod%u_nloc, :] = 0.
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
+                u_bc[ibc][inod // nloc, inod % nloc, 2] = ibc+1
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        # t = 0
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+
+        # sin pressure
+        # unsymmetric stress formulation
+        f[:, 0] = - torch.exp(z - t)*torch.cos(x + y) - torch.exp(x - t)*torch.sin(y + z)
+        f[:, 1] = - torch.exp(x - t)*torch.cos(y + z) - torch.exp(y - t)*torch.sin(x + z)
+        f[:, 2] = - torch.exp(y - t)*torch.cos(x + z) - torch.exp(z - t)*torch.sin(x + y)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'fsi-test' and ndim == 2:
+        Re = torch.tensor(1/config.mu, device=dev, dtype=torch.float64)
+        for ibc in range(len(bc_node_list)):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    else:
+        raise Exception('the problem '+prob+' is not defined in bc_f.py')
+    return u_bc, f, fNorm

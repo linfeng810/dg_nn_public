@@ -127,14 +127,28 @@ print('4. time elapsed, ',time.time()-starttime)
 
 # initical condition
 # u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
-u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-                               prob=config.problem,
-                               t=0)
-# output to vtk
-vtk = output.File('bc_diri.vtu')
-vtk.write_vector(u_bc[0], 'velocity', sf_nd_nb.vel_func_space)
-vtk.write_end()
-# print(u)
+if not config.isFSI:
+    u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+                                   prob=config.problem,
+                                   t=0)
+else:
+    u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+                                 prob=config.problem,
+                                 t=0)
+# # output to vtk
+# vtk = output.File('bc_diri_f.vtu')
+# vtk.write_vector(u_bc[0], 'diri_f', sf_nd_nb.vel_func_space)
+# vtk.write_end()
+# vtk = output.File('bc_neu_f.vtu')
+# vtk.write_vector(u_bc[1], 'neu_f', sf_nd_nb.vel_func_space)
+# vtk.write_end()
+# vtk = output.File('bc_diri_s.vtu')
+# vtk.write_vector(u_bc[2], 'diri_s', sf_nd_nb.vel_func_space)
+# vtk.write_end()
+# vtk = output.File('bc_neu_s.vtu')
+# vtk.write_vector(u_bc[3], 'neu_s', sf_nd_nb.vel_func_space)
+# vtk.write_end()
+
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
 if not sf_nd_nb.isTransient:
     tstep = 2
@@ -225,6 +239,35 @@ print('7. time elapsed, ',time.time()-starttime)
 
 u_nonods = sf_nd_nb.vel_func_space.nonods
 p_nonods = sf_nd_nb.pre_func_space.nonods
+if False and config.isoparametric:  # test curvilinear elements
+    # now we are deforming the mesh accroding to a known displacement:
+    # d = (i j k) * a sin(pi(x+1)) sin(pi(y+1)) sin(pi(z+1))
+    # a = 0.15
+    # vel space
+    v_x_all = sf_nd_nb.vel_func_space.x_all
+    if ndim == 2:
+        d_x_all = 0.15 * np.sin(np.pi * (v_x_all[:,0] + 1)) * np.sin(np.pi * (v_x_all[:,1] + 1))
+        d_x_all = np.stack((d_x_all, d_x_all), axis=-1)
+    else:  # ndim == 3
+        d_x_all = 0.15 * np.sin(np.pi * (v_x_all[:, 0] + 1)) * np.sin(np.pi * (v_x_all[:, 1] + 1)) \
+            * np.sin(np.pi * (v_x_all[:, 2] + 1))
+        d_x_all = np.stack((d_x_all, d_x_all, d_x_all), axis=-1)
+    sf_nd_nb.vel_func_space.x_all += d_x_all
+    sf_nd_nb.vel_func_space.x_ref_in += torch.tensor(d_x_all, device=dev, dtype=torch.float64
+                                                     ).view(nele, -1, ndim).transpose(dim0=-1, dim1=-2)
+    # pre space
+    p_x_all = sf_nd_nb.pre_func_space.x_all
+    if ndim == 2:
+        d_x_all = 0.15 * np.sin(np.pi * (p_x_all[:, 0] + 1)) * np.sin(np.pi * (p_x_all[:, 1] + 1))
+        d_x_all = np.stack((d_x_all, d_x_all), axis=-1)
+    else:  # ndim == 3
+        d_x_all = 0.15 * np.sin(np.pi * (p_x_all[:, 0] + 1)) * np.sin(np.pi * (p_x_all[:, 1] + 1)) \
+            * np.sin(np.pi * (p_x_all[:, 2] + 1))
+        d_x_all = np.stack((d_x_all, d_x_all, d_x_all), axis=-1)
+    sf_nd_nb.pre_func_space.x_all += d_x_all
+    sf_nd_nb.pre_func_space.x_ref_in += torch.tensor(d_x_all, device=dev, dtype=torch.float64
+                                                     ).view(nele, -1, ndim).transpose(dim0=-1, dim1=-2)
+
 if (config.solver=='iterative') :
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
@@ -313,7 +356,7 @@ if (config.solver=='iterative') :
 
         elif config.initialCondition == 1:
             x_i_n *= 0
-            x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
+            # x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
 
         elif config.initialCondition == 3:
             x_i_n *= 0

@@ -87,13 +87,13 @@ class FuncSpace(object):
         self.name = name
         print('initalising '+name+' function space')
         self.mesh = mesh
-        self.nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
-        self.nonods = element.nloc * self.nele
         self.element = element
         self.ndim = self.element.ndim
         self.p1cg_nloc = self.ndim + 1
-        self.p1dg_nonods = self.p1cg_nloc * self.nele
         if self.ndim == 2:
+            self.nele = mesh.cell_data_dict['gmsh:geometrical']['triangle'].shape[0]
+            self.nonods = element.nloc * self.nele
+            self.p1dg_nonods = self.p1cg_nloc * self.nele
             self.x_all, \
                 self.nbf, self.nbele, self.alnmt, self.glb_bcface_type, \
                 self.fina, self.cola, self.ncola, \
@@ -102,6 +102,9 @@ class FuncSpace(object):
                 init_2d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim + 1)
             self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
         elif self.ndim == 3:
+            self.nele = mesh.cell_data_dict['gmsh:geometrical']['tetra'].shape[0]
+            self.nonods = element.nloc * self.nele
+            self.p1dg_nonods = self.p1cg_nloc * self.nele
             self.x_all, \
                 self.nbf, self.nbele, self.alnmt, self.glb_bcface_type, \
                 self.fina, self.cola, self.ncola, \

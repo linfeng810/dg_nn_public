@@ -17,6 +17,8 @@ dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # dev="cpu" # if force funning on cpu
 torch.manual_seed(0)
 
+isFSI = True  # fsi problem or not
+
 #####################################################
 # time step settings
 #####################################################
@@ -57,7 +59,12 @@ sf_nd_nb.isTransient = isTransient
 sf_nd_nb.dt = dt
 
 # mesh info
-nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
+if not isFSI:
+    nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
+else:
+    nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
+    nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
+    nele = nele_f + nele_s
 ele_p = 3  # velocity element order (2 or higher)
 ele_p_pressure = ele_p - 1  # pressure element order
 print('element order: ', ele_p)
@@ -107,10 +114,11 @@ relax_coeff = 1.
 ####################
 # material property
 ####################
-problem = 'fpc'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'fsi-test'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
+# or 'fsi-test' = test fluid-structure boundary
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
