@@ -115,14 +115,14 @@ def get_a_diaga(level,
     return a_sfc_level_sparse, diagonal, nonods 
 
 
-def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
+def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level, cg_nonods):
     """
     Multi-grid cycle on P1CG mesh.
     Takes in residaul on P1CG mesh (restricted from residual on PnDG mesh),
     do 1 mg cycle on the SFC levels, then spit out an error correction on
     P1CG mesh (add it to the input e_i0).
     """
-    cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
+    # cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
     # get residual on each level
     sfc_restrictor = torch.nn.Conv1d(in_channels=1,
                                      out_channels=1, kernel_size=2,
@@ -179,7 +179,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
     return e_s[0].view(ndim, cg_nonods).transpose(0, 1).contiguous()
 
 
-def mg_on_P0CG_prep(fina, cola, RARvalues):
+def mg_on_P1CG_prep(fina, cola, RARvalues):
     '''
     # Prepare for Multi-grid cycle on P0DG mesh
 

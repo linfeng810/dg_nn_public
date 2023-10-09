@@ -42,6 +42,7 @@ filename='z32-square-mesh/square_poiseuille_r2.msh'
 # filename = 'z32-square-mesh/square.msh'
 filename = 'z34-bfs/bfs.msh'
 filename = 'z33-fpc/fpc.msh'
+filename = 'z35-fsi/fs_square.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -134,6 +135,8 @@ print('Lame coefficient: lamda, mu', lam, mu)
 kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
+if isFSI:
+    rho_s = 1.  # solid density at initial configuration
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
 kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\

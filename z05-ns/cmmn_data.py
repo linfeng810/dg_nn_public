@@ -18,17 +18,15 @@ class SfNdNb:
     def __init__(self):
         self.vel_func_space = None
         self.pre_func_space = None
+        self.disp_func_space = None  # displacement function space
         self.p1cg_nonods = None
-        # self.vel_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
-        # self.vel_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
-        # self.pre_I_prol = None  # velocity p prolongator (from P1DG to PnDG)
-        # self.pre_I_rest = None  # velocity p restrictor (from PnDG to P1DG)
-        self.I_dc = None  # prolongator from P1CG to P1DG
-        self.I_cd = None  # restrictor from P1DG to P1CG
+        self.sparse_f = Sparsity()  # sparsity for fluid subdomain
+        self.sparse_s = Sparsity()  # sparsity for solid subdomain
         self.RARmat = None  # operator on P1CG (velocity and pressure both here. they are same shape on P1CG)
         self.RARmat_Lp = None  # pressure laplacian on P1CG
-        self.sfc_data = SFCdata()  # sfc data for velocity block (adv + transient + diff)
+        self.sfc_data_F = SFCdata()  # sfc data for velocity block (adv + transient + diff)
         self.sfc_data_Lp = SFCdata()  # sfc data for pressure laplacian
+        self.sfc_data_S = SFCdata()  # sfc data for solid block
         self.Lpmatinv = None  # inverse of pressure Laplacian
         self.Kmatinv = None  # velocity block of stokes problem
         # velocity block of stokes problem - values and coordinates (coo format)
@@ -52,11 +50,12 @@ class SfNdNb:
     def set_data(self,
                  vel_func_space=None,
                  pre_func_space=None,
+                 disp_func_space=None,  # displacement function space
                  p1cg_nonods=None,
                  # vel_I_prol=None,
                  # pre_I_prol=None,
-                 I_cd=None,  # discontinuous P1DG to continuous P1CG prolongator
-                 I_dc=None,  # continuous P1CG to discontinuous p1DG restrictor
+                 sparse_s=None,  # solid subdomain sparsity
+                 sparse_f=None,  # fluid subdomain sparsity
                  RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
                  RARmat_Lp=None,  # pressure laplacian on P1CG
                  Kmatinv=None,  # inverse of velocity block of stokes problem
@@ -69,6 +68,8 @@ class SfNdNb:
             self.vel_func_space = vel_func_space
         if type(pre_func_space) != NoneType:
             self.pre_func_space = pre_func_space
+        if disp_func_space is not None:
+            self.disp_func_space = disp_func_space
         if type(p1cg_nonods) != NoneType:
             self.p1cg_nonods = p1cg_nonods
         # if type(vel_I_prol) != NoneType:
@@ -77,10 +78,10 @@ class SfNdNb:
         # if type(pre_I_prol) != NoneType:
         #     self.pre_I_prol = pre_I_prol
         #     self.pre_I_rest = torch.transpose(pre_I_prol, dim0=0, dim1=1)
-        if type(I_cd) != NoneType:
-            self.I_cd = I_cd
-        if type(I_dc) != NoneType:
-            self.I_dc = I_dc
+        if sparse_s is not None:
+            self.sparse_s = sparse_s
+        if sparse_f is not None:
+            self.sparse_f = sparse_f
         if type(RARmat) != NoneType:
             self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
         if type(RARmat_Lp) != NoneType:
@@ -134,7 +135,14 @@ class SFCdata:
 
 
 class BDFdata:
-    """store BDF scheme coefficients"""
+    """store BDF scheme coefficients
+
+    BDF-J scheme:
+
+    1st order time derivative: du/dt = gamma u^{t+1} + sum_i alpha_i u^{t-i}, i from 1 to J
+
+    2nd order time derivative: d^2u/dt^2 = sum_i beta_i u^{t+1-i}, i from 0 to J+1
+    """
 
     def __init__(self,
                  order):
@@ -142,16 +150,20 @@ class BDFdata:
         if order == 1:
             self.gamma = 1
             self.alpha = [1]
+            self.beta = [1, -2, 1]
         elif order == 2:
             self.gamma = 3/2
             self.alpha = [2, -1/2]
+            self.beta = [2, -5, 4, -1]
         elif order == 3:
             self.gamma = 11/6
             self.alpha = [3, -3/2, 1/3]
+            self.beta = [35/12, -26/3, 19/2, -14/3, 11/12]
 
     def set_data(self,
                  gamma=None,
                  alpha=None,
+                 beta=None
                  ):
         if gamma is not None:
             self.gamma = gamma
@@ -160,6 +172,11 @@ class BDFdata:
                 raise ValueError('the alpha coefficient you want to store is of wrong size for order '
                                  + self.order + ' BDF scheme')
             self.alpha = alpha
+        if beta is not None:
+            if len(beta) != len(self.beta):
+                raise ValueError('the beta coefficient you want to store is of wrong size for order '
+                                 + self.order + ' BDF scheme')
+            self.beta = beta
 
     def compute_coeff(self,
                       dt_list):
@@ -187,3 +204,46 @@ class BDFdata:
             self.alpha[2] = dt_list[0]**2 * (dt_list[0] + dt_list[1]) \
                 / (dt_list[0] + dt_list[1] + dt_list[2]) \
                 / (dt_list[1] + dt_list[2]) / dt_list[2]
+
+
+class Sparsity:
+    def __init__(self):
+        self.fina = None
+        self.cola = None
+        self.ncola = None
+        self.whichc = None
+        self.ncolor = None
+        self.I_fc = None
+        self.I_cf = None
+        self.cg_nonods = None
+        self.p1dg_nonods = None
+
+    def set_data(self,
+                 fina=None,
+                 cola=None,
+                 ncola=None,
+                 whichc=None,
+                 ncolor=None,
+                 I_fc=None,
+                 I_cf=None,
+                 cg_nonods=None,
+                 p1dg_nonods=None,
+                 ):
+        if fina is not None:
+            self.fina = fina
+        if cola is not None:
+            self.cola = cola
+        if ncola is not None:
+            self.ncola = ncola
+        if whichc is not None:
+            self.whichc = whichc
+        if ncolor is not None:
+            self.ncolor = ncolor
+        if I_fc is not None:
+            self.I_fc = I_fc
+        if I_cf is not None:
+            self.I_cf = I_cf
+        if cg_nonods is not None:
+            self.cg_nonods = cg_nonods
+        if p1dg_nonods is not None:
+            self.p1dg_nonods = p1dg_nonods

@@ -10,11 +10,8 @@ import scipy as sp
 from types import NoneType
 from tqdm import tqdm
 import config
-import multigrid_linearelastic as mg
-# from volume_mf_linear_elastic import get_residual_only, get_residual_and_smooth_once
-# from volume_mf_he import get_residual_only, get_residual_and_smooth_once
-from volume_mf_st import get_residual_only, get_residual_and_smooth_once, update_rhs, \
-    get_r0_l2_norm
+import preconditioner
+import volume_mf_he
 
 import volume_mf_st
 from config import sf_nd_nb
@@ -24,6 +21,9 @@ from config import sf_nd_nb
 dev = config.dev
 # nloc = config.nloc
 ndim = config.ndim
+nele = config.nele
+nele_f = config.nele_f
+nele_s = config.nele_s
 
 
 # def _multigrid_one_cycle(x_i, x_rhs):
@@ -163,7 +163,7 @@ def gmres_mg_solver(x_i, x_rhs,
                     tol,
                     nullspace=None,
                     include_adv=False,
-                    u_k=None, u_bc=None):
+                    x_k=None, u_bc=None):
     """
     use mg left preconditioned gmres as a solver
     """
@@ -171,14 +171,18 @@ def gmres_mg_solver(x_i, x_rhs,
     p_nonods = sf_nd_nb.pre_func_space.nonods
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    real_no_dofs = nele_f * u_nloc * ndim + nele_f * p_nloc + nele_s * u_nloc * ndim
+    total_no_dofs = nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim
 
     m = config.gmres_m
-    v_m = torch.zeros(m+1, u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # V_m
+    v_m = torch.zeros(m+1, real_no_dofs, device=dev, dtype=torch.float64)  # V_m
+    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # full length v vector
     h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
-    r0 = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-    r0_u, r0_p = volume_mf_st.slicing_x_i(r0)
-    x_dummy = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-    x_u_dummy, x_p_dummy = volume_mf_st.slicing_x_i(x_dummy)
+    r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+
+    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+
     r0l2 = 1.
     sf_nd_nb.its = 0
     e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
@@ -187,85 +191,56 @@ def gmres_mg_solver(x_i, x_rhs,
         h_m *= 0
         v_m *= 0
         r0 *= 0
-        r0 = get_residual_only(r0,
-                               x_i, x_rhs,
-                               include_adv=include_adv,
-                               u_n=u_k,
-                               u_bc=u_bc)
-        # r0 = r0.view(nonods, ndim)  # why change view here...?
-        # apply preconditioner
-        # x_u_dummy *= 0
-        # for icycle in range(1):
-        #     x_u_dummy = volume_mf_st.vel_blk_precon(
-        #         x_u_dummy,
-        #         r0_u,
-        #         include_adv=include_adv,
-        #         u_n=u_k,
-        #         u_bc=u_bc,
-        #     )
-        # r0_u *= 0
-        # r0_u += x_u_dummy
-        # # print('r0_u norm: ', torch.linalg.norm(r0_u.view(-1)))
-        # # r0_u = volume_mf_st.vel_blk_precon_direct_inv(r0_u)
-        # r0_p = volume_mf_st.pre_blk_precon(r0_p)
-        r0_p = volume_mf_st.pre_precond_all(r0_p, include_adv, u_k, u_bc)
-        # r0_p = volume_mf_st.pre_precond_all_only_Lp(r0_p, include_adv)
-        r0_u = volume_mf_st.vel_precond_all(r0_u, r0_p, u_k, u_bc, include_adv=include_adv)
-        # r0_u = volume_mf_st.vel_precond_all_only_Mass(r0_u, r0_p)
-        # r0_p = volume_mf_st.backward_GS_precond_all(r0_u, r0_p, u_k, u_bc)
+        # get residual
+        r0 = volume_mf_st.get_residual_only(
+            r0, x_i, x_rhs,
+            include_adv=include_adv,
+            x_k=x_k,
+            u_bc=u_bc[0])
+        r0 = volume_mf_he.get_residual_only(
+            r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
+        )
+        # apply left preconditioner
+        r0 = preconditioner.fsi_precond_all(r0, x_k, u_bc)
 
-        # remove null space
-        if type(nullspace) is not NoneType:
-            r0 = remove_nullspace(r0, nullspace)
-        beta = torch.linalg.norm(r0)
-        v_m[0, :] += r0 / beta
+        r0_real = get_res_vec_from_dict(x_i=r0, x_res=r0_real)
+        beta = torch.linalg.norm(r0_real)
+        # beta = torch.linalg.norm(r0)
+        v_m[0, :] += r0_real / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
-        w_u, w_p = volume_mf_st.slicing_x_i(w)
+        w_dict = volume_mf_st.slicing_x_i(w)
         for j in tqdm(range(0, m), disable=config.disabletqdm):
+            v_m_j_full_length *= 0
+            v_m_j_full_length = get_dict_from_res_vec(x_res=v_m[j, :], x_i=v_m_j_full_length)
             w *= 0
-            w = get_residual_only(r0=w,
-                                  x_i=v_m[j, :],
-                                  x_rhs=0,
-                                  include_adv=include_adv,
-                                  u_n=u_k,
-                                  u_bc=u_bc)  # providing rhs=0, b-Ax is -Ax
-            # w = w.view(nonods, ndim)  # why change view here...?
-            w *= -1.
+            # w = A * v_m[j]
+            w = volume_mf_st.get_residual_only(
+                r0=w,
+                x_i=v_m_j_full_length,
+                x_rhs=0,
+                include_adv=include_adv,
+                x_k=x_k,
+                u_bc=u_bc[0])
+            w = volume_mf_he.get_residual_only(
+                r0=w,
+                x_k=x_k,
+                x_i=v_m_j_full_length,
+                x_rhs=0,
+                include_s_blk=True,
+                include_itf=True,
+            )
+            w *= -1.  # providing rhs=0, b-Ax is -Ax
             # apply preconditioner
-            # print('w_u position before:', w_u.data_ptr())
-            # x_u_dummy *= 0
-            # for icycle in range(1):
-            #     x_u_dummy = volume_mf_st.vel_blk_precon(
-            #         x_u_dummy,
-            #         w_u,
-            #         include_adv=include_adv,
-            #         u_n=u_k,
-            #         u_bc=u_bc,
-            #     )
-            # w_u *= 0
-            # w_u += x_u_dummy
-            # print('w_p position before:', w_p.data_ptr())
-            w_p = volume_mf_st.pre_precond_all(w_p, include_adv, u_k, u_bc)
-            # w_p = volume_mf_st.pre_precond_all_only_Lp(w_p, include_adv)
-            # print('w_p norm: ', torch.linalg.norm(w_p.view(-1)))
-            # print('w_u position before:', w_u.data_ptr())
-            w_u = volume_mf_st.vel_precond_all(w_u, w_p, u_k, u_bc, include_adv=include_adv)
-            # w_u = volume_mf_st.vel_precond_all_only_Mass(w_u, w_p)
-            # w_p = volume_mf_st.backward_GS_precond_all(w_u, w_p, u_k, u_bc)
-            # w_u = volume_mf_st.vel_blk_precon_direct_inv(w_u)
-            # print('w_p position after:', w_p.data_ptr())
-            # print('w_u position after:', w_u.data_ptr())
-            # w_p = volume_mf_st.pre_blk_precon(w_p)
-            # w = w.view(-1)  # w_list is a 'view' of w
+            w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
+            w_real = r0_real
             for i in range(0, j+1):
-                h_m[i, j] = torch.linalg.vecdot(w, v_m[i, :])
-                w -= h_m[i, j] * v_m[i, :]
+                w_real *= 0
+                w_real = get_res_vec_from_dict(x_i=w, x_res=w_real)
+                h_m[i, j] = torch.linalg.vecdot(w_real, v_m[i, :])
+                w_real -= h_m[i, j] * v_m[i, :]
 
-            # remove null space
-            if type(nullspace) is not NoneType:
-                w = remove_nullspace(w, nullspace)
-            h_m[j+1, j] = torch.linalg.norm(w)
-            v_m[j+1, :] += w / h_m[j+1, j]
+            h_m[j+1, j] = torch.linalg.norm(w_real)
+            v_m[j+1, :] += w_real / h_m[j+1, j]
             sf_nd_nb.its += 1
         # solve least-square problem
         q, r = torch.linalg.qr(h_m, mode='complete')  # h_m: (m+1)xm, q: (m+1)x(m+1), r: (m+1)xm
@@ -274,17 +249,23 @@ def gmres_mg_solver(x_i, x_rhs,
         y_m = torch.linalg.solve(r[0:m, 0:m], q[0:m+1, 0:m].T @ e_1)  # y_m: m
         # update c_i and get residual
         dx_i = torch.einsum('ji,j->i', v_m[0:m, :], y_m)
-        x_i += dx_i
+        x_dummy *= 0
+        x_dummy = get_dict_from_res_vec(x_i=x_dummy, x_res=dx_i)
+        x_i += x_dummy
 
         # r0l2 = torch.linalg.norm(q[:, m:m+1].T @ e_1)
         r0 *= 0
-        r0 = get_residual_only(r0,
-                               x_i, x_rhs,
-                               include_adv=include_adv,
-                               u_n=u_k,
-                               u_bc=u_bc)
+        # get residual
+        r0 = volume_mf_st.get_residual_only(
+            r0, x_i, x_rhs,
+            include_adv=include_adv,
+            x_k=x_k,
+            u_bc=u_bc[0])
+        r0 = volume_mf_he.get_residual_only(
+            r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
+        )
         # r0 = r0.view(-1)
-        r0l2 = torch.linalg.norm(r0)
+        r0l2 = volume_mf_st.get_r0_l2_norm(r0)
         print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
     return x_i, sf_nd_nb.its
 
@@ -454,3 +435,60 @@ def remove_nullspace(r, n):
     for dim in range(dim_null):
         r -= torch.inner(r, n[dim, :]) * n[dim, :]
     return r
+
+
+def get_res_vec_from_dict(x_i, x_res):
+    """
+    get residual vector from a vector of length total_no_dofs.
+
+    input:
+
+    x_i: length (nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim)
+
+    output:
+
+    x_res: a tensor of length (nele_f * u_nloc * ndim + nele_f * p_nloc + nele_s * u_nloc * ndim)
+    """
+    x_res *= 0
+    x_in_shape = x_res.shape
+    x_res = x_res.view(-1)
+
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+
+    x_res[0:nele_f * u_nloc * ndim] += x_i_dict['vel'][0:nele_f, ...].view(-1)
+    x_res[nele_f * u_nloc * ndim:
+          nele_f * u_nloc * ndim + nele_f * p_nloc] += \
+        x_i_dict['pre'][0:nele_f, ...].view(-1)
+    x_res[nele_f * (u_nloc * ndim + p_nloc):
+          nele_f * (u_nloc * ndim + p_nloc) + nele_s * u_nloc * ndim] += \
+        x_i_dict['disp'][nele_f:nele, ...].view(-1)
+
+    return x_res.view(x_in_shape)
+
+
+def get_dict_from_res_vec(x_res, x_i):
+    """
+    create a vector of length total_no_dofs from a residual vector of length real_no_dofs
+
+    input:
+    x_res: a tensor of length (nele_f * u_nloc * ndim + nele_f * p_nloc + nele_s * u_nloc * ndim)
+
+    output:
+    x_i_dict: store x_res in correspoding positions and leave other positions zero
+    """
+    x_res = x_res.view(-1)
+    x_i *= 0
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+
+    x_i_dict['vel'][0:nele_f, ...] += x_res[0:nele_f * u_nloc * ndim]
+    x_i_dict['pre'][0:nele_f, ...] += x_res[nele_f * u_nloc * ndim:
+                                            nele_f * u_nloc * ndim + nele_f * p_nloc]
+    x_i_dict['disp'][nele_f:nele, ...] += x_res[nele_f * (u_nloc * ndim + p_nloc):
+                                                nele_f * (u_nloc * ndim + p_nloc) + nele_s * u_nloc * ndim]
+
+    return x_i.view(-1)

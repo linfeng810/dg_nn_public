@@ -19,6 +19,8 @@ import map_to_sfc_matrix as map_sfc
 import multigrid_linearelastic as mg_le
 
 nele = config.nele
+nele_f = config.nele_f
+nele_s = config.nele_s
 ndim = config.ndim
 nface = ndim + 1
 dev = config.dev
@@ -44,22 +46,24 @@ def _apply_pressure_mat(
     -    x_i = 0
 
     input r_0, x_i, and x_rhs should be of size (p_nonods)
+
+    In ALE (FSI), make sure the u_n passed in is correct advection velocity: (u - u_m)
         """
     nnn = config.no_batch
-    brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele, dtype=int)
+    brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele_f, dtype=int)
     # retrive func space / element parameters
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 
     if include_adv:
-        u_n = u_n.view(nele, u_nloc, ndim)
-        u_bc = u_bc.view(nele, u_nloc, ndim)
+        u_n = u_n.view(nele_f, u_nloc, ndim)
+        u_bc = u_bc.view(nele_f, u_nloc, ndim)
 
     # add precalculated rhs to residual
     r0 += x_rhs.view(r0.shape)
     for i in range(nnn):
         # volume integral
-        idx_in = torch.zeros(nele, device=dev, dtype=bool)  # element indices in this batch
+        idx_in = torch.zeros(nele_f, device=dev, dtype=torch.bool)  # element indices in this batch
         idx_in[brk_pnt[i]:brk_pnt[i + 1]] = True
         batch_in = int(torch.sum(idx_in))
         # dummy diagA and bdiagA
@@ -73,7 +77,7 @@ def _apply_pressure_mat(
             include_adv, u_n
         )
         # surface integral
-        idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
+        idx_in_f = torch.zeros(nele_f * nface, dtype=torch.bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         r0, diagK, bdiagK = _s_res_one_batch(
             r0, x_i,
@@ -88,7 +92,7 @@ def _apply_pressure_mat(
                 x_i[idx_in, :] += config.jac_wei * torch.einsum(
                     'bmn,bn->bm',
                     bdiagK,
-                    r0.view(nele, p_nloc)[idx_in, :]
+                    r0.view(nele_f, p_nloc)[idx_in, :]
                 ).view(batch_in, p_nloc)
             else:
                 raise Exception('can only choose direct solver for pressure laplacian block')
@@ -161,7 +165,7 @@ def _s_res_one_batch(
 ):
     # get essential data
     nbf = sf_nd_nb.vel_func_space.nbf
-    alnmt = sf_nd_nb.vel_func_space.alnmt
+    glb_bcface_type = sf_nd_nb.vel_func_space.glb_bcface_type[0:nele_f * nface]
 
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -172,10 +176,11 @@ def _s_res_one_batch(
     # x_i[1] = x_i[1].view(-1, p_nloc)
 
     # separate nbf to get internal face list and boundary face list
-    F_i = torch.where(torch.logical_and(alnmt >= 0, idx_in_f))[0]  # interior face
+    F_i = torch.where(torch.logical_and(glb_bcface_type < 0, idx_in_f))[0]  # interior face
     # for boundary faces, only include velocity Neumann boundary faces (which is the Diri bc for pressure)
     F_b = torch.where(torch.logical_and(
-        torch.logical_and(alnmt < 0, sf_nd_nb.vel_func_space.glb_bcface_type == 0),
+        torch.logical_or(glb_bcface_type == 0,  # fluid vel diri bc
+                         glb_bcface_type == 4),  # fluid interface bc
         idx_in_f))[0]  # boundary face
     F_inb = nbf[F_i]  # neighbour list of interior face
     F_inb = F_inb.type(torch.int64)
@@ -511,9 +516,9 @@ def _calc_RAR_mf_color(
     """
     import time
     start_time = time.time()
-    cg_nonods = sf_nd_nb.pre_func_space.cg_nonods
-    p1dg_nonods = sf_nd_nb.pre_func_space.p1dg_nonods
-    nonods = sf_nd_nb.pre_func_space.nonods
+    cg_nonods = sf_nd_nb.sparse_f.cg_nonods
+    p1dg_nonods = sf_nd_nb.sparse_f.p1dg_nonods
+    nonods = config.nele_f * sf_nd_nb.pre_func_space.element.nloc
     value = torch.zeros(ncola, device=dev, dtype=torch.float64)  # NNZ entry values
     dummy = torch.zeros(nonods, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
     Rm = torch.zeros(nonods, device=dev, dtype=torch.float64)
@@ -822,12 +827,12 @@ def get_RAR_and_sfc_data_Lp(
     prepare for MG on SFC-coarse grids for pressure laplacian operator
     """
     RARvalues = _calc_RAR_mf_color(
-        sf_nd_nb.I_dc,
-        sf_nd_nb.I_cd,
+        sf_nd_nb.sparse_f.I_fc,
+        sf_nd_nb.sparse_f.I_cf,
         whichc, ncolor,
         fina, cola, ncola,
     )
-    cg_nonods = sf_nd_nb.pre_func_space.cg_nonods
+    cg_nonods = sf_nd_nb.sparse_f.cg_nonods
     if not config.is_sfc:
         RAR = csr_matrix((RARvalues.cpu(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
@@ -871,11 +876,11 @@ def pre_precond_invLp(x_p, x_rhs):
 
     x_p <- L_p^-1 x_rhs
     """
-    nonods = sf_nd_nb.pre_func_space.nonods
     nloc = sf_nd_nb.pre_func_space.element.nloc
+    nonods = nele_f * nloc
     x_p = x_p.view(nonods)  # should start with zero
 
-    cg_nonods = sf_nd_nb.pre_func_space.cg_nonods
+    cg_nonods = sf_nd_nb.sparse_f.cg_nonods
     r0 = torch.zeros(nonods, device=dev, dtype=torch.float64)
 
     # pre smooth
@@ -898,7 +903,7 @@ def pre_precond_invLp(x_p, x_rhs):
     # restrict residual
     if not config.is_pmg:
         r1 = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
-        r1 += torch.mv(sf_nd_nb.I_cd, mg_le.pre_pndg_to_p1dg_restrictor(r0))
+        r1 += torch.mv(sf_nd_nb.sparse_f.I_cf, mg_le.pre_pndg_to_p1dg_restrictor(r0))
     else:
         raise NotImplemented('PMG not implemented!')
 
@@ -930,7 +935,7 @@ def pre_precond_invLp(x_p, x_rhs):
     # prolongate residual
     if not config.is_pmg:
         e_i0 = torch.zeros(nonods, device=dev, dtype=torch.float64)
-        e_i0 += mg_le.pre_p1dg_to_pndg_prolongator(torch.mv(sf_nd_nb.I_dc, e_i))
+        e_i0 += mg_le.pre_p1dg_to_pndg_prolongator(torch.mv(sf_nd_nb.sparse_f.I_fc, e_i))
     else:
         raise Exception('pmg not implemented')
 
@@ -956,7 +961,7 @@ def pre_precond_invQ(x_p):
     """
     # x_p should be of dimension (nele, p_nloc) or (p_nonods)
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    x_p = x_p.view(nele, p_nloc)
+    x_p = x_p.view(nele_f, p_nloc)
     q = sf_nd_nb.pre_func_space.element.n
     _, qdetwei = get_det_nlx(
         nlx=sf_nd_nb.pre_func_space.element.nlx,

@@ -17,10 +17,10 @@ import config
 import output
 import petrov_galerkin
 import shape_function
+import sparsity
 import volume_mf_st
 from function_space import FuncSpace, Element
 import solvers
-# import volume_mf_he
 from config import sf_nd_nb
 import mesh_init
 # from mesh_init import face_iloc,face_iloc2
@@ -42,6 +42,9 @@ np.set_printoptions(precision=16)
 
 dev = config.dev
 nele = config.nele
+if config.isFSI:
+    nele_f = config.nele_f
+    nele_s = config.nele_s
 # mesh = config.mesh
 # nonods = config.nonods
 # p1dg_nonods = config.p1dg_nonods
@@ -72,61 +75,30 @@ pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev)
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
-# get cell volume
+if config.isFSI:
+    disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev)  # displacement func space
+    sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
-
+fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
+    vel_func_space.cg_ndglno,
+    config.nele_f,
+    config.nele_s,
+    vel_func_space.cg_nonods
+)
+sf_nd_nb.set_data(sparse_f=fluid_spar, sparse_s=solid_spar)
+import volume_mf_he
 print('nele=', nele)
 # config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
 np.savetxt('cg_ndglno.txt', sf_nd_nb.vel_func_space.cg_ndglno, delimiter=',')  # cg_ndglno is stored in sf_nd_nb in mesh_init.init
 
-if True:# P1CG connectivity and coloring
-    fina, cola, ncola = mesh_init.p1cg_sparsity(sf_nd_nb.vel_func_space)
-    whichc, ncolor = color2(fina=fina, cola=cola, nnode=sf_nd_nb.p1cg_nonods)
-# np.savetxt('whichc.txt', whichc, delimiter=',')
-print('ncolor', ncolor, 'whichc type', whichc.dtype)
-print('cg_nonods', sf_nd_nb.p1cg_nonods, 'ncola (p1cg sparsity)', ncola)
+# if True:# P1CG connectivity and coloring
+#     fina, cola, ncola = mesh_init.p1cg_sparsity(sf_nd_nb.vel_func_space)
+#     whichc, ncolor = color2(fina=fina, cola=cola, nnode=sf_nd_nb.p1cg_nonods)
+# # np.savetxt('whichc.txt', whichc, delimiter=',')
+# print('ncolor', ncolor, 'whichc type', whichc.dtype)
+# print('cg_nonods', sf_nd_nb.p1cg_nonods, 'ncola (p1cg sparsity)', ncola)
 print('1. time elapsed, ',time.time()-starttime)
-# #####################################################
-# # shape functions
-# #####################################################
-# # get shape functions on reference element
-# [n,nlx,weight,sn,snlx,sweight] = SHATRInew(config.nloc,
-#                                            config.ngi, config.ndim, config.snloc, config.sngi)
-# # put numpy array to torch tensor in expected device
-# sf_nd_nb.set_data(n=torch.tensor(n, device=config.dev, dtype=torch.float64))
-# sf_nd_nb.set_data(nlx=torch.tensor(nlx, device=dev, dtype=torch.float64))
-# sf_nd_nb.set_data(weight=torch.tensor(weight, device=dev, dtype=torch.float64))
-# sf_nd_nb.set_data(sn=torch.tensor(sn, dtype=torch.float64, device=dev))
-# sf_nd_nb.set_data(snlx=torch.tensor(snlx, device=dev, dtype=torch.float64))
-# sf_nd_nb.set_data(sweight=torch.tensor(sweight, device=dev, dtype=torch.float64))
-# del n, nlx, weight, sn, snlx, sweight
-# print('3. time elapsed, ',time.time()-starttime)
-#######################################################
-# assemble local mass matrix and stiffness matrix
-#######################################################
 
-
-# Mk = mk()
-# Mk.to(device=dev)
-print('4. time elapsed, ',time.time()-starttime)
-
-####################################################
-# time loop
-####################################################
-# x_ref_in = np.empty((nele, ndim, nloc))
-# for ele in range(nele):
-#     for iloc in range(nloc):
-#         glb_iloc = ele*nloc+iloc
-#         for idim in range(ndim):
-#             x_ref_in[ele, idim, iloc] = x_all[glb_iloc, idim]
-# sf_nd_nb.set_data(x_ref_in = torch.tensor(x_ref_in,
-#                                           device=dev,
-#                                           dtype=torch.float64,
-#                                           requires_grad=False))
-# del x_ref_in
-
-# initical condition
-# u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
 if not config.isFSI:
     u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
                                    prob=config.problem,
@@ -157,82 +129,82 @@ else:
 
 print('no of time steps to compute: ', tstep)
 
-u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # initial guess
-p = torch.zeros(nele, pre_ele.nloc, device=dev, dtype=torch.float64)
-# to test vtk output, set u and p be ana sol here
-if False:
-    u = u.view(vel_func_space.nonods, ndim)
-    x = vel_func_space.x_all[:, 0]
-    y = vel_func_space.x_all[:, 1]
-    z = vel_func_space.x_all[:, 2]
-    u[:, 0] += torch.tensor(-2./3. * np.sin(x)**3, device=dev)
-    u[:, 1] += torch.tensor(
-        np.sin(x)**2 * (y * np.cos(x) - z * np.sin(x)),
-        device=dev
-    )
-    u[:, 2] += torch.tensor(
-        np.sin(x)**2 * (z * np.cos(x) + y * np.sin(x)),
-        device=dev
-    )
-    p = p.view(pre_func_space.nonods)
-    x = pre_func_space.x_all[:, 0]
-    p += torch.tensor(np.sin(x), device=dev)
+# u = torch.zeros(nele, vel_ele.nloc, ndim, device=dev, dtype=torch.float64)  # initial guess
+# p = torch.zeros(nele, pre_ele.nloc, device=dev, dtype=torch.float64)
+# # to test vtk output, set u and p be ana sol here
+# if False:
+#     u = u.view(vel_func_space.nonods, ndim)
+#     x = vel_func_space.x_all[:, 0]
+#     y = vel_func_space.x_all[:, 1]
+#     z = vel_func_space.x_all[:, 2]
+#     u[:, 0] += torch.tensor(-2./3. * np.sin(x)**3, device=dev)
+#     u[:, 1] += torch.tensor(
+#         np.sin(x)**2 * (y * np.cos(x) - z * np.sin(x)),
+#         device=dev
+#     )
+#     u[:, 2] += torch.tensor(
+#         np.sin(x)**2 * (z * np.cos(x) + y * np.sin(x)),
+#         device=dev
+#     )
+#     p = p.view(pre_func_space.nonods)
+#     x = pre_func_space.x_all[:, 0]
+#     p += torch.tensor(np.sin(x), device=dev)
+#
+# # u = torch.ones_like(u)
+# u_all = np.empty([tstep, nele, vel_ele.nloc, ndim])
+# u_all[0, :, :, :] = u.view(nele, vel_ele.nloc, ndim).cpu().numpy()
+# p_all = np.empty([tstep, nele, pre_ele.nloc])
+# p_all[0, ...] = p.view(nele, -1).cpu().numpy()
 
-# u = torch.ones_like(u)
-u_all = np.empty([tstep, nele, vel_ele.nloc, ndim])
-u_all[0, :, :, :] = u.view(nele, vel_ele.nloc, ndim).cpu().numpy()
-p_all = np.empty([tstep, nele, pre_ele.nloc])
-p_all[0, ...] = p.view(nele, -1).cpu().numpy()
+# print('5. time elapsed, ',time.time()-starttime)
+# print('6. time elapsed, ',time.time()-starttime)
 
-print('5. time elapsed, ',time.time()-starttime)
-print('6. time elapsed, ',time.time()-starttime)
-
-if False:  # per element condensation Rotation matrix (diagonal)
-    R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40.,
-                     3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
-    # R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10.,
-    #         1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
-if True:  # from PnDG to P1CG
-    p1dg_nonods = vel_func_space.p1dg_nonods
-    cg_ndglno = vel_func_space.cg_ndglno
-    cg_nonods = vel_func_space.cg_nonods
-    I_fc_colx = np.arange(0, p1dg_nonods)
-    I_fc_coly = cg_ndglno
-    I_fc_val = np.ones(p1dg_nonods)
-    I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
-                      shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
-    I_cf = I_cf.tocsr()
-    print('don assemble I_cf I_fc', time.time()-starttime)
-    no_dgnodes = I_cf.sum(axis=1)
-    print('done suming', time.time()-starttime)
-    # weight by 1 / overlapping dg nodes number
-    for i in range(p1dg_nonods):
-        I_fc_val[i] /= no_dgnodes[I_fc_coly[i]]
-    print('done weighting', time.time()-starttime)
-    # for i in tqdm(range(cg_nonods)):
-    #     # no_dgnodes = np.sum(I_cf[i,:])
-    #     I_cf[i,:] /= no_dgnodes[i]
-    #     I_fc[:,i] /= no_dgnodes[i]
-    # print('done weighting', time.time()-starttime)
-    I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
-                      shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
-    I_cf = I_cf.tocsr()
-    I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
-                      shape=(p1dg_nonods, cg_nonods))  # coarse to fine == CG to DG
-    I_fc = I_fc.tocsr()
-    print('done transform to csr', time.time()-starttime)
-    # transfer to torch device
-    I_fc = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_fc.indptr),
-                                   col_indices=torch.tensor(I_fc.indices),
-                                   values=I_fc.data,
-                                   size=(p1dg_nonods, cg_nonods),
-                                   device=dev)
-    I_cf = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_cf.indptr),
-                                   col_indices=torch.tensor(I_cf.indices),
-                                   values=I_cf.data,
-                                   size=(cg_nonods, p1dg_nonods),
-                                   device=dev)
-    sf_nd_nb.set_data(I_dc=I_fc, I_cd=I_cf)
+# if False:  # per element condensation Rotation matrix (diagonal)
+#     R = torch.tensor([1./30., 1./30., 1./30., 3./40., 3./40., 3./40.,
+#                      3./40., 3./40., 3./40., 9./20.], device=dev, dtype=torch.float64)
+#     # R = torch.tensor([1./10., 1./10., 1./10., 1./10., 1./10., 1./10.,
+#     #         1./10., 1./10., 1./10., 1./10.], device=dev, dtype=torch.float64)
+# if True:  # from PnDG to P1CG
+#     p1dg_nonods = vel_func_space.p1dg_nonods
+#     cg_ndglno = vel_func_space.cg_ndglno
+#     cg_nonods = vel_func_space.cg_nonods
+#     I_fc_colx = np.arange(0, p1dg_nonods)
+#     I_fc_coly = cg_ndglno
+#     I_fc_val = np.ones(p1dg_nonods)
+#     I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
+#                       shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
+#     I_cf = I_cf.tocsr()
+#     print('don assemble I_cf I_fc', time.time()-starttime)
+#     no_dgnodes = I_cf.sum(axis=1)
+#     print('done suming', time.time()-starttime)
+#     # weight by 1 / overlapping dg nodes number
+#     for i in range(p1dg_nonods):
+#         I_fc_val[i] /= no_dgnodes[I_fc_coly[i]]
+#     print('done weighting', time.time()-starttime)
+#     # for i in tqdm(range(cg_nonods)):
+#     #     # no_dgnodes = np.sum(I_cf[i,:])
+#     #     I_cf[i,:] /= no_dgnodes[i]
+#     #     I_fc[:,i] /= no_dgnodes[i]
+#     # print('done weighting', time.time()-starttime)
+#     I_cf = coo_matrix((I_fc_val, (I_fc_coly, I_fc_colx)),
+#                       shape=(cg_nonods, p1dg_nonods))  # fine to coarse == DG to CG
+#     I_cf = I_cf.tocsr()
+#     I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
+#                       shape=(p1dg_nonods, cg_nonods))  # coarse to fine == CG to DG
+#     I_fc = I_fc.tocsr()
+#     print('done transform to csr', time.time()-starttime)
+#     # transfer to torch device
+#     I_fc = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_fc.indptr),
+#                                    col_indices=torch.tensor(I_fc.indices),
+#                                    values=I_fc.data,
+#                                    size=(p1dg_nonods, cg_nonods),
+#                                    device=dev)
+#     I_cf = torch.sparse_csr_tensor(crow_indices=torch.tensor(I_cf.indptr),
+#                                    col_indices=torch.tensor(I_cf.indices),
+#                                    values=I_cf.data,
+#                                    size=(cg_nonods, p1dg_nonods),
+#                                    device=dev)
+#     sf_nd_nb.set_data(I_dc=I_fc, I_cd=I_cf)
 #         np.savetxt('I_fc.txt', I_fc.to_dense().cpu().numpy(), delimiter=',')
 #         np.savetxt('I_cf.txt', I_cf.to_dense().cpu().numpy(), delimiter=',')
 print('7. time elapsed, ',time.time()-starttime)
@@ -268,28 +240,43 @@ if False and config.isoparametric:  # test curvilinear elements
     sf_nd_nb.pre_func_space.x_ref_in += torch.tensor(d_x_all, device=dev, dtype=torch.float64
                                                      ).view(nele, -1, ndim).transpose(dim0=-1, dim1=-2)
 
-if (config.solver=='iterative') :
+if not config.isFSI:
+    no_total_dof = nele * (vel_ele.nloc * ndim+ pre_ele.nloc)  # velocity, pressure
+else:
+    no_total_dof = nele * (vel_ele.nloc * ndim * 2 + pre_ele.nloc)  # velocity, displacmeent, pressure
+if config.solver=='iterative':
     print('i am going to time loop')
     print('8. time elapsed, ',time.time()-starttime)
     # print("Using quit()")
     # quit()
     r0l2all = []
     # time loop
-    r0 = torch.zeros(nele * (vel_ele.nloc * ndim + pre_ele.nloc),
+    r0 = torch.zeros(no_total_dof,
                      device=dev, dtype=torch.float64)
-    r0_list = volume_mf_st.slicing_x_i(r0)
+    r0_dict = volume_mf_st.slicing_x_i(r0)
     if True:
-        x_i = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        x_rhs = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        x_i_list = volume_mf_st.slicing_x_i(x_i)
-        x_i_n = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # last step soln
-        u_n, p_n = volume_mf_st.slicing_x_i(x_i_n)
-        u_k = torch.zeros(u_nonods * ndim, device=dev, dtype=torch.float64)  # non-linear velocity
+        x_i = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
+        x_rhs = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
+        x_i_dict = volume_mf_st.slicing_x_i(x_i)
+        # x_i_n = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)  # last step soln
+        # x_i_n_dict = volume_mf_st.slicing_x_i(x_i_n)
+        # let's create a list of tensors to store J+1 previoius timestep values
+        # for time integrator
+        # x_all_previous[0] is x_all_t (previoius timestep)
+        # x_all_previous[i] is x_all_(t-i) (i step before)
+        x_all_previous = [volume_mf_st.slicing_x_i(torch.zeros(no_total_dof, dtype=torch.float64, device=dev))
+                          for _ in range(config.time_order+1)]
+        # non-linear velocity/displacement/pressure (don't actually needs pressure though)
+        x_i_k = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)  # non-linear velocity/disp/pressure
+        x_i_k_dict = volume_mf_st.slicing_x_i(x_i_k)
+
         # get pressure laplacian on P1CG, will be stored in
         # sf_nd_nb.sfc_data_Lp
         pressure_matrix.get_RAR_and_sfc_data_Lp(
-            whichc, ncolor,
-            fina, cola, ncola
+            sf_nd_nb.sparse_f.whichc, sf_nd_nb.sparse_f.ncolor,
+            sf_nd_nb.sparse_f.fina,
+            sf_nd_nb.sparse_f.cola,
+            sf_nd_nb.sparse_f.ncola
         )
 
         # DEBUG: assemble Lp col by col
@@ -299,91 +286,94 @@ if (config.solver=='iterative') :
             np.savetxt('Lpmat_colbycolassemble.txt', Lpmat.todense(), delimiter=',')
         # solve a stokes problem as initial velocity
         if config.initialCondition == 2:
-            print('going to solve steady stokes problem as initial condition')
-            sf_nd_nb.isTransient = False  # temporarily omit transient terms
-            sf_nd_nb.use_fict_dt_in_vel_precond = False
-            sf_nd_nb.isES = False
-            x_i *= 0
-            x_i += x_i_n  # use last timestep p as start value
-            r0 *= 0
-            x_rhs *= 0
-            x_rhs = volume_mf_st.get_rhs(
-                x_rhs=x_rhs, u_bc=u_bc, f=f,
-                include_adv=False,
-                u_n=u_n  # last *timestep* velocity
-            )
-            RARvalues = integral_mf.calc_RAR_mf_color(
-                I_fc, I_cf,
-                whichc, ncolor,
-                fina, cola, ncola,
-                include_adv=False,
-                u_n=u_k,
-                u_bc=u_bc[0]
-            )
-            from scipy.sparse import bsr_matrix
-
-            if not config.is_sfc:
-                RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
-                                 shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
-                sf_nd_nb.set_data(RARmat=RAR.tocsr())
-            # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-            RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
-            # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-            space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-                mg.mg_on_P0CG_prep(fina, cola, RARvalues)
-            sf_nd_nb.sfc_data.set_data(
-                space_filling_curve_numbering=space_filling_curve_numbering,
-                variables_sfc=variables_sfc,
-                nlevel=nlevel,
-                nodes_per_level=nodes_per_level
-            )
-
-            if config.linear_solver == 'gmres-mg':
-                x_i, _ = solvers.gmres_mg_solver(
-                    x_i, x_rhs,
-                    tol=config.tol,
-                    include_adv=False,
-                    u_k=u_k,
-                    u_bc=u_bc[0]
-                )
-            print('finishing solving stokes problem as initial conidtion.')
-            x_i_n *= 0
-            x_i_n += x_i
-
-            sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
-            sf_nd_nb.use_fict_dt_in_vel_precond = config.use_fict_dt_in_vel_precond
-            sf_nd_nb.isES = config.isES
+            raise ValueError('using Stokes soln as initial cond is not yet supported in FSI solver...')
+            # print('going to solve steady stokes problem as initial condition')
+            # sf_nd_nb.isTransient = False  # temporarily omit transient terms
+            # sf_nd_nb.use_fict_dt_in_vel_precond = False
+            # sf_nd_nb.isES = False
+            # x_i *= 0
+            # x_i += x_i_n  # use last timestep p as start value
+            # r0 *= 0
+            # x_rhs *= 0
+            # x_rhs = volume_mf_st.get_rhs(
+            #     x_rhs=x_rhs, u_bc=u_bc, f=f,
+            #     include_adv=False,
+            #     u_n=u_n  # last *timestep* velocity
+            # )
+            # RARvalues = integral_mf.calc_RAR_mf_color(
+            #     I_fc, I_cf,
+            #     whichc, ncolor,
+            #     fina, cola, ncola,
+            #     include_adv=False,
+            #     u_n=u_k,
+            #     u_bc=u_bc[0]
+            # )
+            # from scipy.sparse import bsr_matrix
+            #
+            # if not config.is_sfc:
+            #     RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
+            #                      shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
+            #     sf_nd_nb.set_data(RARmat=RAR.tocsr())
+            # # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
+            # RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
+            # # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+            # space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+            #     mg.mg_on_P1CG_prep(fina, cola, RARvalues)
+            # sf_nd_nb.sfc_data.set_data(
+            #     space_filling_curve_numbering=space_filling_curve_numbering,
+            #     variables_sfc=variables_sfc,
+            #     nlevel=nlevel,
+            #     nodes_per_level=nodes_per_level
+            # )
+            #
+            # if config.linear_solver == 'gmres-mg':
+            #     x_i, _ = solvers.gmres_mg_solver(
+            #         x_i, x_rhs,
+            #         tol=config.tol,
+            #         include_adv=False,
+            #         u_k=u_k,
+            #         u_bc=u_bc[0]
+            #     )
+            # print('finishing solving stokes problem as initial conidtion.')
+            # x_i_n *= 0
+            # x_i_n += x_i
+            #
+            # sf_nd_nb.isTransient = config.isTransient  # change back to settings in config
+            # sf_nd_nb.use_fict_dt_in_vel_precond = config.use_fict_dt_in_vel_precond
+            # sf_nd_nb.isES = config.isES
 
         elif config.initialCondition == 1:
-            x_i_n *= 0
+            x_all_previous[0] *= 0
             # x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
 
         elif config.initialCondition == 3:
-            x_i_n *= 0
-            x_i_n += torch.load(config.initDataFile)
+            x_all_previous[0] *= 0
+            x_all_previous[0] += torch.load(config.initDataFile)
 
         p_ana_ave = 0
         if config.hasNullSpace:
             # remove average from pressure
-            p_ana = x_i_n[u_nonods * ndim:u_nonods * ndim + p_nonods]
+            p_ana = x_all_previous[0]['pre']
             p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
 
         x_i *= 0
-        x_i += x_i_n
-        u_all[0, :, :, :] = x_i_list[0].cpu().numpy()
-        p_all[0, ...] = x_i_list[1].cpu().numpy()
+        x_i += x_all_previous[0]
+        # u_all[0, :, :, :] = x_i_list[0].cpu().numpy()
+        # p_all[0, ...] = x_i_list[1].cpu().numpy()
 
         # save initial condition to vtk
         vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % 0)
-        vtk.write_vector(u_n, 'velocity', sf_nd_nb.vel_func_space)
+        vtk.write_vector(x_all_previous[0]['vel'], 'velocity', sf_nd_nb.vel_func_space)
         vtk.write_end()
         vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % 0)
-        vtk.write_scaler(p_n-p_ana_ave, 'pressure', sf_nd_nb.pre_func_space)
+        vtk.write_scaler(x_all_previous[0]['pre'] - p_ana_ave, 'pressure', sf_nd_nb.pre_func_space)
         vtk.write_end()
 
         t = tstart  # physical time (start time)
 
-        alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
+        alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64).view(nele, -1, ndim)
+        alpha_d_n = torch.zeros_like(alpha_u_n, device=dev, dtype=torch.float64)  # disp. (1st derivative) integrator
+        beta_d_n = torch.zeros_like(alpha_u_n, device=dev, dtype=torch.float64)  # disp. (2nd derivativa) integrator
 
         if sf_nd_nb.isPetrovGalerkin:  # get projection operator
             sf_nd_nb.projection_one_order_lower = petrov_galerkin.get_projection_one_order_lower(
@@ -405,16 +395,12 @@ if (config.solver=='iterative') :
                 x_i_n *= 0
                 x_i_n += x_i  # store this step in case we want to use this for next timestep
 
-                # combine inner/inter element contribution
-                u_all[itime, :, :, :] = x_i_list[0].cpu().numpy()
-                p_all[itime, ...] = x_i_list[1].cpu().numpy()
-
                 # output to vtk
                 vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % itime)
-                vtk.write_vector(x_i_list[0], 'velocity', sf_nd_nb.vel_func_space)
+                vtk.write_vector(x_i_dict['vel'], 'velocity', sf_nd_nb.vel_func_space)
                 vtk.write_end()
                 vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-                vtk.write_scaler(x_i_list[1], 'pressure', sf_nd_nb.pre_func_space)
+                vtk.write_scaler(x_i_dict['vel'], 'pressure', sf_nd_nb.pre_func_space)
                 vtk.write_end()
 
                 continue
@@ -424,31 +410,49 @@ if (config.solver=='iterative') :
                     if itime == 1:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=1))
                         alpha_u_n *= 0
-                        alpha_u_n += u_n.view(alpha_u_n.shape)
+                        alpha_u_n += x_all_previous[0]['vel'].view(alpha_u_n.shape)
+                        alpha_d_n *= 0
+                        alpha_d_n += x_all_previous[0]['disp'].view(alpha_d_n.shape)
+                        beta_d_n *= 0
+                        beta_d_n -= x_all_previous[1]['disp'].view(beta_d_n.shape) * sf_nd_nb.bdfscm.beta[1]
+                        # assume 0 initial displacement for displacement thus no need to account for
+                        # displacement at tstep=-1:
+                        #   beta_d_n -= d_(n-1) * sf_nd_nb.bdfscm.beta[1]
                     elif itime == 2:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=2))
                         alpha_u_n *= 0
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * u_n.view(alpha_u_n.shape)
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * torch.tensor(
-                            u_all[itime - 2, :, :, :],
-                            device=dev, dtype=torch.float64).view(alpha_u_n.shape)
+                        alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
+                        alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
+                        alpha_d_n *= 0
+                        alpha_d_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(alpha_d_n.shape)
+                        alpha_d_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(alpha_d_n.shape)
+                        beta_d_n *= 0
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(beta_d_n.shape)
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(beta_d_n.shape)
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(beta_d_n.shape)
                     elif itime == 3:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=3))
                         alpha_u_n *= 0
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * u_n.view(alpha_u_n.shape)
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * torch.tensor(
-                            u_all[itime - 2, :, :, :],
-                            device=dev, dtype=torch.float64).view(alpha_u_n.shape)
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[2] * torch.tensor(
-                            u_all[itime - 3, :, :, :],
-                            device=dev, dtype=torch.float64).view(alpha_u_n.shape)
+                        alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
+                        alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
+                        alpha_u_n += sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['vel'].view(alpha_u_n.shape)
+                        alpha_d_n *= 0
+                        alpha_d_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(alpha_d_n.shape)
+                        alpha_d_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(alpha_d_n.shape)
+                        alpha_d_n += sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['disp'].view(alpha_d_n.shape)
+                        beta_d_n *= 0
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(beta_d_n.shape)
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(beta_d_n.shape)
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(beta_d_n.shape)
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[4] * x_all_previous[3]['disp'].view(beta_d_n.shape)
                 else:
                     alpha_u_n *= 0
-                    alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * u_n.view(alpha_u_n.shape)
-                    for i in range(1, config.time_order):
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[i] * torch.tensor(
-                            u_all[itime - i - 1, :, :, :],
-                            device=dev, dtype=torch.float64).view(alpha_u_n.shape)
+                    alpha_d_n *= 0
+                    for i in range(0, config.time_order):
+                        alpha_u_n += sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['vel'].view(alpha_u_n.shape)
+                        alpha_d_n += sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['disp'].view(alpha_d_n.shape)
+                    for i in range(1, config.time_order + 2):
+                        beta_d_n -= sf_nd_nb.bdfscm.beta[i] * x_all_previous[i - 1]['disp'].view(beta_d_n.shape)
 
             t += dt
             print('====physical time: ', t, ' ====')
@@ -462,11 +466,11 @@ if (config.solver=='iterative') :
             )
             # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
             if config.isGradDivStab or sf_nd_nb.isES:
-                u_ave = petrov_galerkin.get_ave_vel(u_n)
+                u_ave = petrov_galerkin.get_ave_vel(x_all_previous[0]['vel'])
                 sf_nd_nb.set_data(u_ave=u_ave)
 
             x_i *= 0
-            x_i += x_i_n  # use last timestep p as start value
+            x_i += x_all_previous[0]  # use last timestep p as start value
 
             r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
             its = 0  # linear solver iteration
@@ -478,61 +482,52 @@ if (config.solver=='iterative') :
 
             while sf_nd_nb.nits < config.n_its_max:
                 sf_nd_nb.Kmatinv = None
-                u_k *= 0
-                u_k += x_i_list[0].view(u_k.shape)  # non-linear velocity
+                x_i_k *= 0
+                x_i_k += x_i.view(x_i_k.shape)  # non-linear velocity/disp/pressure
+                x_i_dict['disp'][nele_f:nele_f+nele_s, ...] *= 0  # we're solving for correction for displacement in solid
+                # so we set starting value to 0
+                alpha_d_n -= sf_nd_nb.bdfscm.gamma * x_i_k_dict['disp']
+                beta_d_n -= sf_nd_nb.bdfscm.beta[0] * x_i_k_dict['disp']
+                # get rhs and non-linear residual
+                r0 *= 0
                 x_rhs *= 0
+                # get rhs for fluid
                 x_rhs = volume_mf_st.get_rhs(
                     x_rhs=x_rhs, u_bc=u_bc, f=f,
                     include_adv=config.include_adv,
                     u_n=alpha_u_n,  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
                     isAdvExp=config.isAdvExp,  # whether to treat advection explicity
-                    u_k=u_k,  # non-lienar velocity
-                    # u_k=alpha_u_n,  # non-lienar velocity
+                    u_k=x_i_k_dict['vel'][0:nele_f, ...],  # non-lienar velocity
+                    u_m=x_i_k_dict['disp'][0:nele_f, ...],  # mesh velocity
+                    d_n=alpha_d_n,  # previous *timesteps* displacement x BDF coeff.
                 )
-                # get non-linear residual
-                r0 *= 0
+                # get rhs and non-linear residualfor solid
+                x_rhs, r0_dict = volume_mf_he.get_rhs(
+                    rhs_in=x_rhs,  # right-hand side
+                    u=x_i_k_dict['disp'],  # displacement at current non-linear step
+                    u_bc=u_bc,  # boundary condition(s)
+                    f=f,  # body force
+                    u_n=beta_d_n,  # displacement at last timestep(s) (used in BDF scheme)
+                    is_get_nonlin_res=True,
+                    x_i_dict=x_i_dict,
+                    r0_dict=r0_dict,
+                )
+                # get fluid subdomain non-linear residual
                 r0 = volume_mf_st.get_residual_only(
                     r0, x_i, x_rhs,
                     include_adv=config.include_adv,
-                    u_n=u_k,  # last *non-linear iteration step* velocity
+                    x_k=x_i_k,  # last *non-linear iteration step* velocity
                     u_bc=u_bc[0],
+                    include_itf=True,
                 )
-                nr0l2 = torch.linalg.norm(r0)  # stokes is linear prob, we will simply use linear residual as the non-linear residual
+                nr0l2 = volume_mf_st.get_r0_l2_norm(r0)
                 print('============')
                 print('nits = ', sf_nd_nb.nits, 'non-linear residual = ', nr0l2.cpu().numpy())
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
                     break
-                # prepare for MG on SFC-coarse grids
-                if config.use_fict_dt_in_vel_precond:  # change mass matrix magnitude in vel blk preconditioner
-                    sf_nd_nb.dt = sf_nd_nb.fict_dt
-                RARvalues = integral_mf.calc_RAR_mf_color(
-                    I_fc, I_cf,
-                    whichc, ncolor,
-                    fina, cola, ncola,
-                    include_adv=config.include_adv,
-                    u_n=u_k,
-                    u_bc=u_bc[0]
-                )
-                if config.use_fict_dt_in_vel_precond:  # change back to real timestep
-                    sf_nd_nb.dt = config.dt
-                from scipy.sparse import bsr_matrix
-
-                if not config.is_sfc:
-                    RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
-                                     shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
-                    sf_nd_nb.set_data(RARmat=RAR.tocsr())
-                # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-                RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
-                # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-                space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-                    mg.mg_on_P0CG_prep(fina, cola, RARvalues)
-                sf_nd_nb.sfc_data.set_data(
-                    space_filling_curve_numbering=space_filling_curve_numbering,
-                    variables_sfc=variables_sfc,
-                    nlevel=nlevel,
-                    nodes_per_level=nodes_per_level
-                )
+                volume_mf_st.get_RAR_and_sfc_data_Fp(x_i_k, u_bc)
+                volume_mf_he.get_RAR_and_sfc_data_Sp(x_i_k)
                 # print('9. time elapsed, ', time.time() - starttime)
 
                 # dp_i *= 0  # solve for delta p_i and u_i
@@ -550,55 +545,68 @@ if (config.solver=='iterative') :
                     # )
                     x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=max(min(1.e-1*nr0l2, 1.e-1), 1.e-11),  # config.tol,
+                        tol=max(min(1.e-1 * nr0l2, 1.e-1), 1.e-11),  # config.tol,
                         include_adv=config.include_adv,
-                        u_k=u_k,
-                        u_bc=u_bc[0]
+                        x_k=x_i_k,
+                        u_bc=u_bc
                     )
                     total_its += its
                 elif config.linear_solver == 'right-gmres-mg':
                     raise ValueError('right-gmre-mg solver is not implemented!')
-                    x_i = solvers.right_gmres_mg_solver(x_i, x_rhs, config.tol)
+                    # x_i = solvers.right_gmres_mg_solver(x_i, x_rhs, config.tol)
                 else:
                     raise Exception('choose a valid solver...')
-                # get final residual after we're back to fine grid
-                r0 *= 0
-                r0 = volume_mf_st.get_residual_only(
-                    r0, x_i, x_rhs,
-                    include_adv=config.include_adv,
-                    u_n=u_k,
-                    u_bc=u_bc[0],
-                )
-
-                r0l2 = torch.linalg.norm(r0) / fNorm
-                r0l2all.append(r0l2.cpu().numpy())
-                print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
-                      'abs res=', torch.linalg.norm(r0).cpu().numpy(),
-                      'fNorm', fNorm.cpu().numpy())
+                # TODO: I don't think the following is necessary.
+                # # get final residual after we're back to fine grid
+                # r0 *= 0
+                # r0 = volume_mf_st.get_residual_only(
+                #     r0, x_i, x_rhs,
+                #     include_adv=config.include_adv,
+                #     u_n=u_k,
+                #     u_bc=u_bc[0],
+                # )
+                #
+                # r0l2 = torch.linalg.norm(r0) / fNorm
+                # r0l2all.append(r0l2.cpu().numpy())
+                # print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
+                #       'abs res=', torch.linalg.norm(r0).cpu().numpy(),
+                #       'fNorm', fNorm.cpu().numpy())
 
                 # nr0l2 = r0l2
+
+                # solving for new mesh displacement/velocity
+                # I think it's more sensible to compute the mesh displacement rather than
+                # mesh velocity. We can easily get mesh velocity with BDF scheme.
+                x_i = volume_mf_um.solve_for_mesh_disp(x_i)
+                # get mesh velocity and move mesh
+                u_m = ... # (use BDF scheme)
+                sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+                sf_nd_nb.vel_func_space.x_all = ...
+                sf_nd_nb.pre_func_space.x_all = ...
 
                 sf_nd_nb.nits += 1
 
             # if converges,
-            x_i_n *= 0
-            x_i_n += x_i  # store this step in case we want to use this for next timestep
+            # x_i_n *= 0
+            # x_i_n += x_i
+            # store this step in case we want to use this for next timestep
+            for ii in range(len(x_all_previous)-1, 0, -1):
+                x_all_previous[ii] *= 0
+                x_all_previous[ii] += x_all_previous[ii-1]
+            x_all_previous[0] *= 0
+            x_all_previous[0] += x_i
 
             # save x_i at this Re to reuse as the initial condition for higher Re
             torch.save(x_i, config.filename + config.case_name + '_t%.2f.pt' % t)
             print('total its / restart ', total_its)
             total_its = 0
 
-            # combine inner/inter element contribution
-            u_all[itime, :, :, :] = x_i_list[0].cpu().numpy()
-            p_all[itime, ...] = x_i_list[1].cpu().numpy()
-
             # output to vtk
             vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % itime)
-            vtk.write_vector(x_i_list[0], 'velocity', sf_nd_nb.vel_func_space)
+            vtk.write_vector(x_i_dict['vel'], 'velocity', sf_nd_nb.vel_func_space)
             vtk.write_end()
             vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-            vtk.write_scaler(x_i_list[1], 'pressure', sf_nd_nb.pre_func_space)
+            vtk.write_scaler(x_i_dict['pre'], 'pressure', sf_nd_nb.pre_func_space)
             vtk.write_end()
 
             # get l2 error
@@ -611,7 +619,7 @@ if (config.solver=='iterative') :
                 device=dev, dtype=torch.float64).view(-1)
             if config.hasNullSpace:
                 # remove average from pressure
-                p_ave = ns_assemble.get_ave_pressure(x_i_list[1].cpu().numpy())
+                p_ave = ns_assemble.get_ave_pressure(x_i_dict['pre'].cpu().numpy())
                 x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
                 p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
                 p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
@@ -842,7 +850,7 @@ if config.solver == 'direct':
 #############################################################
 # write output
 #############################################################
-# output 1: 
+# output 1:
 # to output, we need to change u_all to 2D array
 # (tstep, ndim*nonods)
 u_all = np.reshape(u_all, (tstep, nele*vel_ele.nloc*ndim))
