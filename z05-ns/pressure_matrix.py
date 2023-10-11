@@ -122,11 +122,12 @@ def _k_res_one_batch(
     q = sf_nd_nb.pre_func_space.element.n
     v = sf_nd_nb.vel_func_space.element.n  # velocity shape functions
     qx, ndetwei = get_det_nlx(
-        nlx=sf_nd_nb.pre_func_space.element.nlx,
+        nlx=sf_nd_nb.pre_func_space.x_element.nlx,
         x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
         weight=sf_nd_nb.pre_func_space.element.weight,
         nloc=p_nloc,
-        ngi=sf_nd_nb.pre_func_space.element.ngi
+        ngi=sf_nd_nb.pre_func_space.element.ngi,
+        real_nlx=sf_nd_nb.pre_func_space.element.nlx,
     )
 
     # local K
@@ -247,12 +248,13 @@ def _s_res_fi(
 
     # shape function on this side
     sqx, sdetwei, snormal = sdet_snlx(
-        snlx=sf_nd_nb.pre_func_space.element.snlx,
+        snlx=sf_nd_nb.pre_func_space.x_element.snlx,
         x_loc=sf_nd_nb.pre_func_space.x_ref_in[E_F_i],
         sweight=sf_nd_nb.pre_func_space.element.sweight,
         nloc=sf_nd_nb.pre_func_space.element.nloc,
         sngi=sf_nd_nb.pre_func_space.element.sngi,
-        sn=sf_nd_nb.pre_func_space.element.sn
+        sn=sf_nd_nb.pre_func_space.x_element.sn,
+        real_snlx=sf_nd_nb.pre_func_space.element.snlx,
     )
     sq = sf_nd_nb.pre_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     sv = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # velocity shape functions on faces
@@ -262,12 +264,13 @@ def _s_res_fi(
 
     # shape function on the other side
     sqx_nb, _, snormal_nb = sdet_snlx(
-        snlx=sf_nd_nb.pre_func_space.element.snlx,
+        snlx=sf_nd_nb.pre_func_space.x_element.snlx,
         x_loc=sf_nd_nb.pre_func_space.x_ref_in[E_F_inb],
         sweight=sf_nd_nb.pre_func_space.element.sweight,
         nloc=sf_nd_nb.pre_func_space.element.nloc,
         sngi=sf_nd_nb.pre_func_space.element.sngi,
-        sn=sf_nd_nb.pre_func_space.element.sn
+        sn=sf_nd_nb.pre_func_space.x_element.sn,
+        real_snlx=sf_nd_nb.pre_func_space.element.snlx
     )
     # get faces we want
     sq_nb = sf_nd_nb.pre_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
@@ -429,12 +432,13 @@ def _s_res_fb(
 
     # shape function
     sqx, sdetwei, snormal = sdet_snlx(
-        snlx=sf_nd_nb.pre_func_space.element.snlx,
+        snlx=sf_nd_nb.pre_func_space.x_element.snlx,
         x_loc=sf_nd_nb.pre_func_space.x_ref_in[E_F_b],
         sweight=sf_nd_nb.pre_func_space.element.sweight,
         nloc=sf_nd_nb.pre_func_space.element.nloc,
         sngi=sf_nd_nb.pre_func_space.element.sngi,
-        sn=sf_nd_nb.pre_func_space.element.sn
+        sn=sf_nd_nb.pre_func_space.x_element.sn,
+        real_snlx=sf_nd_nb.pre_func_space.element.snlx,
     )
     sv = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     sq = sf_nd_nb.pre_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
@@ -964,11 +968,12 @@ def pre_precond_invQ(x_p):
     x_p = x_p.view(nele_f, p_nloc)
     q = sf_nd_nb.pre_func_space.element.n
     _, qdetwei = get_det_nlx(
-        nlx=sf_nd_nb.pre_func_space.element.nlx,
+        nlx=sf_nd_nb.pre_func_space.x_element.nlx,
         x_loc=sf_nd_nb.pre_func_space.x_ref_in,
         weight=sf_nd_nb.pre_func_space.element.weight,
         nloc=p_nloc,
-        ngi=sf_nd_nb.pre_func_space.element.ngi
+        ngi=sf_nd_nb.pre_func_space.element.ngi,
+        real_nlx=sf_nd_nb.pre_func_space.element.nlx,
     )
     Q = torch.einsum(
         'mg,ng,bg->bmn',

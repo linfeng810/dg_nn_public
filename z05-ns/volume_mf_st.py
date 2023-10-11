@@ -73,7 +73,7 @@ def calc_RAR_mf_color(
             Rm *= 0
             for idim in range(ndim):
                 # Rm[:, idim] += torch.mv(I_fc, mask[:, idim].view(-1))  # (p1dg_nonods, ndim)
-                Rm_dict['vel'][0:nele_f, : idim] += \
+                Rm_dict['vel'][0:nele_f, :, idim] += \
                     (mg_le.vel_p1dg_to_pndg_prolongator(
                         torch.mv(I_fc, mask[:, idim].view(-1))
                 )).view(nele_f, -1)  # (p3dg_nonods, ndim)
@@ -1791,13 +1791,13 @@ def _k_update_rhs_one_batch(
         ngi=sf_nd_nb.vel_func_space.element.ngi
     )
     q = sf_nd_nb.pre_func_space.element.n
-    _, qdetwei = get_det_nlx(
-        nlx=sf_nd_nb.pre_func_space.element.nlx,
-        x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
-        weight=sf_nd_nb.pre_func_space.element.weight,
-        nloc=p_nloc,
-        ngi=sf_nd_nb.pre_func_space.element.ngi
-    )
+    # _, qdetwei = get_det_nlx(
+    #     nlx=sf_nd_nb.pre_func_space.element.nlx,
+    #     x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
+    #     weight=sf_nd_nb.pre_func_space.element.weight,
+    #     nloc=p_nloc,
+    #     ngi=sf_nd_nb.pre_func_space.element.ngi
+    # )
 
     # p \nabla.v contribution to vel rhs
     rhs[0][idx_in, ...] += torch.einsum(
@@ -2048,11 +2048,12 @@ def pre_blk_precon(x_p):
     x_p = x_p.view(nele, p_nloc)
     q = sf_nd_nb.pre_func_space.element.n
     _, qdetwei = get_det_nlx(
-        nlx=sf_nd_nb.pre_func_space.element.nlx,
+        nlx=sf_nd_nb.pre_func_space.x_element.nlx,
         x_loc=sf_nd_nb.pre_func_space.x_ref_in,
         weight=sf_nd_nb.pre_func_space.element.weight,
         nloc=p_nloc,
-        ngi=sf_nd_nb.pre_func_space.element.ngi
+        ngi=sf_nd_nb.pre_func_space.element.ngi,
+        real_nlx=sf_nd_nb.pre_func_space.element.nlx
     )
     Q = torch.einsum(
         'mg,ng,bg->bmn',

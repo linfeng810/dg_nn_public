@@ -71,7 +71,8 @@ print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ',
 #     alnmt: object
 #     [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndglno, cg_nonods] = mesh_init.init_3d()
 vel_func_space = FuncSpace(vel_ele, name="Velocity", mesh=config.mesh, dev=dev)
-pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev)
+pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev,
+                           not_iso_parametric=True, x_element=vel_ele)  # super-parametric pressure ele.
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
@@ -211,6 +212,7 @@ print('7. time elapsed, ',time.time()-starttime)
 
 u_nonods = sf_nd_nb.vel_func_space.nonods
 p_nonods = sf_nd_nb.pre_func_space.nonods
+u_nloc = sf_nd_nb.vel_func_space.element.nloc
 if False and config.isoparametric:  # test curvilinear elements
     # now we are deforming the mesh accroding to a known displacement:
     # d = (i j k) * a sin(pi(x+1)) sin(pi(y+1)) sin(pi(z+1))
@@ -257,6 +259,7 @@ if config.solver=='iterative':
     if True:
         x_i = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
         x_rhs = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
+        u_m = torch.zeros(u_nonods * ndim, device=dev, dtype=torch.float64)
         x_i_dict = volume_mf_st.slicing_x_i(x_i)
         # x_i_n = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)  # last step soln
         # x_i_n_dict = volume_mf_st.slicing_x_i(x_i_n)
@@ -579,14 +582,24 @@ if config.solver=='iterative':
                 # mesh velocity. We can easily get mesh velocity with BDF scheme.
                 x_i = volume_mf_um.solve_for_mesh_disp(x_i)
                 # get mesh velocity and move mesh
-                u_m = ... # (use BDF scheme)
+                u_m *= 0  # (use BDF scheme)
+                u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
+                for ii in range(1, sf_nd_nb.bdfscm.order + 1):
+                    u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii-1] / dt
                 sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
-                sf_nd_nb.vel_func_space.x_all = ...
-                sf_nd_nb.pre_func_space.x_all = ...
+                # move velocity mesh
+                sf_nd_nb.vel_func_space.x_ref_in *= 0
+                sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                    + x_i_dict['disp'].permute(0, 2, 1)
+
+                sf_nd_nb.pre_func_space.x_ref_in *= 0
+                sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
 
                 sf_nd_nb.nits += 1
 
             # if converges,
+            sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+            sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
             # x_i_n *= 0
             # x_i_n += x_i
             # store this step in case we want to use this for next timestep
