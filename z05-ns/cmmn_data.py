@@ -27,6 +27,7 @@ class SfNdNb:
         self.sfc_data_F = SFCdata()  # sfc data for velocity block (adv + transient + diff)
         self.sfc_data_Lp = SFCdata()  # sfc data for pressure laplacian
         self.sfc_data_S = SFCdata()  # sfc data for solid block
+        self.sfc_data_Um = SFCdata()  # sfc data for mesh displacement/velocity
         self.Lpmatinv = None  # inverse of pressure Laplacian
         self.Kmatinv = None  # velocity block of stokes problem
         # velocity block of stokes problem - values and coordinates (coo format)
