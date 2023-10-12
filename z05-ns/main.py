@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 import cmmn_data
 import config
+import fsi_output
 import output
 import petrov_galerkin
 import shape_function
@@ -32,6 +33,7 @@ import bc_f
 import time
 import pressure_matrix
 import ns_assemble
+import materials
 
 starttime = time.time()
 
@@ -77,8 +79,14 @@ sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
 if config.isFSI:
-    disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev)  # displacement func space
+    disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev,
+                                get_pndg_ndglbno=True)  # displacement func space
     sf_nd_nb.set_data(disp_func_space=disp_func_space)
+
+material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
+                                ndim, dev, config.mu, config.lam)
+# material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
+sf_nd_nb.set_data(material=material)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_ndglno,
@@ -369,7 +377,7 @@ if config.solver=='iterative':
         vtk.write_vector(x_all_previous[0]['vel'], 'velocity', sf_nd_nb.vel_func_space)
         vtk.write_end()
         vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % 0)
-        vtk.write_scaler(x_all_previous[0]['pre'] - p_ana_ave, 'pressure', sf_nd_nb.pre_func_space)
+        vtk.write_scalar(x_all_previous[0]['pre'] - p_ana_ave, 'pressure', sf_nd_nb.pre_func_space)
         vtk.write_end()
 
         t = tstart  # physical time (start time)
@@ -403,7 +411,7 @@ if config.solver=='iterative':
                 vtk.write_vector(x_i_dict['vel'], 'velocity', sf_nd_nb.vel_func_space)
                 vtk.write_end()
                 vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-                vtk.write_scaler(x_i_dict['vel'], 'pressure', sf_nd_nb.pre_func_space)
+                vtk.write_scalar(x_i_dict['vel'], 'pressure', sf_nd_nb.pre_func_space)
                 vtk.write_end()
 
                 continue
@@ -580,7 +588,7 @@ if config.solver=='iterative':
                 # solving for new mesh displacement/velocity
                 # I think it's more sensible to compute the mesh displacement rather than
                 # mesh velocity. We can easily get mesh velocity with BDF scheme.
-                x_i = volume_mf_um.solve_for_mesh_disp(x_i)
+                x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
                 # get mesh velocity and move mesh
                 u_m *= 0  # (use BDF scheme)
                 u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
@@ -619,7 +627,7 @@ if config.solver=='iterative':
             vtk.write_vector(x_i_dict['vel'], 'velocity', sf_nd_nb.vel_func_space)
             vtk.write_end()
             vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-            vtk.write_scaler(x_i_dict['pre'], 'pressure', sf_nd_nb.pre_func_space)
+            vtk.write_scalar(x_i_dict['pre'], 'pressure', sf_nd_nb.pre_func_space)
             vtk.write_end()
 
             # get l2 error
@@ -856,7 +864,7 @@ if config.solver == 'direct':
     vtk.write_vector(torch.tensor(u_sol, dtype=torch.float64), 'velocity', sf_nd_nb.vel_func_space)
     vtk.write_end()
     vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % 1)
-    vtk.write_scaler(torch.tensor(p_sol, dtype=torch.float64), 'pressure', sf_nd_nb.pre_func_space)
+    vtk.write_scalar(torch.tensor(p_sol, dtype=torch.float64), 'pressure', sf_nd_nb.pre_func_space)
     vtk.write_end()
 
 

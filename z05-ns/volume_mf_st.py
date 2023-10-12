@@ -1989,8 +1989,10 @@ def slicing_x_i(x_i, include_p=True, isFSI=config.isFSI):
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
         p_nloc = sf_nd_nb.pre_func_space.element.nloc
         u = x_i[0:nele*u_nloc*ndim].view(nele, u_nloc, ndim)
-        d = x_i[nele*u_nloc*ndim:nele*u_nloc*ndim*2].view(nele, p_nloc)
-        p = x_i[nele*u_nloc*ndim*2:nele*u_nloc*ndim*2+nele*p_nloc].view(nele, p_nloc)
+        d = x_i[nele*u_nloc*ndim:
+                nele*u_nloc*ndim*2].view(nele, u_nloc, ndim)
+        p = x_i[nele*u_nloc*ndim*2:
+                nele*u_nloc*ndim*2+nele*p_nloc].view(nele, p_nloc)
     return {'vel': u, 'pre': p, 'disp': d}
 
 

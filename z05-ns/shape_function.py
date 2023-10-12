@@ -1732,7 +1732,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc, sngi, sn=None, real_snlx=None):
             'fjng,bin,fn,fjk->bfigk',
             snlx,
             x_loc,
-            sn.sum(-1) != 0,
+            (sn.sum(-1) != 0).to(torch.float64),
             drst_duv,
         )
         ddu_x_ddv = torch.linalg.cross(

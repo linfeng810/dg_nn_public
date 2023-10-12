@@ -1,4 +1,6 @@
 import torch
+
+import sparsity
 from mesh_init import init_2d, init_3d
 from shape_function import SHATRInew
 # import config
@@ -84,7 +86,8 @@ class FuncSpace(object):
     cg_nonods
     """
     def __init__(self, element: Element, mesh, dev, name: str = "",
-                 not_iso_parametric=False, x_element=None):
+                 not_iso_parametric=False, x_element=None,
+                 get_pndg_ndglbno=False):
         """
         if we're using superparametric element, we should provice
         the element for geometry as well (might be higher order)
@@ -172,6 +175,10 @@ class FuncSpace(object):
                                                            self.x_element.ndim,
                                                            dev)
         self.not_iso_parametric = not_iso_parametric
+        self.pndg_ndglbno = None  # to store pndg node global number
+        if get_pndg_ndglbno:
+            self.pndg_ndglbno = sparsity.get_pndg_sparsity(self)
+            self.pncg_nonods = self.pndg_ndglbno.shape[1]
 
     def _get_cell_volume(self):
         """this is to get element volume and store in self.cell_volume"""
@@ -245,3 +252,26 @@ class FuncSpace(object):
             torch.inverse(np_1_np_1), np_np_1
         )  # p2dg_nloc x p3dg_nloc
         return restrictor
+
+    @staticmethod
+    def get_pndg_prolongator(p, gi_order, ndim, dev):
+        # get prolongator from order p element to order (p+1) element
+        p_ele = Element(p, gi_order, ndim, dev)
+        p_1_ele = Element(p+1, gi_order, ndim, dev)
+        np_1_np_1 = torch.einsum(
+            'mg,ng,g->mn',
+            p_1_ele.n,
+            p_1_ele.n,
+            p_1_ele.weight
+        )
+        np_1_np = torch.einsum(
+            'mg,ng,g->mn',
+            p_1_ele.n,
+            p_ele.n,
+            p_1_ele.weight,
+        )
+        prolongator = torch.matmul(
+            torch.inverse(np_1_np_1),
+            np_1_np,
+        )
+        return prolongator

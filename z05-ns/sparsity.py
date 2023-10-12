@@ -5,7 +5,7 @@ import color
 from cmmn_data import Sparsity
 import config
 import numpy as np
-from scipy.sparse import coo_matrix, bsr_matrix
+from scipy.sparse import coo_matrix, bsr_matrix, lil_matrix
 import torch
 from get_nb import getfin_p1cg
 
@@ -148,3 +148,26 @@ def get_cd_dc_prolongator_restrictor(cg_ndglno, cg_nonods, p1dg_nonods):
                                    size=(cg_nonods, p1dg_nonods),
                                    device=dev)
     return I_fc, I_cf
+
+
+def get_pndg_sparsity(func_space):
+    """
+    get PnDG mesh sparsity. Input is a function space object,
+    practically, we will only use the fluid subdomain,
+    so we will only get the PnDG sparsity in the fluid subdomain:
+    (0:nele_f) elements.
+    """
+    nloc = func_space.element.nloc
+    # Get the unique points in the mesh
+    pndg_x_all = func_space.x_all.reshape((-1, ndim))[0:config.nele_f * nloc, :]
+    tolerance = 1e-10
+    pndg_x_all_rounded = np.round(pndg_x_all / tolerance) * tolerance
+    pncg_x_all = np.unique(pndg_x_all_rounded, axis=0)
+
+    # Create a sparse matrix where each row corresponds to a point in the old list,
+    # and columns represent whether that point matches a unique point or not
+    is_matching = lil_matrix((len(pndg_x_all), len(pncg_x_all)))
+
+    for i, pncg_point in enumerate(pncg_x_all):
+        is_matching[:, i] = np.all(pndg_x_all_rounded == pncg_point, axis=1)
+    return is_matching

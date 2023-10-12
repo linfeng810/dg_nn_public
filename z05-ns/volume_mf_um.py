@@ -44,6 +44,7 @@ def solve_for_mesh_disp(
     """
     x_i = _solve_diffusion(x_i)
     x_i = _project_to_make_continuous(x_i)
+    x_i = _make_0_bc_strongly_enforced(x_i)
     return x_i
 
 
@@ -70,8 +71,49 @@ def _solve_diffusion(
 def _project_to_make_continuous(
         x_i
 ):
-    # make 0:nele_f of x_i[nele_f, nloc, ndim] C1 continuous
-    # don't know how though...
+    """
+    make 0:nele_f of x_i[nele_f, nloc, ndim] C1 continuous
+    """
+    x_i_f = np.zeros((nele_f, sf_nd_nb.disp_func_space.element.nloc, ndim), dtype=np.float64)
+    x_i_f += x_i[0:nele_f, ...].view(-1, ndim).cpu().numpy()
+    pncg_nonods = sf_nd_nb.disp_func_space.pncg_nonods
+    x_i_cg = np.zeros((pncg_nonods, ndim), dtype=np.float64)
+    for idim in range(ndim):
+        x_i_cg[:, idim] += x_i_f[:, idim] @ sf_nd_nb.disp_func_space.pndg_ndglbno / \
+                           sf_nd_nb.disp_func_space.pndg_ndglbno.sum(axis=1)
+        x_i_f[:, idim] *= 0
+        x_i_f[:, idim] += sf_nd_nb.disp_func_space.pndg_ndglbno @ x_i_cg[:, idim]
+    x_i[0:nele_f, ...] *= 0
+    x_i[0:nele_f, ...] += torch.tensor(x_i_f, device=dev, dtype=torch.float64).view(nele_f, -1, ndim)
+    return x_i
+
+
+def _make_0_bc_strongly_enforced(x_i):
+    """
+    set displacement on fluid boundaries \partial\Omega_f
+    as 0. We don't want any mesh displacement there.
+    """
+    glb_bcface_type = sf_nd_nb.disp_func_space.glb_bcface_type
+    idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
+    idx_in_f[0:nele_f * nface] = True
+
+    F_b = torch.where(torch.logical_and(
+        torch.logical_or(glb_bcface_type == 0,
+                         glb_bcface_type == 1),
+        idx_in_f))[0]  # boundary face (all boundaries of fluid subdomain, including interface)
+    E_F_b = torch.floor_divide(F_b, nface)
+    f_b = torch.remainder(F_b, nface)
+    x_i_0_bc = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+    for iface in range(nface):
+        idx_iface = f_b == iface
+        sn = sf_nd_nb.disp_func_space.element.sn[f_b[idx_iface], ...]
+        x_i_0_bc[E_F_b[idx_iface]] += torch.einsum(
+            'bni,bn->bni',
+            x_i[E_F_b[idx_iface], ...],  # (batch_in, u_nloc, ndim)
+            (sn.sum(-1) == 0).to(torch.int64),  # (batch_in, u_nloc)
+        )
+    x_i *= 0
+    x_i += x_i_0_bc
     return x_i
 
 
@@ -92,7 +134,7 @@ def _get_rhs(
     """
     nnn = config.no_batch
     brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele_f, dtype=int)
-    idx_in = torch.zeros(nele, dtype=torch.bool)
+    # idx_in = torch.zeros(nele, dtype=torch.bool)
     idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
 
     # change view
