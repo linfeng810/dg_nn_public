@@ -39,9 +39,7 @@ mu = config.mu
 #  g: ngi, or sngi, gaussian points
 #  i,j,k,l: dimension of tensors,
 #  i,j: can also refer to iloc, jloc :-(
-material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
-                                ndim, dev, mu, lam)
-# material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
+material = sf_nd_nb.material
 
 
 def calc_RAR_mf_color(

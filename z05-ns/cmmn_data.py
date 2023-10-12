@@ -48,6 +48,8 @@ class SfNdNb:
         self.u_ave = None  # volume-averaged velocity (nele, ndim)
         self.isES = False  # edge-stabilisation or not
 
+        self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
+
     def set_data(self,
                  vel_func_space=None,
                  pre_func_space=None,
@@ -64,6 +66,7 @@ class SfNdNb:
                  values_st=None,
                  bdfscm=None,
                  u_ave=None,  # volume averaged velocity (nele, ndim)
+                 material=None,  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -97,6 +100,8 @@ class SfNdNb:
             self.bdfscm = bdfscm
         if u_ave is not None:
             self.u_ave = u_ave
+        if material is not None:
+            self.material = material
 
 
 class SFCdata:
