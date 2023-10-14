@@ -175,10 +175,15 @@ class FuncSpace(object):
                                                            self.x_element.ndim,
                                                            dev)
         self.not_iso_parametric = not_iso_parametric
-        self.pndg_ndglbno = None  # to store pndg node global number
+        self.pndg_ndglbno_f = None  # to store pndg node global number (only fluid subdomain)
+        self.pncg_nonods_f = None  # to store pncg nonods (only fluid subdomain)
+        self.pndg_ndglbno = None  # to store pndg node global number (whole domain)
+        self.pncg_nonods = None  # to store pncg nonods (whole domain)
         if get_pndg_ndglbno:
+            self.pndg_ndglbno_f = sparsity.get_fluid_pndg_sparsity(self)
+            self.pncg_nonods_f = self.pndg_ndglbno_f.shape[1]  # this is fluid subdomain PnCG_nonods
             self.pndg_ndglbno = sparsity.get_pndg_sparsity(self)
-            self.pncg_nonods = self.pndg_ndglbno.shape[1]
+            self.pncg_nonods = self.pndg_ndglbno.shape[1]  # this is whole domain PnCG_nonods
 
     def _get_cell_volume(self):
         """this is to get element volume and store in self.cell_volume"""

@@ -43,6 +43,7 @@ filename='z32-square-mesh/square_poiseuille_r2.msh'
 filename = 'z34-bfs/bfs.msh'
 filename = 'z33-fpc/fpc.msh'
 filename = 'z35-fsi/fs_square.msh'
+filename = 'z35-fsi/test_mesh_displacement/square_circle.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:

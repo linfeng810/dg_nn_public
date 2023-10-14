@@ -17,6 +17,7 @@ import map_to_sfc_matrix as map_sfc
 import shape_function
 import time, os.path
 from scipy.sparse import bsr_matrix, linalg
+from sparsity import Sparsity
 
 ndim = config.ndim
 
@@ -179,7 +180,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level, cg_nonods):
     return e_s[0].view(ndim, cg_nonods).transpose(0, 1).contiguous()
 
 
-def mg_on_P1CG_prep(fina, cola, RARvalues):
+def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
     '''
     # Prepare for Multi-grid cycle on P0DG mesh
 
@@ -215,13 +216,13 @@ def mg_on_P1CG_prep(fina, cola, RARvalues):
         number of nodes (DOFs) on each level
     '''
 
-    cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
+    cg_nonods = sparse_in.cg_nonods
     dummy = np.zeros((config.ndim, cg_nonods))
 
     starting_node = 1  # setting according to BY
     graph_trim = -10  # ''
     ncurve = 1  # ''
-    nele = config.nele
+    # nele = config.nele
     ncola = cola.shape[0]
     start_time = time.time()
     # print('to get space filling curve...', time.time() - start_time)
@@ -295,28 +296,28 @@ def mg_on_P1CG_prep(fina, cola, RARvalues):
 def vel_pndg_to_p1dg_restrictor(x):
     y = torch.einsum('ij,kj->ki',
                      sf_nd_nb.vel_func_space.restrictor_to_p1dg,
-                     x.view(config.nele, sf_nd_nb.vel_func_space.element.nloc)).contiguous().view(-1)
+                     x.view(-1, sf_nd_nb.vel_func_space.element.nloc)).contiguous().view(-1)
     return y
 
 
 def vel_p1dg_to_pndg_prolongator(x):
     y = torch.einsum('ij,kj->ki',
                      sf_nd_nb.vel_func_space.prolongator_from_p1dg,
-                     x.view(config.nele, p_nloc(1))).contiguous().view(-1)
+                     x.view(-1, p_nloc(1))).contiguous().view(-1)
     return y
 
 
 def pre_pndg_to_p1dg_restrictor(x):
     y = torch.einsum('ij,kj->ki',
                      sf_nd_nb.pre_func_space.restrictor_to_p1dg,
-                     x.view(config.nele, sf_nd_nb.pre_func_space.element.nloc)).contiguous().view(-1)
+                     x.view(-1, sf_nd_nb.pre_func_space.element.nloc)).contiguous().view(-1)
     return y
 
 
 def pre_p1dg_to_pndg_prolongator(x):
     y = torch.einsum('ij,kj->ki',
                      sf_nd_nb.pre_func_space.prolongator_from_p1dg,
-                     x.view(config.nele, p_nloc(1))).contiguous().view(-1)
+                     x.view(-1, p_nloc(1))).contiguous().view(-1)
     return y
 
 

@@ -19,7 +19,7 @@ import output
 import petrov_galerkin
 import shape_function
 import sparsity
-import volume_mf_st
+import volume_mf_st, volume_mf_um
 from function_space import FuncSpace, Element
 import solvers
 from config import sf_nd_nb
@@ -44,9 +44,8 @@ np.set_printoptions(precision=16)
 
 dev = config.dev
 nele = config.nele
-if config.isFSI:
-    nele_f = config.nele_f
-    nele_s = config.nele_s
+nele_f = config.nele_f
+nele_s = config.nele_s
 # mesh = config.mesh
 # nonods = config.nonods
 # p1dg_nonods = config.p1dg_nonods
@@ -78,10 +77,10 @@ pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev,
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
-if config.isFSI:
-    disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev,
-                                get_pndg_ndglbno=True)  # displacement func space
-    sf_nd_nb.set_data(disp_func_space=disp_func_space)
+
+disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev,
+                            get_pndg_ndglbno=True)  # displacement func space
+sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
 material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
                                 ndim, dev, config.mu, config.lam)
@@ -95,6 +94,37 @@ fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_nonods
 )
 sf_nd_nb.set_data(sparse_f=fluid_spar, sparse_s=solid_spar)
+
+if False:  # test mesh displacement
+    x_i = torch.zeros(vel_func_space.nonods * ndim * 2 + pre_func_space.nonods, device=dev, dtype=torch.float64)
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_i_dict['vel'] += (torch.sin(vel_func_space.x_ref_in[:, 0, :]) *
+                        torch.sin(vel_func_space.x_ref_in[:, 1, :])).unsqueeze(dim=-1).expand(-1, -1, ndim)
+    x_i_dict['pre'] += torch.tensor(
+        np.sin(pre_func_space.x_all[:, 0]) * np.sin(pre_func_space.x_all[:, 1]),
+        device=dev, dtype=torch.float64
+    ).view(nele, -1)
+    for itime in range(30):
+        print('itime', itime)
+        x_i_dict['disp'][nele_f:nele, ...] += (
+            torch.ones(nele_s, disp_func_space.element.nloc, ndim, device=dev, dtype=torch.float64,)
+                                              ) * 0.01
+        x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+
+        # move velocity mesh
+        sf_nd_nb.vel_func_space.x_ref_in *= 0
+        sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                                            + x_i_dict['disp'].permute(0, 2, 1)
+
+        sf_nd_nb.pre_func_space.x_ref_in *= 0
+        sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
+
+        # update x_all after moving mesh
+        sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+        sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
+
+        fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime)
+    raise SystemExit("Code stopped at this point")
 import volume_mf_he
 print('nele=', nele)
 # config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
