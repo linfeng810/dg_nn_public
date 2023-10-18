@@ -132,13 +132,17 @@ def fsi_precond_all(x_i, x_k, u_bc):
     x_temp = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
     x_temp_dict = volume_mf_st.slicing_x_i(x_temp)
     x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_k_dict = volume_mf_st.slicing_x_i(x_k)
 
     # first apply P_S
-    x_temp = disp_precond_all(x_i=x_temp, x_rhs=x_i, x_k=x_k)
-    # move x_temp to x_i
-    x_i_dict['disp'] *= 0
-    x_i_dict['disp'] += x_temp_dict['disp']
+    if nele_s > 0:
+        x_temp = disp_precond_all(x_i=x_temp, x_rhs=x_i, x_k=x_k)
+        # move x_temp to x_i
+        x_i_dict['disp'] *= 0
+        x_i_dict['disp'] += x_temp_dict['disp']
 
+    if nele_f < 1:  # no fluid element
+        return x_i
     # apply top right 2x1 block (I_uS and I_pS)
     x_temp *= 0
     x_temp_dict['vel'] += x_i_dict['vel']
@@ -161,7 +165,7 @@ def fsi_precond_all(x_i, x_k, u_bc):
     volume_mf_st.pre_precond_all(
         x_p=x_i_dict['pre'][0:nele_f, ...],
         include_adv=True,
-        u_n=x_k['vel'][0:nele_f, ...] - x_k['disp'][0:nele_f, ...],
+        u_n=x_k_dict['vel'][0:nele_f, ...] - sf_nd_nb.u_m[0:nele_f, ...],
         u_bc=u_bc[0][0:nele_f, ...],  # vel diri bc
     )
 

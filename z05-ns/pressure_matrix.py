@@ -86,7 +86,7 @@ def _apply_pressure_mat(
             include_adv, u_n, u_bc,
         )
         if doSmooth:
-            x_i = x_i.view(nele, p_nloc)
+            x_i = x_i.view(nele_f, p_nloc)
             if config.blk_solver == 'direct':
                 bdiagK = torch.inverse(bdiagK.view(batch_in, p_nloc, p_nloc))
                 x_i[idx_in, :] += config.jac_wei * torch.einsum(
@@ -123,7 +123,7 @@ def _k_res_one_batch(
     v = sf_nd_nb.vel_func_space.element.n  # velocity shape functions
     qx, ndetwei = get_det_nlx(
         nlx=sf_nd_nb.pre_func_space.x_element.nlx,
-        x_loc=sf_nd_nb.pre_func_space.x_ref_in[idx_in],
+        x_loc=sf_nd_nb.pre_func_space.x_ref_in[0:nele_f, ...][idx_in],
         weight=sf_nd_nb.pre_func_space.element.weight,
         nloc=p_nloc,
         ngi=sf_nd_nb.pre_func_space.element.ngi,
@@ -656,7 +656,7 @@ def _mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
     do 1 mg cycle on the SFC levels, then spit out an error correction on
     P1CG mesh (add it to the input e_i0).
     """
-    cg_nonods = sf_nd_nb.vel_func_space.cg_nonods
+    cg_nonods = sf_nd_nb.sparse_f.cg_nonods
     # get residual on each level
     sfc_restrictor = torch.nn.Conv1d(in_channels=1,
                                      out_channels=1, kernel_size=2,
@@ -665,7 +665,7 @@ def _mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level):
                                               dtype=torch.float64,
                                               device=config.dev).view(1, 1, 2)
 
-    smooth_start_level = config.smooth_start_level
+    smooth_start_level = nlevel - 1
     r0 = r0.view(cg_nonods).view(1, 1, cg_nonods)
     r_s = [r0]  # collection of r
     e_s = [torch.zeros(1, 1, cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
@@ -748,7 +748,7 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
         number of nodes (DOFs) on each level
     '''
 
-    cg_nonods = sf_nd_nb.pre_func_space.cg_nonods
+    cg_nonods = sf_nd_nb.sparse_f.cg_nonods
     dummy = np.zeros((cg_nonods))
 
     starting_node = 1  # setting according to BY
@@ -758,15 +758,15 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
     ncola = cola.shape[0]
     start_time = time.time()
     print('to get space filling curve...', time.time() - start_time)
-    if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
+    if os.path.isfile(config.filename[:-4] + sf_nd_nb.sparse_f.name + '_sfc.npy'):
         print('pre-calculated sfc exists. readin from file...')
-        sfc = np.load(config.filename[:-4] + '_sfc.npy')
+        sfc = np.load(config.filename[:-4] + sf_nd_nb.sparse_f.name + '_sfc.npy')
     else:
         _, sfc = \
             sf.ncurve_python_subdomain_space_filling_curve(
                 cola + 1, fina + 1, starting_node, graph_trim, ncurve
             )  # note that fortran array index start from 1, so cola and fina should +1.
-        np.save(config.filename[:-4] + '_sfc.npy', sfc)
+        np.save(config.filename[:-4] + sf_nd_nb.sparse_f.name + '_sfc.npy', sfc)
     print('to get sfc operators...', time.time() - start_time)
 
     # get coarse grid info
@@ -792,15 +792,15 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
     a_sfc = a_sfc[:ncola_sfc_all_un]  # trim following zeros.
     del b_sfc, ml_sfc
     # choose a level to directly solve on. then we'll iterate from there and levels up
-    if config.smooth_start_level < 0:
-        # for level in range(1,nlevel):
-        #     if nodes_per_level[level] < 2:
-        #         config.smooth_start_level = level
-        #         break
-        config.smooth_start_level += nlevel
-    print('start_level: ', config.smooth_start_level)
+    # if config.smooth_start_level < 0:
+    #     # for level in range(1,nlevel):
+    #     #     if nodes_per_level[level] < 2:
+    #     #         config.smooth_start_level = level
+    #     #         break
+    #     config.smooth_start_level += nlevel
+    # print('start_level: ', config.smooth_start_level)
     variables_sfc = []
-    for level in range(config.smooth_start_level + 1):
+    for level in range(nlevel):
         variables_sfc.append(_get_a_diaga(
             level,
             fin_sfc_nonods,
@@ -811,7 +811,7 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
     # build A on smooth_start_level. all levels before this are smooth levels,
     # on smooth_start_level, we use direct solve. Therefore, A is replaced with a
     # scipy csr_matrix.
-    level = config.smooth_start_level
+    level = nlevel - 1
     a_sfc_l = variables_sfc[level][0]  # this is a torch csr tensors.
     cola = a_sfc_l.col_indices().detach().clone().cpu().numpy()
     fina = a_sfc_l.crow_indices().detach().clone().cpu().numpy()
@@ -955,7 +955,7 @@ def pre_precond_invLp(x_p, x_rhs):
             doSmooth=True,
         )
     # print('x_rhs norm: ', torch.linalg.norm(x_rhs.view(-1)), 'r0 norm: ', torch.linalg.norm(r0.view(-1)))
-    return x_p.view(nele, nloc)
+    return x_p.view(-1, nloc)
 
 
 def pre_precond_invQ(x_p):
@@ -969,7 +969,7 @@ def pre_precond_invQ(x_p):
     q = sf_nd_nb.pre_func_space.element.n
     _, qdetwei = get_det_nlx(
         nlx=sf_nd_nb.pre_func_space.x_element.nlx,
-        x_loc=sf_nd_nb.pre_func_space.x_ref_in,
+        x_loc=sf_nd_nb.pre_func_space.x_ref_in[0:nele_f, ...],
         weight=sf_nd_nb.pre_func_space.element.weight,
         nloc=p_nloc,
         ngi=sf_nd_nb.pre_func_space.element.ngi,

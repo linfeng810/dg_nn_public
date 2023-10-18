@@ -39,7 +39,6 @@ mu = config.mu
 #  g: ngi, or sngi, gaussian points
 #  i,j,k,l: dimension of tensors,
 #  i,j: can also refer to iloc, jloc :-(
-material = sf_nd_nb.material
 
 
 def calc_RAR_mf_color(
@@ -60,11 +59,12 @@ def calc_RAR_mf_color(
     """
     import time
     start_time = time.time()
+    nloc = sf_nd_nb.disp_func_space.element.nloc
     cg_nonods = sf_nd_nb.sparse_s.cg_nonods
     p1dg_nonods = sf_nd_nb.sparse_s.p1dg_nonods
-    total_no_dofs = (sf_nd_nb.vel_func_space.nonods
+    total_no_dofs = (sf_nd_nb.vel_func_space.nonods * ndim
                      + sf_nd_nb.pre_func_space.nonods
-                     + sf_nd_nb.disp_func_space.nonods)
+                     + sf_nd_nb.disp_func_space.nonods * ndim)
     value = torch.zeros(ncola, ndim, ndim, device=dev, dtype=torch.float64)  # NNZ entry values
 
     dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
@@ -86,9 +86,9 @@ def calc_RAR_mf_color(
             Rm *= 0
             for idim in range(ndim):
                 # Rm[:, idim] += torch.mv(I_fc, mask[:, idim].view(-1))  # (p1dg_nonods, ndim)
-                Rm['disp'][nele_f:nele, :, idim] += mg_le.vel_p1dg_to_pndg_prolongator(
+                Rm_dict['disp'][nele_f:nele, :, idim] += mg_le.vel_p1dg_to_pndg_prolongator(
                     torch.mv(I_fc, mask[:, idim].view(-1))
-                )  # (p3dg_nonods, ndim)
+                ).view(nele_s, nloc)  # (p3dg_nonods, ndim)
             ARm *= 0
             ARm = get_residual_only(ARm, x_k,
                                     Rm, dummy,
@@ -100,7 +100,7 @@ def calc_RAR_mf_color(
             for idim in range(ndim):
                 RARm[:, idim] += torch.mv(
                     I_cf,
-                    mg_le.vel_pndg_to_p1dg_restrictor(ARm[nele_f:nele, :, idim])
+                    mg_le.vel_pndg_to_p1dg_restrictor(ARm_dict['disp'][nele_f:nele, :, idim])
                 )  # (cg_nonods, ndim)
             for idim in range(ndim):
                 # add to value
@@ -153,11 +153,11 @@ def get_residual_and_smooth_once(
         if config.blk_solver == 'direct':
             bdiagA = torch.inverse(bdiagA.view(batch_in, nloc * ndim, nloc * ndim))
             x_i_dict = volume_mf_st.slicing_x_i(x_i)
-            x_i['disp'][idx_in, :] += config.jac_wei * torch.einsum(
+            x_i_dict['disp'][idx_in, :] += config.jac_wei * torch.einsum(
                 '...ij,...j->...i',
                 bdiagA,
                 r0_dict['disp'].view(nele, nloc * ndim)[idx_in, :]
-            )
+            ).view(-1, nloc, ndim)
         if config.blk_solver == 'jacobi':
             raise Exception('blk solver not tested for hyper elastic!')
             # new_b = torch.einsum('...ij,...j->...i',
@@ -176,7 +176,7 @@ def get_residual_and_smooth_once(
             # du_i[idx_in, :] = du_i_partial.view(-1, nloc * ndim)
     # r0 = r0.view(nele * nloc, ndim)
     # du_i = du_i.view(nele * nloc, ndim)
-    return r0, du_i
+    return r0, x_i
 
 
 def get_residual_only(
@@ -196,9 +196,12 @@ def get_residual_only(
 
     nloc = sf_nd_nb.disp_func_space.element.nloc
     r0_dict = volume_mf_st.slicing_x_i(r0)
-    x_rhs_dict = volume_mf_st.slicing_x_i(x_rhs)
-    # add pre-computed right hand side to residual
-    r0_dict['disp'] += x_rhs_dict['disp']
+    if type(x_rhs) is not int:
+        x_rhs_dict = volume_mf_st.slicing_x_i(x_rhs)
+        # add pre-computed right hand side to residual
+        r0_dict['disp'] += x_rhs_dict['disp']
+    else:
+        r0 += x_rhs
     for i in range(nnn):
         # volume integral
         idx_in = torch.zeros(nele, device=dev, dtype=torch.bool)
@@ -228,6 +231,8 @@ def _k_res_one_batch(
         idx_in
 ):
     batch_in = diagA.shape[0]
+    if batch_in == 0:
+        return r0_in, diagA, bdiagA
     nloc = sf_nd_nb.disp_func_space.element.nloc
     # change view
     r0_dict = volume_mf_st.slicing_x_i(r0_in)
@@ -244,9 +249,9 @@ def _k_res_one_batch(
         nloc=nloc,
         ngi=sf_nd_nb.disp_func_space.element.ngi
     )
-    AA = material.calc_AA(nx=nx, u=x_k_dict['disp'][idx_in, ...], batch_in=batch_in)
+    AA = sf_nd_nb.material.calc_AA(nx=nx, u=x_k_dict['disp'][idx_in, ...], batch_in=batch_in)
 
-    K = torch.zeros(nele, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
+    K = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
     # (\nabla v)_ij A (\nabla \delta u)_kl
     K += torch.einsum('bjmg,bijklg,blng,bg->bmink', nx, AA, nx, detwei)
     if config.isTransient:
@@ -317,7 +322,7 @@ def _s_res_one_batch(
     for iface in range(nface):
         for nb_gi_aln in range(nface - 1):
             if include_s_blk:
-                idx_iface = (f_i == iface) & (sf_nd_nb.alnmt[F_i] == nb_gi_aln)
+                idx_iface = (f_i == iface) & (sf_nd_nb.disp_func_space.alnmt[F_i] == nb_gi_aln)
                 if idx_iface.sum() < 1:
                     # there is nothing to do here, go on
                     continue
@@ -330,7 +335,7 @@ def _s_res_one_batch(
 
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
-    if ndim == 3:
+    if True: #  ndim == 3:
         for iface in range(nface):
             if include_s_blk:
                 idx_iface = f_b == iface
@@ -378,7 +383,7 @@ def _s_res_fi(
         sngi=sf_nd_nb.disp_func_space.element.sngi,
         sn=sf_nd_nb.disp_func_space.element.sn,
     )
-    sn = sf_nd_nb.disp_func_space.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    sn = sf_nd_nb.disp_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
@@ -396,7 +401,7 @@ def _s_res_fi(
     nb_aln = sf_nd_nb.disp_func_space.element.gi_align[nb_gi_aln, :]
     snx_nb = snx_nb[..., nb_aln]
     # get faces we want
-    sn_nb = sf_nd_nb.disp_func_space.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+    sn_nb = sf_nd_nb.disp_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
     snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, sngi)
     # don't forget to change gaussian points order on sn_nb!
@@ -412,10 +417,10 @@ def _s_res_fi(
     u_inb = x_k_dict['disp'][E_F_inb, ...]  # u^n on the other side (neighbour)
 
     S = torch.zeros(batch_in, nloc, ndim, nloc, ndim, device=dev, dtype=torch.float64)
-    # AA_th = material.calc_AA(nx=snx, u=u_ith, batch_in=batch_in)
-    # AA_nb = material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # AA_th = sf_nd_nb.material.calc_AA(nx=snx, u=u_ith, batch_in=batch_in)
+    # AA_nb = sf_nd_nb.material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
     # use AA_ave instead.
-    AA = material.calc_AA_ave(nx=snx, u=u_ith, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
+    AA = sf_nd_nb.material.calc_AA_ave(nx=snx, u=u_ith, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
     # this side
     # [vi nj] {A \nabla u_kl}
     S += torch.einsum(
@@ -462,7 +467,7 @@ def _s_res_fi(
     #     torch.eye(3, device=dev, dtype=torch.float64),
     # )
     # update residual
-    r_dict['disp'][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, x_i['disp'][E_F_i, ...])
+    r_dict['disp'][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, x_i_dict['disp'][E_F_i, ...])
     # put diagonal of S into diagS
     diagA[E_F_i-batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc*ndim, nloc*ndim),
                                                          dim1=1, dim2=2).view(batch_in, nloc, ndim)
@@ -515,7 +520,7 @@ def _s_res_fi(
     #     torch.eye(3, device=dev, dtype=torch.float64),
     # )
     # update residual
-    r_dict['disp'][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, x_i['disp'][E_F_inb, ...])
+    r_dict['disp'][E_F_i, ...] -= torch.einsum('bminj,bnj->bmi', S, x_i_dict['disp'][E_F_inb, ...])
 
     return r_in, diagA, bdiagA
 
@@ -528,7 +533,7 @@ def _s_res_fb(
     batch_in = f_b.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     if batch_in < 1:  # nothing to do here.
-        return r_in
+        return r_in, diagA, bdiagA
     nloc = sf_nd_nb.disp_func_space.element.nloc
     x_k_dict = volume_mf_st.slicing_x_i(x_k)
     x_i_dict = volume_mf_st.slicing_x_i(x_i)
@@ -552,7 +557,7 @@ def _s_res_fb(
     gamma_e = config.eta_e / h
     # get elasticity tensor at face quadrature points
     # (batch_in, ndim, ndim, ndim, ndim, sngi)
-    AA = material.calc_AA(nx=snx, u=x_k_dict['disp'][E_F_b, ...], batch_in=batch_in)
+    AA = sf_nd_nb.material.calc_AA(nx=snx, u=x_k_dict['disp'][E_F_b, ...], batch_in=batch_in)
 
     # boundary terms from last 3 terms in eq 60b
     # only one side
@@ -600,7 +605,7 @@ def _s_res_fb(
     #     torch.eye(3, device=dev, dtype=torch.float64)
     # )
     # update residual
-    r_dict['disp'][E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', S, x_i['disp'][E_F_b, ...])
+    r_dict['disp'][E_F_b, ...] -= torch.einsum('bminj,bnj->bmi', S, x_i_dict['disp'][E_F_b, ...])
     # get diagonal
     diagA[E_F_b - batch_start_idx, :, :] += torch.diagonal(S.view(batch_in, nloc * ndim, nloc * ndim),
                                                            dim1=-2, dim2=-1).view(batch_in, nloc, ndim)
@@ -663,7 +668,7 @@ def _s_res_fitf(
             - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
             # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
-    F = torch.einsum('bni,bjng->bgij', d_s_th, snx)
+    F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
     # determinant on face quadrature (batch_in, sngi)
     detF = torch.linalg.det(F)
     # inv F
@@ -717,6 +722,8 @@ def get_rhs(rhs_in, u, u_bc, f, u_n=0,
 
 def _k_rhs_one_batch(rhs, u, u_n, f, idx_in):
     batch_in = int(torch.sum(idx_in))
+    if batch_in < 1:  # nothing to do here.
+        return rhs
     nloc = sf_nd_nb.disp_func_space.element.nloc
     n = sf_nd_nb.disp_func_space.element.n
     nx, detwei = get_det_nlx(
@@ -748,7 +755,7 @@ def _k_rhs_one_batch(rhs, u, u_n, f, idx_in):
         ) * config.rho_s / sf_nd_nb.dt
 
     # Nxi Nj P
-    P = material.calc_P(nx=nx,
+    P = sf_nd_nb.material.calc_P(nx=nx,
                         u=u.view(nele, nloc, ndim)[idx_in, ...],
                         batch_in=batch_in)  # PK1 stress evaluated at current state u
     rhs['disp'][idx_in, ...] -= torch.einsum(
@@ -765,6 +772,8 @@ def _s_rhs_one_batch(
         rhs, u, u_bc, idx_in_f,
         is_get_nonlin_res, r0, x_i_dict
 ):
+    if torch.sum(idx_in_f) < 1:  # nothing to do here.
+        return rhs
     nbf = sf_nd_nb.disp_func_space.nbf
     alnmt = sf_nd_nb.disp_func_space.alnmt
     glb_bcface_type = sf_nd_nb.disp_func_space.glb_bcface_type
@@ -815,7 +824,7 @@ def _s_rhs_one_batch(
                 f_inb[idx_iface], E_F_inb[idx_iface],
                 u,
                 nb_gi_aln)
-            r0['disp'][E_F_b_d[idx_iface], ...] += rhs['disp'][E_F_b_d[idx_iface], ...]
+            r0['disp'][E_F_i[idx_iface], ...] += rhs['disp'][E_F_i[idx_iface], ...]
 
     # boundary term
     # if ndim == 3:  # in 3D one element might have multiple boundary faces
@@ -830,7 +839,7 @@ def _s_rhs_one_batch(
             if torch.sum(idx_iface) == 0:
                 continue
             rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3])
-            r0['disp'][E_F_b_d[idx_iface], ...] += rhs['disp'][E_F_b_d[idx_iface], ...]
+            r0['disp'][E_F_b_n[idx_iface], ...] += rhs['disp'][E_F_b_n[idx_iface], ...]
             # interface
             if not is_get_nonlin_res:
                 continue
@@ -879,7 +888,7 @@ def _s_rhs_fi(rhs,
         sn=sf_nd_nb.disp_func_space.element.sn,
     )
     # change gaussian points order
-    nb_aln = sf_nd_nb.gi_align[nb_gi_aln, :]
+    nb_aln = sf_nd_nb.disp_func_space.element.gi_align[nb_gi_aln, :]
     snx_nb = snx_nb[..., nb_aln]
     # fetch faces we want
     sn_nb = sf_nd_nb.disp_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
@@ -897,13 +906,13 @@ def _s_rhs_fi(rhs,
     u_inb = u[E_F_inb, ...]  # u^n on the other side
 
     # [vi nj]{P^n_kl} term
-    # P = material.calc_P(nx=snx, u=u_i, batch_in=batch_in)
-    # P_nb = material.calc_P(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # P = sf_nd_nb.material.calc_P(nx=snx, u=u_i, batch_in=batch_in)
+    # P_nb = sf_nd_nb.material.calc_P(nx=snx_nb, u=u_inb, batch_in=batch_in)
     # P *= 0.5
     # P_nb *= 0.5
     # P += P_nb  # this is {P^n} = 1/2 (P^1 + P^2)  average on both sides
     # new average P = P({F})
-    P = material.calc_P_ave(nx=snx, u=u_i, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
+    P = sf_nd_nb.material.calc_P_ave(nx=snx, u=u_i, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
     # this side + other side
     rhs['disp'][E_F_i, ...] += torch.einsum(
         'bmg,bjg,bijg,bg->bmi',  # i,j is idim/jdim; m, n is mloc/nloc
@@ -917,9 +926,9 @@ def _s_rhs_fi(rhs,
     del P
 
     # [ui nj] {A (\nabla v)_kl] term
-    # AA = material.calc_AA(nx=snx, u=u_i, batch_in=batch_in)
+    # AA = sf_nd_nb.material.calc_AA(nx=snx, u=u_i, batch_in=batch_in)
     # use new AA = A({F})
-    AA = material.calc_AA_ave(nx=snx, u=u_i, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
+    AA = sf_nd_nb.material.calc_AA_ave(nx=snx, u=u_i, nx_nb=snx_nb, u_nb=u_inb, batch_in=batch_in)
     # this side + other side
     rhs['disp'][E_F_i, ...] += torch.einsum(
         'bnijg,bijklg,blmg,bg->bmk',  # i/j : idim/jdim; m/n: mloc/nloc
@@ -935,13 +944,13 @@ def _s_rhs_fi(rhs,
     # penalty term
     # \gamma_e [vi nj] A [uk nl]
     # # this A is 1/2(A_this + A_nb)
-    # AA += material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
+    # AA += sf_nd_nb.material.calc_AA(nx=snx_nb, u=u_inb, batch_in=batch_in)
     # AA *= 0.5
     rhs['disp'][E_F_i, ...] -= torch.einsum(
-        'b,bmg,bj,bijklg,bnklg,bg->bmi',
+        'b,bmg,bjg,bijklg,bnklg,bg->bmi',
         gamma_e,  # (batch_in)
         sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim)
+        snormal,  # (batch_in, ndim, sngi)
         AA,  # (batch_in, ndim, ndim, ndim, ndim, sngi)
         # config.cijkl,
         (
@@ -994,8 +1003,8 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
     gamma_e = config.eta_e / h
     # get elasticity tensor at face quadrature points
     # (batch_in, ndim, ndim, ndim, ndim, sngi)
-    AA = material.calc_AA(nx=snx, u=u[E_F_b, ...], batch_in=batch_in)
-    rhs = rhs.view(nele, nloc, ndim)
+    AA = sf_nd_nb.material.calc_AA(nx=snx, u=u[E_F_b, ...], batch_in=batch_in)
+
     # u_Di nj A \delta v_kl
     rhs['disp'][E_F_b, ...] -= torch.einsum(
         'bni,bng,bjg,bijklg,blmg,bg->bmk',  # could easily by wrong...
@@ -1056,7 +1065,7 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
         sdetwei,  # (batch_in, sngi
     )
     del AA  # no longer need
-    P = material.calc_P(nx=snx, u=u[E_F_b, ...], batch_in=batch_in)
+    P = sf_nd_nb.material.calc_P(nx=snx, u=u[E_F_b, ...], batch_in=batch_in)
     # [v_i n_j] {P_ij}
     rhs['disp'][E_F_b, ...] += torch.einsum(
         'bmg,bjg,bijg,bg->bmi',
@@ -1171,7 +1180,7 @@ def _s_rhs_f_itf(
             - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
             # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
-    F = torch.einsum('bni,bjng->bgij', d_s_th, snx)
+    F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
     # determinant on face quadrature (batch_in, sngi)
     detF = torch.linalg.det(F)
     # inv F
@@ -1205,6 +1214,9 @@ def get_RAR_and_sfc_data_Sp(
     ncola = sf_nd_nb.sparse_s.ncola
     cg_nonods = sf_nd_nb.sparse_s.cg_nonods
 
+    if cg_nonods < 1: # nothing to do here.
+        return None
+
     # prepare for MG on SFC-coarse grids
     RARvalues = calc_RAR_mf_color(
         I_fc, I_cf,
@@ -1221,7 +1233,7 @@ def get_RAR_and_sfc_data_Sp(
     RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
     # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
     space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        mg_le.mg_on_P1CG_prep(fina, cola, RARvalues)
+        mg_le.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_s)
     sf_nd_nb.sfc_data_S.set_data(
         space_filling_curve_numbering=space_filling_curve_numbering,
         variables_sfc=variables_sfc,

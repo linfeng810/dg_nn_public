@@ -208,6 +208,7 @@ def gmres_mg_solver(x_i, x_rhs,
         # beta = torch.linalg.norm(r0)
         v_m[0, :] += r0_real / beta
         w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
+        w_real = r0_real
         w_dict = volume_mf_st.slicing_x_i(w)
         for j in tqdm(range(0, m), disable=config.disabletqdm):
             v_m_j_full_length *= 0
@@ -232,10 +233,9 @@ def gmres_mg_solver(x_i, x_rhs,
             w *= -1.  # providing rhs=0, b-Ax is -Ax
             # apply preconditioner
             w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
-            w_real = r0_real
+            w_real *= 0
+            w_real = get_res_vec_from_dict(x_i=w, x_res=w_real)
             for i in range(0, j+1):
-                w_real *= 0
-                w_real = get_res_vec_from_dict(x_i=w, x_res=w_real)
                 h_m[i, j] = torch.linalg.vecdot(w_real, v_m[i, :])
                 w_real -= h_m[i, j] * v_m[i, :]
 
@@ -485,10 +485,11 @@ def get_dict_from_res_vec(x_res, x_i):
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 
-    x_i_dict['vel'][0:nele_f, ...] += x_res[0:nele_f * u_nloc * ndim]
+    x_i_dict['vel'][0:nele_f, ...] += x_res[0:nele_f * u_nloc * ndim].view(nele_f, u_nloc, ndim)
     x_i_dict['pre'][0:nele_f, ...] += x_res[nele_f * u_nloc * ndim:
-                                            nele_f * u_nloc * ndim + nele_f * p_nloc]
+                                            nele_f * u_nloc * ndim + nele_f * p_nloc].view(nele_f, p_nloc)
     x_i_dict['disp'][nele_f:nele, ...] += x_res[nele_f * (u_nloc * ndim + p_nloc):
-                                                nele_f * (u_nloc * ndim + p_nloc) + nele_s * u_nloc * ndim]
+                                                nele_f * (u_nloc * ndim + p_nloc)
+                                                + nele_s * u_nloc * ndim].view(nele_s, u_nloc, ndim)
 
     return x_i.view(-1)

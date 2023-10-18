@@ -943,7 +943,7 @@ def _um_left_precond(x_i, x_rhs):
         e_i0 = torch.zeros(nele_f * u_nloc, ndim, device=dev, dtype=torch.float64)
         for idim in range(ndim):
             e_i0[:, idim] += mg.vel_p1dg_to_pndg_prolongator(torch.mv(
-                sf_nd_nb.sparse_s.I_fc,
+                sf_nd_nb.sparse_f.I_fc,
                 e_i[:, idim]))
     else:  # from P1CG to P1DG, then go one order up each time while also do post smoothing
         raise Exception('pmg not implemented')

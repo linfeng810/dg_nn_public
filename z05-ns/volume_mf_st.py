@@ -93,7 +93,7 @@ def calc_RAR_mf_color(
             for idim in range(ndim):
                 RARm[:, idim] += torch.mv(
                     I_cf,
-                    mg_le.vel_pndg_to_p1dg_restrictor(ARm[0:nele_f, :, idim])
+                    mg_le.vel_pndg_to_p1dg_restrictor(ARm_dict['vel'][0:nele_f, :, idim])
                 )  # (cg_nonods, ndim)
             for idim in range(ndim):
                 # add to value
@@ -231,11 +231,10 @@ def get_residual_only(r0, x_i, x_rhs,
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 
     r0_dict = slicing_x_i(r0)
-    x_rhs_dict = slicing_x_i(x_rhs)
 
     # from now on we will assume always include advection term...
     # we either have real advection velocity or advection due to mesh velocity
-    x_k_dict = slicing_x_i(x_k)
+    # x_k_dict = slicing_x_i(x_k)
     if include_adv:
         u_bc = u_bc.view(nele, u_nloc, ndim)  # only diri bc is passed in here.
 
@@ -243,7 +242,9 @@ def get_residual_only(r0, x_i, x_rhs,
     if type(x_rhs) is int:
         r0 += x_rhs  # FIXME: what does this mean...?
     else:
+        x_rhs_dict = slicing_x_i(x_rhs)
         r0_dict['vel'] += x_rhs_dict['vel']
+        r0_dict['pre'] += x_rhs_dict['pre']
     for i in range(nnn):
         # volume integral
         idx_in = torch.zeros(nele, device=dev, dtype=bool)  # element indices in this batch
@@ -318,7 +319,6 @@ def _k_res_one_batch(
     #     x_i_u = x_i.view(batch_in, u_nloc, ndim)
     r0_dict = slicing_x_i(r0)
     x_i_dict = slicing_x_i(x_i)
-    x_k_dict = slicing_x_i(u_n)  # non-linear vel/pre/disp
 
     diagK = diagK.view(-1, u_nloc, ndim)
     bdiagK = bdiagK.view(-1, u_nloc, ndim, u_nloc, ndim)
@@ -360,10 +360,11 @@ def _k_res_one_batch(
         #     for idim in range(ndim):
         #         K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) * sf_nd_nb.fict_mass_coeff
         if include_adv:
+            x_k_dict = slicing_x_i(u_n)  # non-linear vel/pre/disp
             K += torch.einsum(
                 'lg,bli,bing,mg,bg,jk->bmjnk',
                 n,
-                x_k_dict['vel'][idx_in, ...] - x_k_dict['disp'][idx_in, ...],  # u_k - u_m
+                x_k_dict['vel'][idx_in, ...] - sf_nd_nb.u_m[idx_in, ...],  # u_k - u_m
                 nx,
                 n,
                 ndetwei,
@@ -406,7 +407,7 @@ def _k_res_one_batch(
         # get diagonal of velocity block K
         diagK += torch.diagonal(K.view(batch_in, u_nloc * ndim, u_nloc * ndim)
                                 , dim1=1, dim2=2).view(batch_in, u_nloc, ndim)
-        bdiagK[idx_in, ...] += K
+        bdiagK[idx_in[0:nele_f], ...] += K
 
     if include_p:
         # local G
@@ -546,7 +547,6 @@ def _s_res_fi(
     #     x_i_u = x_i_in.view(nele, u_nloc, ndim)
     r_dict = slicing_x_i(r_in)
     x_i_dict = slicing_x_i(x_i_in)
-    x_k_dict = slicing_x_i(u_n)  # this is non-linear vel/pre/displacement
 
     # shape function on this side
     snx, sdetwei, snormal = sdet_snlx(
@@ -627,6 +627,7 @@ def _s_res_fi(
         )
         K *= config.mu
         if include_adv:
+            x_k_dict = slicing_x_i(u_n)  # this is non-linear vel/pre/displacement
             # Edge stabilisation (vel gradient penalty term)
             if sf_nd_nb.isES:
                 u_ave = 0.5 * (sf_nd_nb.u_ave[E_F_i] + sf_nd_nb.u_ave[E_F_inb])  # (batch_in)
@@ -643,12 +644,12 @@ def _s_res_fi(
             wknk_ave = torch.einsum(
                 'bmg,bmi,big->bg',
                 sn,  # (batch_in, u_nloc, sngi)
-                x_k_dict['vel'][E_F_i, :, :] - x_k_dict['disp'][E_F_i, :, :],  # u_k - u_m (batch_in, u_nloc, sngi)
+                x_k_dict['vel'][E_F_i, :, :] - sf_nd_nb.u_m[E_F_i, :, :],  # u_k - u_m (batch_in, u_nloc, sngi)
                 snormal,  # (batch_in, ndim, sngi)
             ) * 0.5 + torch.einsum(
                 'bmg,bmi,big->bg',
                 sn_nb,  # (batch_in, u_nloc, sngi)
-                x_k_dict['vel'][E_F_inb, :, :] - x_k_dict['disp'][E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
+                x_k_dict['vel'][E_F_inb, :, :] - sf_nd_nb.u_m[E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
                 snormal,  # (batch_in, ndim, sngi)
             ) * 0.5
             wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho
@@ -913,7 +914,7 @@ def _s_res_fb(
         r_in, f_b, E_F_b,
         x_i_in,
         diagK, bdiagK, batch_start_idx,
-        include_ave, u_bc, u_n,
+        include_adv, u_bc, u_n,
         a00, a01, a10, a11
 ):
     """boundary faces"""
@@ -936,7 +937,7 @@ def _s_res_fb(
     #     x_i_u = x_i_in.view(nele, u_nloc, ndim)
     r_dict = slicing_x_i(r_in)
     x_i_dict = slicing_x_i(x_i_in)
-    x_k_dict = slicing_x_i(u_n)  # this is non-linear vel/pre/displacement
+    # x_k_dict = slicing_x_i(u_n)  # this is non-linear vel/pre/displacement
 
     # shape function
     snx, sdetwei, snormal = sdet_snlx(
@@ -995,7 +996,7 @@ def _s_res_fb(
             torch.eye(ndim, device=dev, dtype=torch.float64)
         )
         K *= config.mu
-        if include_ave:
+        if include_adv:
             # get upwind velocity
             wknk_ave = torch.einsum(
                 'bmg,bmi,big->bg',
@@ -1160,7 +1161,7 @@ def _s_res_itf(
 
 
 def get_rhs(x_rhs, u_bc, f, include_adv, u_n=0, isAdvExp=False, u_k=0,
-            u_m=0, d_n=0):
+            d_n=0):
     """get right-hand side"""
     nnn = config.no_batch
     brk_pnt = np.asarray(np.arange(0, nnn + 1) / nnn * nele_f, dtype=int)
@@ -1183,7 +1184,7 @@ def get_rhs(x_rhs, u_bc, f, include_adv, u_n=0, isAdvExp=False, u_k=0,
         idx_in_f *= False
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         x_rhs = _s_rhs_one_batch(x_rhs, u_bc, idx_in_f, include_adv, isAdvExp, u_k,
-                                 u_m, d_n)
+                                 d_n)
 
     return x_rhs
 
@@ -1266,7 +1267,7 @@ def _s_rhs_one_batch(
         rhs, u_bc, idx_in_f,
         include_adv,
         isAdvExp, u_k,
-        u_m, d_n
+        d_n
 ):
     # get essential data
     nbf = sf_nd_nb.vel_func_space.nbf
@@ -1278,7 +1279,7 @@ def _s_rhs_one_batch(
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
     if type(u_k) is torch.Tensor:
         u_k = u_k.view(nele_f, u_nloc, ndim)
-    u_m = u_m.view(nele_f, u_nloc, ndim)
+
     d_n = d_n.view(nele, u_nloc, ndim)
 
     # separate nbf to get internal face list and boundary face list
@@ -1347,7 +1348,7 @@ def _s_rhs_one_batch(
                 f_itf[idx_iface_itf], E_F_itf[idx_iface_itf],
                 f_itf_nb[idx_iface_itf], E_F_itf_nb[idx_iface_itf],
                 u_bc, u_k,
-                u_m, d_n
+                d_n
             )  # rhs terms from interface
             if torch.sum(idx_iface_n) == 0:
                 continue  # no neumann bc
@@ -1604,7 +1605,7 @@ def _s_rhs_fitf(
     f_itf, E_F_itf,
     f_itf_nb, E_F_itf_nb,
     u_bc, u_k,
-    u_m, d_n
+    d_n
 ):
     """
     interface terms that goes to rhs
@@ -1993,7 +1994,7 @@ def slicing_x_i(x_i, include_p=True, isFSI=config.isFSI):
                 nele*u_nloc*ndim*2].view(nele, u_nloc, ndim)
         p = x_i[nele*u_nloc*ndim*2:
                 nele*u_nloc*ndim*2+nele*p_nloc].view(nele, p_nloc)
-    return {'vel': u, 'pre': p, 'disp': d}
+    return {'vel': u, 'pre': p, 'disp': d, 'all': x_i}
 
 
 def get_l2_error(x_i_in, x_ana):
@@ -2465,7 +2466,7 @@ def get_RAR_and_sfc_data_Fp(
     RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
     # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
     space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        multigrid_linearelastic.mg_on_P1CG_prep(fina, cola, RARvalues)
+        multigrid_linearelastic.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_f)
     sf_nd_nb.sfc_data_F.set_data(
         space_filling_curve_numbering=space_filling_curve_numbering,
         variables_sfc=variables_sfc,
