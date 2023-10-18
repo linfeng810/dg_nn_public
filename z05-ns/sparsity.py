@@ -8,6 +8,7 @@ import numpy as np
 from scipy.sparse import coo_matrix, bsr_matrix, lil_matrix
 import torch
 from get_nb import getfin_p1cg
+import time
 
 ndim = config.ndim
 dev = config.dev
@@ -19,18 +20,19 @@ def get_subdomain_sparsity(cg_ndglno, nele_f, nele_s, cg_nonods):
 
     output:
     """
-    solid_spar = Sparsity()
-
     nele = nele_f + nele_s
 
     # fluid
-    fluid_spar = Sparsity()
+    fluid_spar = Sparsity(name='fluid')
 
     cg_ndglno_f = cg_ndglno.reshape((nele, ndim+1))[0:nele_f, :].reshape((nele_f * (ndim+1)))
     cg_node_order_f = np.unique(cg_ndglno_f)
     idx_dict_f = {old: new for new, old in enumerate(cg_node_order_f)}
     cg_nonods_f = cg_node_order_f.shape[0]
-    cg_ndglno_f_new = np.vectorize(idx_dict_f.get)(cg_ndglno_f)
+    if cg_nonods_f > 0: # if there is fluid subdomain
+        cg_ndglno_f_new = np.vectorize(idx_dict_f.get)(cg_ndglno_f)
+    else: # no fluid subdomain
+        cg_ndglno_f_new = np.array([], dtype=np.int64)
 
     fina, cola, ncola = p1cg_sparsity_from_ndglno(cg_ndglno_f_new, nele_f, cg_nonods_f, nloc=ndim+1)
     whichc, ncolor = color.color2(fina, cola, cg_nonods_f)
@@ -53,17 +55,20 @@ def get_subdomain_sparsity(cg_ndglno, nele_f, nele_s, cg_nonods):
     )
 
     # solid
-    solid_spar = Sparsity()
+    solid_spar = Sparsity(name='solid')
 
     cg_ndglno_s = cg_ndglno.reshape((nele, ndim + 1))[nele_f:nele, :].reshape((nele_s * (ndim + 1)))
     cg_node_order_s = np.unique(cg_ndglno_s)
     idx_dict_s = {old: new for new, old in enumerate(cg_node_order_s)}
     cg_nonods_s = cg_node_order_s.shape[0]
-    cg_ndglno_s_new = np.vectorize(idx_dict_s.get)(cg_ndglno_s)
+    if cg_ndglno_s > 0:
+        cg_ndglno_s_new = np.vectorize(idx_dict_s.get)(cg_ndglno_s)
+    else:  # no solid subdomain
+        cg_ndglno_s_new = np.array([], dtype=np.int64)
 
     fina, cola, ncola = p1cg_sparsity_from_ndglno(cg_ndglno_s_new, nele_s, cg_nonods_s, nloc=ndim + 1)
     whichc, ncolor = color.color2(fina, cola, cg_nonods_s)
-    I_sc, I_cf = get_cd_dc_prolongator_restrictor(
+    I_fc, I_cf = get_cd_dc_prolongator_restrictor(
         cg_ndglno_s_new,
         cg_nonods_s,
         p1dg_nonods=nele_s * (ndim + 1),
@@ -162,15 +167,27 @@ def get_fluid_pndg_sparsity(func_space):
     pndg_x_all = func_space.x_all.reshape((-1, ndim))[0:config.nele_f * nloc, :]
     tolerance = 1e-10
     pndg_x_all_rounded = np.round(pndg_x_all / tolerance) * tolerance
-    pncg_x_all = np.unique(pndg_x_all_rounded, axis=0)
+    pncg_x_all, pndg_ndglbno = np.unique(pndg_x_all_rounded, axis=0, return_inverse=True)
 
-    # Create a sparse matrix where each row corresponds to a point in the old list,
-    # and columns represent whether that point matches a unique point or not
-    is_matching = lil_matrix((len(pndg_x_all), len(pncg_x_all)))
-
-    for i, pncg_point in enumerate(pncg_x_all):
-        is_matching[:, i] = np.all(pndg_x_all_rounded == pncg_point, axis=1)
-    return is_matching
+    # create a sparse matrix I_fc
+    I_fc_colx = np.arange(0, len(pndg_x_all_rounded))
+    I_fc_coly = pndg_ndglbno
+    I_fc_val = np.ones(len(pndg_x_all))
+    I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
+                      shape=(len(pndg_x_all), len(pncg_x_all)))  # coarse to fine == CG to DG
+    # # Create a sparse matrix where each row corresponds to a point in the old list,
+    # # and columns represent whether that point matches a unique point or not
+    # is_matching = lil_matrix((len(pndg_x_all), len(pncg_x_all)))
+    # print('going to get matching_indices...')
+    # starttime = time.time()
+    # matching_indices = np.all(pndg_x_all_rounded[:, None, :] == pncg_x_all[None, :, :], axis=-1)
+    # # Fill the sparse matrix efficiently
+    # is_matching[:, :] = matching_indices
+    #
+    # # for i, pncg_point in enumerate(pncg_x_all):
+    # #     is_matching[:, i] = np.all(pndg_x_all_rounded == pncg_point, axis=1)
+    # print('finishing getting matching_indices... time comsumed:', time.time() - starttime)
+    return I_fc
 
 
 def get_pndg_sparsity(func_space):
@@ -185,12 +202,21 @@ def get_pndg_sparsity(func_space):
     pndg_x_all = func_space.x_all.reshape((-1, ndim))
     tolerance = 1e-10
     pndg_x_all_rounded = np.round(pndg_x_all / tolerance) * tolerance
-    pncg_x_all = np.unique(pndg_x_all_rounded, axis=0)
+    pncg_x_all, pndg_ndglbno = np.unique(pndg_x_all_rounded, axis=0, return_inverse=True)
 
-    # Create a sparse matrix where each row corresponds to a point in the old list,
-    # and columns represent whether that point matches a unique point or not
-    is_matching = lil_matrix((len(pndg_x_all), len(pncg_x_all)))
+    # create a sparse matrix I_fc
+    I_fc_colx = np.arange(0, len(pndg_x_all_rounded))
+    I_fc_coly = pndg_ndglbno
+    I_fc_val = np.ones(len(pndg_x_all))
+    I_fc = coo_matrix((I_fc_val, (I_fc_colx, I_fc_coly)),
+                      shape=(len(pndg_x_all), len(pncg_x_all)))  # coarse to fine == CG to DG
 
-    for i, pncg_point in enumerate(pncg_x_all):
-        is_matching[:, i] = np.all(pndg_x_all_rounded == pncg_point, axis=1)
-    return is_matching
+    # transform to lil format so that we can use indexing (to use weight in fluid/solid subdomain)
+    I_fc = I_fc.tolil()
+    # # Create a sparse matrix where each row corresponds to a point in the old list,
+    # # and columns represent whether that point matches a unique point or not
+    # is_matching = lil_matrix((len(pndg_x_all), len(pncg_x_all)))
+    #
+    # for i, pncg_point in enumerate(pncg_x_all):
+    #     is_matching[:, i] = np.all(pndg_x_all_rounded == pncg_point, axis=1)
+    return I_fc
