@@ -22,15 +22,16 @@ isFSI = True  # fsi problem or not
 #####################################################
 # time step settings
 #####################################################
-dt = 1  # timestep
+dt = 0.1  # timestep
 if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
 tend = 1 * dt  # end time
 isTransient = True  # decide if we are doing transient simulation
 isAdvExp = False  # treat advection term explicitly
-if isTransient:
+if True:  # isTransient:
     time_order = 3  # time discretisation order
+    print('is Transient?', isTransient)
     print('dt, tstart, tend, temporal order:', dt, tstart, tend, time_order, 'treat adv explicitly?', isAdvExp)
 solver = 'iterative'  # 'direct' or 'iterative'
 
@@ -38,12 +39,13 @@ solver = 'iterative'  # 'direct' or 'iterative'
 # read mesh and build connectivity
 #####################################################
 filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
-filename='z32-square-mesh/square_poiseuille_r2.msh'
+filename='z32-square-mesh/square_poiseuille.msh'
 # filename = 'z32-square-mesh/square.msh'
-filename = 'z34-bfs/bfs.msh'
-filename = 'z33-fpc/fpc.msh'
-filename = 'z35-fsi/fs_square.msh'
-filename = 'z35-fsi/test_mesh_displacement/square_circle.msh'
+# filename = 'z34-bfs/bfs.msh'
+# filename = 'z33-fpc/fpc.msh'
+# filename = 'z35-fsi/fs_square.msh'
+# # filename = 'z35-fsi/test_mesh_displacement/square_circle.msh'
+# filename = 'z35-fsi/z01-turek/turek.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -51,7 +53,7 @@ if args.filename is not None:
 mesh = meshio.read(filename) # mesh object
 isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
-use_fict_dt_in_vel_precond = True
+use_fict_dt_in_vel_precond = False
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
 sf_nd_nb.fict_dt = 0.0025  # coefficient multiply to mass matrix add to vel blk precond
 print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
@@ -61,18 +63,31 @@ sf_nd_nb.isTransient = isTransient
 sf_nd_nb.dt = dt
 
 # mesh info
-if not isFSI:
-    nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
+# Check the dimension of the mesh
+if 'triangle' in mesh.cells_dict:
+    ndim = 2  # It's a 2D mesh (contains triangles)
+    vol_ele_name = 'triangle'
+elif 'tetra' in mesh.cells_dict:
+    ndim = 3  # It's a 3D mesh (contains tetrahedra)
+    vol_ele_name = 'tetra'
 else:
-    nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
-    nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
+    # Handle other cases or raise an error if necessary
+    raise ValueError("Unknown or unsupported mesh dimension")
+
+if not isFSI:
+    # nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
+    nele = mesh.cell_sets_dict['fluid'][vol_ele_name].shape[0]
+else:
+    nele_f = mesh.cell_sets_dict['fluid'][vol_ele_name].shape[0]
+    nele_s = 0
+    if 'solid' in mesh.cell_sets_dict:
+        nele_s = mesh.cell_sets_dict['solid'][vol_ele_name].shape[0]
+    # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
+    # nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
     nele = nele_f + nele_s
 ele_p = 3  # velocity element order (2 or higher)
 ele_p_pressure = ele_p - 1  # pressure element order
 print('element order: ', ele_p)
-
-ndim = 2  # dimesnion of the problem
-
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
@@ -85,12 +100,11 @@ mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)
 mg_smooth_its = 1
 pre_smooth_its = 3
 post_smooth_its = 3  # thus we have a V(pre,post)-cycle
-smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
-# if len(sys.argv) > 2:
-#     smooth_start_level = int(sys.argv[2])
-# if len(sys.argv) > 3:
-#     pre_smooth_its = int(sys.argv[3])
-#     post_smooth_its = int(sys.argv[3])
+"""due to different sparsity in fluid/solid subdomain, start level should be different.
+also, since we always go down to the one-node level, we can just use nlevel - 1
+everywhere smooth_start_level is used."""
+# smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
+
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
@@ -116,19 +130,20 @@ relax_coeff = 1.
 ####################
 # material property
 ####################
-problem = 'fsi-test'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'tgv'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
 # or 'fsi-test' = test fluid-structure boundary
+# or 'turek' = turek benchmark FSI-2
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
 # mu = E/2.0/(1.+nu)
-lam = 10
-mu = 1
+lam = 8.0e6
+mu = 2.0e6
 E = mu * (3*lam + 2*mu) / (lam + mu)
-nu = lam + 2. * mu / 3.
+nu = lam/2/(lam+mu)
 lam = torch.tensor(lam, device=dev, dtype=torch.float64)
 mu = torch.tensor(mu, device=dev, dtype=torch.float64)
 print('Lame coefficient: lamda, mu', lam, mu)
@@ -137,7 +152,7 @@ kdiff = 1.0
 # print('lam, mu', lam, mu)
 rho = 1.
 if isFSI:
-    rho_s = 1.  # solid density at initial configuration
+    rho_s = 1.e3  # solid density at initial configuration
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
 kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
 cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
@@ -157,7 +172,7 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1./10000  # this is diffusion coefficient (viscosity)
+    mu = 1./10  # this is diffusion coefficient (viscosity)
     _Re = int(1/mu)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
@@ -166,7 +181,7 @@ if True:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
 
-    initialCondition = 2  # 1. use zero as initial condition
+    initialCondition = 1  # 1. use zero as initial condition
     # 2. solve steady stokes as initial condition
     # 3. to use a precalculated fields (u and p) in a file as initial condition
     if initialCondition == 3:
