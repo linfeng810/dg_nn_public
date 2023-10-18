@@ -47,6 +47,7 @@ class SfNdNb:
         self.ntime = 0  # current number of timestep
         self.u_ave = None  # volume-averaged velocity (nele, ndim)
         self.isES = False  # edge-stabilisation or not
+        self.u_m = None  # mesh velocity (nele, u_nloc, ndim)
 
         self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
 
@@ -66,6 +67,7 @@ class SfNdNb:
                  values_st=None,
                  bdfscm=None,
                  u_ave=None,  # volume averaged velocity (nele, ndim)
+                 u_m=None,  # mesh velocity (nele, u_nloc, ndim)
                  material=None,  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
                  ):
         if type(vel_func_space) != NoneType:
@@ -100,6 +102,8 @@ class SfNdNb:
             self.bdfscm = bdfscm
         if u_ave is not None:
             self.u_ave = u_ave
+        if u_m is not None:
+            self.u_m = u_m
         if material is not None:
             self.material = material
 
@@ -213,7 +217,8 @@ class BDFdata:
 
 
 class Sparsity:
-    def __init__(self):
+    def __init__(self, name=None):
+        self.name = name
         self.fina = None
         self.cola = None
         self.ncola = None
