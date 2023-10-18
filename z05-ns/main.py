@@ -19,14 +19,14 @@ import output
 import petrov_galerkin
 import shape_function
 import sparsity
-import volume_mf_st, volume_mf_um
+import volume_mf_st, volume_mf_um, volume_mf_he
 from function_space import FuncSpace, Element
 import solvers
 from config import sf_nd_nb
 import mesh_init
 # from mesh_init import face_iloc,face_iloc2
 # from shape_function import SHATRInew, det_nlx, sdet_snlx
-import volume_mf_st as integral_mf
+# import volume_mf_st as integral_mf
 from color import color2
 import multigrid_linearelastic as mg
 import bc_f
@@ -82,9 +82,11 @@ disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=
                             get_pndg_ndglbno=True)  # displacement func space
 sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
-material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
-                                ndim, dev, config.mu, config.lam)
+# material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
+#                                 ndim, dev, config.mu, config.lam)
 # material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
+material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
+                          ndim, dev, config.mu, config.lam)
 sf_nd_nb.set_data(material=material)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
@@ -125,10 +127,8 @@ if False:  # test mesh displacement
 
         fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime)
     raise SystemExit("Code stopped at this point")
-import volume_mf_he
+
 print('nele=', nele)
-# config.sf_nd_nb.set_data(nbele=nbele, nbf=nbf, alnmt=alnmt)
-np.savetxt('cg_ndglno.txt', sf_nd_nb.vel_func_space.cg_ndglno, delimiter=',')  # cg_ndglno is stored in sf_nd_nb in mesh_init.init
 
 # if True:# P1CG connectivity and coloring
 #     fina, cola, ncola = mesh_init.p1cg_sparsity(sf_nd_nb.vel_func_space)
@@ -138,31 +138,23 @@ np.savetxt('cg_ndglno.txt', sf_nd_nb.vel_func_space.cg_ndglno, delimiter=',')  #
 # print('cg_nonods', sf_nd_nb.p1cg_nonods, 'ncola (p1cg sparsity)', ncola)
 print('1. time elapsed, ',time.time()-starttime)
 
-if not config.isFSI:
-    u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-                                   prob=config.problem,
-                                   t=0)
-else:
-    u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-                                 prob=config.problem,
-                                 t=0)
-# # output to vtk
-# vtk = output.File('bc_diri_f.vtu')
-# vtk.write_vector(u_bc[0], 'diri_f', sf_nd_nb.vel_func_space)
-# vtk.write_end()
-# vtk = output.File('bc_neu_f.vtu')
-# vtk.write_vector(u_bc[1], 'neu_f', sf_nd_nb.vel_func_space)
-# vtk.write_end()
-# vtk = output.File('bc_diri_s.vtu')
-# vtk.write_vector(u_bc[2], 'diri_s', sf_nd_nb.vel_func_space)
-# vtk.write_end()
-# vtk = output.File('bc_neu_s.vtu')
-# vtk.write_vector(u_bc[3], 'neu_s', sf_nd_nb.vel_func_space)
-# vtk.write_end()
+# if not config.isFSI:
+#     u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+#                                    prob=config.problem,
+#                                    t=0)
+# else:
+#     u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+#                                  prob=config.problem,
+#                                  t=0)
+"""as a test we first solve a fluid only problem"""
+u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+                               prob=config.problem,
+                               t=0)
 
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
 if not sf_nd_nb.isTransient:
     tstep = 2
+    sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=config.time_order))
 else:
     sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=config.time_order))
 
@@ -297,7 +289,8 @@ if config.solver=='iterative':
     if True:
         x_i = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
         x_rhs = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
-        u_m = torch.zeros(u_nonods * ndim, device=dev, dtype=torch.float64)
+        u_m = torch.zeros(nele, u_nloc, ndim, device=dev, dtype=torch.float64)
+        sf_nd_nb.set_data(u_m=u_m.view(nele, -1, ndim))
         x_i_dict = volume_mf_st.slicing_x_i(x_i)
         # x_i_n = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)  # last step soln
         # x_i_n_dict = volume_mf_st.slicing_x_i(x_i_n)
@@ -384,12 +377,12 @@ if config.solver=='iterative':
             # sf_nd_nb.isES = config.isES
 
         elif config.initialCondition == 1:
-            x_all_previous[0] *= 0
+            x_all_previous[0]['all'] *= 0
             # x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
 
         elif config.initialCondition == 3:
-            x_all_previous[0] *= 0
-            x_all_previous[0] += torch.load(config.initDataFile)
+            x_all_previous[0]['all'] *= 0
+            x_all_previous[0]['all'] += torch.load(config.initDataFile)
 
         p_ana_ave = 0
         if config.hasNullSpace:
@@ -398,17 +391,12 @@ if config.solver=='iterative':
             p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
 
         x_i *= 0
-        x_i += x_all_previous[0]
+        x_i += x_all_previous[0]['all']
         # u_all[0, :, :, :] = x_i_list[0].cpu().numpy()
         # p_all[0, ...] = x_i_list[1].cpu().numpy()
 
         # save initial condition to vtk
-        vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % 0)
-        vtk.write_vector(x_all_previous[0]['vel'], 'velocity', sf_nd_nb.vel_func_space)
-        vtk.write_end()
-        vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % 0)
-        vtk.write_scalar(x_all_previous[0]['pre'] - p_ana_ave, 'pressure', sf_nd_nb.pre_func_space)
-        vtk.write_end()
+        fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0)
 
         t = tstart  # physical time (start time)
 
@@ -437,12 +425,7 @@ if config.solver=='iterative':
                 x_i_n += x_i  # store this step in case we want to use this for next timestep
 
                 # output to vtk
-                vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % itime)
-                vtk.write_vector(x_i_dict['vel'], 'velocity', sf_nd_nb.vel_func_space)
-                vtk.write_end()
-                vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-                vtk.write_scalar(x_i_dict['vel'], 'pressure', sf_nd_nb.pre_func_space)
-                vtk.write_end()
+                fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime)
 
                 continue
 
@@ -498,6 +481,13 @@ if config.solver=='iterative':
             t += dt
             print('====physical time: ', t, ' ====')
             # get boundary and rhs body force condition
+            # u_bc, f, fNorm = bc_f.fsi_bc(
+            #     ndim,
+            #     vel_func_space.bc_node_list,
+            #     vel_func_space.x_all,
+            #     prob=config.problem,
+            #     t=t
+            # )
             u_bc, f, fNorm = bc_f.vel_bc_f(
                 ndim,
                 vel_func_space.bc_node_list,
@@ -511,7 +501,7 @@ if config.solver=='iterative':
                 sf_nd_nb.set_data(u_ave=u_ave)
 
             x_i *= 0
-            x_i += x_all_previous[0]  # use last timestep p as start value
+            x_i += x_all_previous[0]['all']  # use last timestep p as start value
 
             r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
             its = 0  # linear solver iteration
@@ -539,10 +529,9 @@ if config.solver=='iterative':
                     u_n=alpha_u_n,  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
                     isAdvExp=config.isAdvExp,  # whether to treat advection explicity
                     u_k=x_i_k_dict['vel'][0:nele_f, ...],  # non-lienar velocity
-                    u_m=x_i_k_dict['disp'][0:nele_f, ...],  # mesh velocity
                     d_n=alpha_d_n,  # previous *timesteps* displacement x BDF coeff.
                 )
-                # get rhs and non-linear residualfor solid
+                # get rhs and non-linear residual for solid
                 x_rhs, r0_dict = volume_mf_he.get_rhs(
                     rhs_in=x_rhs,  # right-hand side
                     u=x_i_k_dict['disp'],  # displacement at current non-linear step
@@ -615,23 +604,24 @@ if config.solver=='iterative':
 
                 # nr0l2 = r0l2
 
-                # solving for new mesh displacement/velocity
-                # I think it's more sensible to compute the mesh displacement rather than
-                # mesh velocity. We can easily get mesh velocity with BDF scheme.
-                x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
-                # get mesh velocity and move mesh
-                u_m *= 0  # (use BDF scheme)
-                u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
-                for ii in range(1, sf_nd_nb.bdfscm.order + 1):
-                    u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii-1] / dt
-                sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
-                # move velocity mesh
-                sf_nd_nb.vel_func_space.x_ref_in *= 0
-                sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
-                    + x_i_dict['disp'].permute(0, 2, 1)
-
-                sf_nd_nb.pre_func_space.x_ref_in *= 0
-                sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
+                # # solving for new mesh displacement/velocity
+                # # I think it's more sensible to compute the mesh displacement rather than
+                # # mesh velocity. We can easily get mesh velocity with BDF scheme.
+                # print('going to solve for mesh displacement and move the mesh...')
+                # x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+                # # get mesh velocity and move mesh
+                # u_m *= 0  # (use BDF scheme)
+                # u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
+                # for ii in range(1, sf_nd_nb.bdfscm.order + 1):
+                #     u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii-1] / dt
+                # sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+                # # move velocity mesh
+                # sf_nd_nb.vel_func_space.x_ref_in *= 0
+                # sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                #     + x_i_dict['disp'].permute(0, 2, 1)
+                #
+                # sf_nd_nb.pre_func_space.x_ref_in *= 0
+                # sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
 
                 sf_nd_nb.nits += 1
 
@@ -642,10 +632,10 @@ if config.solver=='iterative':
             # x_i_n += x_i
             # store this step in case we want to use this for next timestep
             for ii in range(len(x_all_previous)-1, 0, -1):
-                x_all_previous[ii] *= 0
-                x_all_previous[ii] += x_all_previous[ii-1]
-            x_all_previous[0] *= 0
-            x_all_previous[0] += x_i
+                x_all_previous[ii]['all'] *= 0
+                x_all_previous[ii]['all'] += x_all_previous[ii-1]['all']
+            x_all_previous[0]['all'] *= 0
+            x_all_previous[0]['all'] += x_i
 
             # save x_i at this Re to reuse as the initial condition for higher Re
             torch.save(x_i, config.filename + config.case_name + '_t%.2f.pt' % t)
@@ -653,36 +643,31 @@ if config.solver=='iterative':
             total_its = 0
 
             # output to vtk
-            vtk = output.File(config.filename + config.case_name + '_v%d.vtu' % itime)
-            vtk.write_vector(x_i_dict['vel'], 'velocity', sf_nd_nb.vel_func_space)
-            vtk.write_end()
-            vtk = output.File(config.filename + config.case_name + '_p%d.vtu' % itime)
-            vtk.write_scalar(x_i_dict['pre'], 'pressure', sf_nd_nb.pre_func_space)
-            vtk.write_end()
+            fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime)
 
-            # get l2 error
-            x_ana = bc_f.ana_soln(config.problem, t=t)
-            x_ana[0:u_nonods*ndim] += torch.tensor(
-                u_all[itime - 1, :, :, :],
-                device=dev, dtype=torch.float64).view(-1)
-            x_ana[u_nonods * ndim: u_nonods*ndim + p_nonods] += torch.tensor(
-                p_all[itime - 1, ...],
-                device=dev, dtype=torch.float64).view(-1)
-            if config.hasNullSpace:
-                # remove average from pressure
-                p_ave = ns_assemble.get_ave_pressure(x_i_dict['pre'].cpu().numpy())
-                x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
-                p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
-                p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
-                p_ana -= p_ana_ave
-            u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
-            print('after solving, compare to previous timestep, l2 error is: \n',
-                  'velocity ', u_l2, '\n',
-                  'pressure ', p_l2)
-            print('l infinity error is: \n',
-                  'velocity ', u_linf, '\n',
-                  'pressure ', p_linf)
-            # print('total its / restart ', total_its)
+            # # get l2 error
+            # x_ana = bc_f.ana_soln(config.problem, t=t)
+            # x_ana[0:u_nonods*ndim] += torch.tensor(
+            #     u_all[itime - 1, :, :, :],
+            #     device=dev, dtype=torch.float64).view(-1)
+            # x_ana[u_nonods * ndim: u_nonods*ndim + p_nonods] += torch.tensor(
+            #     p_all[itime - 1, ...],
+            #     device=dev, dtype=torch.float64).view(-1)
+            # if config.hasNullSpace:
+            #     # remove average from pressure
+            #     p_ave = ns_assemble.get_ave_pressure(x_i_dict['pre'].cpu().numpy())
+            #     x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
+            #     p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
+            #     p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
+            #     p_ana -= p_ana_ave
+            # u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
+            # print('after solving, compare to previous timestep, l2 error is: \n',
+            #       'velocity ', u_l2, '\n',
+            #       'pressure ', p_l2)
+            # print('l infinity error is: \n',
+            #       'velocity ', u_linf, '\n',
+            #       'pressure ', p_linf)
+            # # print('total its / restart ', total_its)
 
             print('wall time on this timestep: ', time.time() - wall_time_start)
 
@@ -904,11 +889,11 @@ if config.solver == 'direct':
 # output 1:
 # to output, we need to change u_all to 2D array
 # (tstep, ndim*nonods)
-u_all = np.reshape(u_all, (tstep, nele*vel_ele.nloc*ndim))
-p_all = np.reshape(p_all, (tstep, nele*pre_ele.nloc))
-np.savetxt('u_all.txt', u_all, delimiter=',')
-np.savetxt('p_all.txt', p_all, delimiter=',')
-np.savetxt('x_all.txt', vel_func_space.x_all, delimiter=',')
-np.savetxt('p_x_all.txt', pre_func_space.x_all, delimiter=',')
+# u_all = np.reshape(u_all, (tstep, nele*vel_ele.nloc*ndim))
+# p_all = np.reshape(p_all, (tstep, nele*pre_ele.nloc))
+# np.savetxt('u_all.txt', u_all, delimiter=',')
+# np.savetxt('p_all.txt', p_all, delimiter=',')
+# np.savetxt('x_all.txt', vel_func_space.x_all, delimiter=',')
+# np.savetxt('p_x_all.txt', pre_func_space.x_all, delimiter=',')
 print('10. done output, time elaspsed: ', time.time()-starttime)
 # print(torch.cuda.memory_summary())
