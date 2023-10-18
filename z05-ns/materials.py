@@ -272,3 +272,159 @@ class LinearElastic:
         so it doesn't matter.
         """
         return self.calc_AA(nx, u, batch_in)
+
+
+class STVK:
+    def __init__(self, nloc, ndim, dev, mu, lam):
+        self.nloc = nloc
+        self.ndim = ndim
+        self.dev = dev
+        self.mu = mu
+        self.lam = lam
+        print('you are choosing Neo Hookean material, good for you.')
+
+    def _calc_F(self, nlx, u, batch_in: int):
+        # compute deformation gradient
+        # here we assum nx shape is (batch_in, ndim, nloc, ngi)
+        F = torch.einsum('bni,bjng->bgij', u.view(batch_in, self.nloc, self.ndim), nlx)
+        F += torch.eye(self.ndim, device=self.dev, dtype=torch.float64)
+        # output shape is (batch_in, ngi, ndim, ndim)
+        return F
+
+    def _calc_C(self, F):
+        """
+        compute right Cauchy-Green tensor
+        C = F^T F
+        """
+        C = torch.einsum('bgik,bgij->bgkj', F, F)
+        # output shape is (batch_in, ngi, ndim, ndim)
+        return C
+
+    def _calc_CC(self):
+        """
+        compute elasticity tensor $\mathbb C$
+        $\mathbb C = \partial S / \partial C$
+                   = \lambda I_ij I_kl + \mu (I_ik I_jl + I_il I_jk)
+        """
+        I3 = torch.eye(self.ndim, device=self.dev, dtype=torch.float64)
+        CC = self.lam * torch.einsum('ij,kl->ijkl', I3, I3) \
+            + self.mu * torch.einsum('ik,jl->ijkl', I3, I3) \
+            + self.mu * torch.einsum('il,jk->ijkl', I3, I3)
+        # print(CC)
+        # output shape is (ndim, ndim, ndim, ndim)
+        return CC
+
+    def _calc_E(self, C):
+        """
+        compute Lagrangian strain tensor 1/2(C-I)
+
+        input size: (batch_in, ngi, ndim, ndim)
+        output size: same as input
+        """
+        E = 0.5 * (C - torch.eye(self.ndim, device=self.dev, dtype=torch.float64))
+        return E
+
+    def _calc_S(self, C, F):
+        # compute PK2 tensor
+        batch_in = C.shape[0]
+        ngi = C.shape[1]
+        E = self._calc_E(C)
+        trE = torch.einsum('bgii,ij->bgij',
+                           E,
+                           torch.eye(self.ndim, device=self.dev, dtype=torch.float64))
+        S = 2 * self.mu * E + self.lam * trE
+        # output shape is (batch_in, ngi, ndim, ndim)
+        return S
+
+    def calc_P(self, nx, u, batch_in: int):
+        """
+        compute PK1 tensor from given displacement
+        """
+        F = self._calc_F(nx, u, batch_in)
+        C = self._calc_C(F)
+        S = self._calc_S(C, F)
+        P = torch.einsum('bgij,bgjk->bikg', F, S)
+
+        return P
+
+    def calc_P_ave(self, nx, u, nx_nb, u_nb, batch_in: int):
+        """
+        compute PK1 tensor from given displacement
+        """
+        F_this = self._calc_F(nx, u, batch_in)  # this side
+        F_neib = self._calc_F(nx_nb, u_nb, batch_in)  # other side
+        F = 0.5 * (F_this + F_neib)  # averate F, i.e. {F}
+        C = self._calc_C(F)
+        S = self._calc_S(C, F)
+        P = torch.einsum('bgij,bgjk->bikg', F, S)
+        # FinvT = torch.transpose(torch.linalg.inv(F), dim0=-2, dim1=-1)
+        # J = torch.linalg.det(F)
+        # lnJ = torch.log(J)
+        # P = self.mu * (F - FinvT) + self.lam * torch.einsum('bg,bgij->bgij', lnJ, FinvT)
+        # P = torch.permute(P, [0, 2, 3, 1])
+        # output shape is (batch_in, ndim, ndim, ngi)
+        return P
+
+    def calc_AA(self, nx, u, batch_in: int):
+        """
+        compute elasticity tensor \mathbb A
+        at given intermediate state (displacement)
+        \mathbb A = \partial P / \partial F
+                  = delta S + F F C
+        """
+        ngi = nx.shape[-1]
+        F = self._calc_F(nx, u, batch_in)
+        C = self._calc_C(F)
+        S = self._calc_S(C, F)
+        CC = self._calc_CC()
+        # invF = torch.linalg.inv(F)
+        # lnJ = torch.log(torch.linalg.det(F))
+        # FinvT = torch.transpose(invF, dim0=-2, dim1=-1)
+        AA = torch.zeros(batch_in, self.ndim, self.ndim, self.ndim, self.ndim, ngi,
+                         device=self.dev, dtype=torch.float64)
+        AA += torch.einsum('bgiI,bgkK,IJKL->biJkLg', F, F, CC)
+        AA += torch.einsum('ik,bgJL->biJkLg',
+                           torch.eye(self.ndim, device=self.dev, dtype=torch.float64),
+                           S)
+        # I3 = torch.eye(3, device=self.dev, dtype=torch.float64)
+        # AA += self.mu * (
+        #     torch.einsum('ik,jl->ijkl', I3, I3) +
+        #     torch.einsum('bgil,bgjk->bgijkl', FinvT, invF)
+        # ).permute([0, 2, 3, 4, 5, 1])
+        # AA += -self.lam * torch.einsum('bg,bgil,bgjk->bijklg', lnJ, FinvT, invF)
+        # AA += self.lam * torch.einsum('bgij,bgkl->bijklg', FinvT, invF)
+        # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
+        return AA
+
+    def calc_AA_ave(self, nx, u, nx_nb, u_nb, batch_in: int):
+        """
+        calculate average of A on element face, i.e. {A}.
+        It is calculated by A({F}), thus, we need to calculate
+        the averate of F first.
+        """
+        ngi = nx.shape[-1]
+        F_this = self._calc_F(nx, u, batch_in)  # this side
+        F_neib = self._calc_F(nx_nb, u_nb, batch_in)  # other side
+        F = 0.5 * (F_this + F_neib)
+
+        C = self._calc_C(F)
+        S = self._calc_S(C, F)
+        CC = self._calc_CC()
+        # invF = torch.linalg.inv(F)
+        # lnJ = torch.log(torch.linalg.det(F))
+        # FinvT = torch.transpose(invF, dim0=-2, dim1=-1)
+        AA = torch.zeros(batch_in, self.ndim, self.ndim, self.ndim, self.ndim, ngi,
+                         device=self.dev, dtype=torch.float64)
+        AA += torch.einsum('bgiI,bgkK,IJKL->biJkLg', F, F, CC)
+        AA += torch.einsum('ik,bgJL->biJkLg',
+                           torch.eye(self.ndim, device=self.dev, dtype=torch.float64),
+                           S)
+        # I3 = torch.eye(3, device=self.dev, dtype=torch.float64)
+        # AA += self.mu * (
+        #     torch.einsum('ik,jl->ijkl', I3, I3) +
+        #     torch.einsum('bgil,bgjk->bgijkl', FinvT, invF)
+        # ).permute([0, 2, 3, 4, 5, 1])
+        # AA += -self.lam * torch.einsum('bg,bgil,bgjk->bijklg', lnJ, FinvT, invF)
+        # AA += self.lam * torch.einsum('bgij,bgkl->bijklg', FinvT, invF)
+        # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
+        return AA
