@@ -132,7 +132,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level, cg_nonods):
                                               dtype=torch.float64,
                                               device=config.dev).view(1, 1, 2)
 
-    smooth_start_level = config.smooth_start_level
+    smooth_start_level = nlevel - 1
     r0 = r0.view(cg_nonods, ndim).transpose(dim0=0, dim1=1).view(ndim, 1, cg_nonods)
     # r = r0.view(ndim, 1, cg_nonods)  # residual r in error equation, Ae=r
     r_s = [r0]  # collection of r
@@ -226,15 +226,15 @@ def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
     ncola = cola.shape[0]
     start_time = time.time()
     # print('to get space filling curve...', time.time() - start_time)
-    if os.path.isfile(config.filename[:-4] + '_sfc.npy'):
+    if os.path.isfile(config.filename[:-4] + sparse_in.name + '_sfc.npy'):
         # print('pre-calculated sfc exists. readin from file...')
-        sfc = np.load(config.filename[:-4] + '_sfc.npy')
+        sfc = np.load(config.filename[:-4] + sparse_in.name + '_sfc.npy')
     else:
         _, sfc = \
             sf.ncurve_python_subdomain_space_filling_curve(
                 cola + 1, fina + 1, starting_node, graph_trim, ncurve
             )  # note that fortran array index start from 1, so cola and fina should +1.
-        np.save(config.filename[:-4] + '_sfc.npy', sfc)
+        np.save(config.filename[:-4] + sparse_in.name + '_sfc.npy', sfc)
     # print('to get sfc operators...', time.time() - start_time)
 
     # get coarse grid info
@@ -260,15 +260,15 @@ def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
     a_sfc = a_sfc[:, :, :ncola_sfc_all_un]
     del b_sfc, ml_sfc
     # choose a level to directly solve on. then we'll iterate from there and levels up
-    if config.smooth_start_level < 0:
-        # for level in range(1,nlevel):
-        #     if nodes_per_level[level] < 2:
-        #         config.smooth_start_level = level
-        #         break
-        config.smooth_start_level += nlevel
-    # print('start_level: ', config.smooth_start_level)
+    # if config.smooth_start_level < 0:
+    #     # for level in range(1,nlevel):
+    #     #     if nodes_per_level[level] < 2:
+    #     #         config.smooth_start_level = level
+    #     #         break
+    #     config.smooth_start_level += nlevel
+    # # print('start_level: ', config.smooth_start_level)
     variables_sfc = []
-    for level in range(config.smooth_start_level + 1):
+    for level in range(nlevel):
         variables_sfc.append(get_a_diaga(
             level,
             fin_sfc_nonods,
@@ -279,7 +279,7 @@ def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
     # build A on smooth_start_level. all levels before this are smooth levels,
     # on smooth_start_level, we use direct solve. Therefore, A is replaced with a
     # scipy bsr_matrix.
-    level = config.smooth_start_level
+    level = nlevel - 1
     a_sfc_l = variables_sfc[level][0]  # this is a ndim x ndim list of torch csr tensors.
     cola = a_sfc_l[0][0].col_indices().detach().clone().cpu().numpy()
     fina = a_sfc_l[0][0].crow_indices().detach().clone().cpu().numpy()
