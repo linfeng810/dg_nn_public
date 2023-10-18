@@ -734,19 +734,28 @@ def get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all=0):
     nface = config.ndim + 1
     nonods = nloc * nele
     face_iloc_list = face_iloc_array(config.ndim, nloc)
-    entity_labels = [key for key in mesh.cell_sets_dict]
-    no_labels = 6  # 6 type of bc: diri_f, neu_f, diri_s, neu_s, interface_f, interface_s
-    bc_list = [np.zeros(nonods, dtype=bool) for _ in range(no_labels-2)]  # a list of markers
-    found = np.zeros(nele*nface, dtype=bool)
-    bc_face_list = np.where(alnmt < 0)[0]
-    glb_bcface_type = np.ones(nele*nface, dtype=np.int64) * -1
+
     if config.ndim == 2:
         face_ele_key = 'line'
     else:
         face_ele_key = 'triangle'
+
+    entity_labels = [key for key in mesh.cell_sets_dict]
+    no_labels = 0  # number of bc labels
+    for entity in entity_labels:
+        if face_ele_key in mesh.cell_sets_dict[entity]:
+            no_labels += 1
+    no_labels -= 1  # exclude 'gmsh:bounding_entities'
+    # no_labels = len(entity_labels) - 1  # 6 type of bc: diri_f, neu_f, diri_s, neu_s, interface_f, interface_s
+    #     # if neu_s is not presented, we have 5.
+    #     # but below we will only read in the first 4 or 3 (i.e. no interface_f/interface_s is recorded here)
+    bc_list = [np.zeros(nonods, dtype=bool) for _ in range(no_labels)]  # a list of markers
+    found = np.zeros(nele*nface, dtype=bool)
+    bc_face_list = np.where(alnmt < 0)[0]
+    glb_bcface_type = np.ones(nele*nface, dtype=np.int64) * -1
     sttime = time.time()
     print('start getting bc nodes... ')
-    for ent_id in range(no_labels-2):
+    for ent_id in range(no_labels):
         ent_lab = entity_labels[ent_id]
         # print('ent_id, ent_lab', ent_id, ent_lab)
         for fele in mesh.cell_sets_dict[ent_lab][face_ele_key]:
