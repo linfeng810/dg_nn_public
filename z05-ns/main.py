@@ -59,7 +59,7 @@ tstart = config.tstart
 print('computation on ',dev)
 
 # define element
-quad_degree = config.ele_p*3
+quad_degree = config.ele_p*2
 vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev)
 pre_ele = Element(ele_order=config.ele_p_pressure, gi_order=quad_degree, edim=ndim,dev=dev)
 print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ', quad_degree)
@@ -82,11 +82,12 @@ disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=
                             get_pndg_ndglbno=True)  # displacement func space
 sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
-# material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
-#                                 ndim, dev, config.mu, config.lam)
-# material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
-material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
-                          ndim, dev, config.mu, config.lam)
+material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
+                                ndim, dev, config.mu_s, config.lam_s)
+# material = materials.LinearElastic(sf_nd_nb.disp_func_space.element.nloc,
+#                                    ndim, dev, config.mu_s, config.lam_s)
+# material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
+#                           ndim, dev, config.mu_s, config.lam_s)
 sf_nd_nb.set_data(material=material)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
@@ -138,18 +139,18 @@ print('nele=', nele)
 # print('cg_nonods', sf_nd_nb.p1cg_nonods, 'ncola (p1cg sparsity)', ncola)
 print('1. time elapsed, ',time.time()-starttime)
 
-# if not config.isFSI:
-#     u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-#                                    prob=config.problem,
-#                                    t=0)
-# else:
-#     u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-#                                  prob=config.problem,
+"""solve a fsi problem"""
+# u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+#                              prob=config.problem,
 #                                  t=0)
 """as a test we first solve a fluid only problem"""
-u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-                               prob=config.problem,
-                               t=0)
+# u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+#                                prob=config.problem,
+#                                t=0)
+"""as another test we solve a solid only problem"""
+u_bc, f, fNorm = bc_f.he_bc_f(ndim, disp_func_space.bc_node_list, disp_func_space.x_all,
+                              prob=config.problem
+                              )
 
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
 if not sf_nd_nb.isTransient:
@@ -303,15 +304,6 @@ if config.solver=='iterative':
         # non-linear velocity/displacement/pressure (don't actually needs pressure though)
         x_i_k = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)  # non-linear velocity/disp/pressure
         x_i_k_dict = volume_mf_st.slicing_x_i(x_i_k)
-
-        # get pressure laplacian on P1CG, will be stored in
-        # sf_nd_nb.sfc_data_Lp
-        pressure_matrix.get_RAR_and_sfc_data_Lp(
-            sf_nd_nb.sparse_f.whichc, sf_nd_nb.sparse_f.ncolor,
-            sf_nd_nb.sparse_f.fina,
-            sf_nd_nb.sparse_f.cola,
-            sf_nd_nb.sparse_f.ncola
-        )
 
         # DEBUG: assemble Lp col by col
         if False:
@@ -488,7 +480,14 @@ if config.solver=='iterative':
             #     prob=config.problem,
             #     t=t
             # )
-            u_bc, f, fNorm = bc_f.vel_bc_f(
+            # u_bc, f, fNorm = bc_f.vel_bc_f(
+            #     ndim,
+            #     vel_func_space.bc_node_list,
+            #     vel_func_space.x_all,
+            #     prob=config.problem,
+            #     t=t
+            # )
+            u_bc, f, fNorm = bc_f.he_bc_f(
                 ndim,
                 vel_func_space.bc_node_list,
                 vel_func_space.x_all,
@@ -513,10 +512,8 @@ if config.solver=='iterative':
 
             while sf_nd_nb.nits < config.n_its_max:
                 sf_nd_nb.Kmatinv = None
-                x_i_k *= 0
-                x_i_k += x_i.view(x_i_k.shape)  # non-linear velocity/disp/pressure
-                x_i_dict['disp'][nele_f:nele_f+nele_s, ...] *= 0  # we're solving for correction for displacement in solid
-                # so we set starting value to 0
+                x_i_k_dict['vel'] *= 0
+                x_i_k_dict['vel'] += x_i_dict['vel']  # non-linear velocity is updated here
                 alpha_d_n -= sf_nd_nb.bdfscm.gamma * x_i_k_dict['disp']
                 beta_d_n -= sf_nd_nb.bdfscm.beta[0] * x_i_k_dict['disp']
                 # get rhs and non-linear residual
@@ -556,10 +553,23 @@ if config.solver=='iterative':
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
                     break
+                # since we're moving mesh and changing pressure_func_space,
+                # we need to update pressure Laplacian operator on coarse grid
+                # get pressure laplacian on P1CG, will be stored in
+                # sf_nd_nb.sfc_data_Lp
+                pressure_matrix.get_RAR_and_sfc_data_Lp(
+                    sf_nd_nb.sparse_f.whichc, sf_nd_nb.sparse_f.ncolor,
+                    sf_nd_nb.sparse_f.fina,
+                    sf_nd_nb.sparse_f.cola,
+                    sf_nd_nb.sparse_f.ncola
+                )
                 volume_mf_st.get_RAR_and_sfc_data_Fp(x_i_k, u_bc)
                 volume_mf_he.get_RAR_and_sfc_data_Sp(x_i_k)
                 # print('9. time elapsed, ', time.time() - starttime)
 
+                # we're solving for correction for displacement in solid
+                # so we set starting value to 0
+                x_i_dict['disp'][nele_f:nele_f + nele_s, ...] *= 0
                 # dp_i *= 0  # solve for delta p_i and u_i
                 if config.linear_solver == 'gmres-mg':
                     # nullspace = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
@@ -603,6 +613,11 @@ if config.solver=='iterative':
                 #       'fNorm', fNorm.cpu().numpy())
 
                 # nr0l2 = r0l2
+
+                # update displacement (since we're solving the increment of displacement)
+                x_i_k_dict['disp'][nele_f:nele, ...] += x_i_dict['disp'][nele_f:nele, ...]
+                x_i_dict['disp'][nele_f:nele, ...] *= 0
+                x_i_dict['disp'][nele_f:nele, ...] += x_i_k_dict['disp'][nele_f:nele, ...]
 
                 # # solving for new mesh displacement/velocity
                 # # I think it's more sensible to compute the mesh displacement rather than

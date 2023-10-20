@@ -697,6 +697,7 @@ def _get_RAR_and_sfc_data_Um():
     """
     get RAR and coarser grid operator for mesh displacement
     """
+    print('=== get RAR and sfc_data for Um ===')
     I_fc = sf_nd_nb.sparse_f.I_fc
     I_cf = sf_nd_nb.sparse_f.I_cf
     whichc = sf_nd_nb.sparse_f.whichc

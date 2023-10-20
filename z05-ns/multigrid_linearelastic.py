@@ -235,7 +235,7 @@ def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
                 cola + 1, fina + 1, starting_node, graph_trim, ncurve
             )  # note that fortran array index start from 1, so cola and fina should +1.
         np.save(config.filename[:-4] + sparse_in.name + '_sfc.npy', sfc)
-    # print('to get sfc operators...', time.time() - start_time)
+    # print('to get sfc operators for ...', sparse_in.name)
 
     # get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(cg_nonods) + 1
@@ -254,7 +254,7 @@ def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
             max_ncola_sfc_all_un=max_ncola_sfc_all_un,
             max_nlevel=max_nlevel,
             ndim=config.ndim, ncola=ncola, nonods=cg_nonods)
-    print('back from sfc operator fortran subroutine,', time.time() - start_time)
+    # print('back from sfc operator fortran subroutine,', time.time() - start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i - 1] for i in range(1, nlevel + 1)]
     # print(fin_sfc_nonods.shape)
     a_sfc = a_sfc[:, :, :ncola_sfc_all_un]

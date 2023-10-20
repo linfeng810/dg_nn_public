@@ -772,6 +772,12 @@ def get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all=0):
                     nod_list_in_this_ele = ele*nloc + face_iloc_list[iface]
                     # print('ele iface nod_list', ele, '|', iface, '|', nod_list_in_this_ele)
                     bc_list[ent_id][nod_list_in_this_ele] = True  # marked!
+    if nele_f < 1 and nele_s > 0:
+        # only have solid but no fluid, we will fill 2 blank bc_list in the beginning
+        bc_list.insert(0, np.zeros(nonods, dtype=bool))
+        bc_list.insert(0, np.zeros(nonods, dtype=bool))
+        # also change the marks in glb_bcface_type
+        glb_bcface_type[glb_bcface_type >= 0] += 2
     # now mark faces on interface.
     interior_face_list = np.where(alnmt >= 0)[0]  # interior face
     for glb_iface in interior_face_list:

@@ -61,7 +61,7 @@ def get_subdomain_sparsity(cg_ndglno, nele_f, nele_s, cg_nonods):
     cg_node_order_s = np.unique(cg_ndglno_s)
     idx_dict_s = {old: new for new, old in enumerate(cg_node_order_s)}
     cg_nonods_s = cg_node_order_s.shape[0]
-    if cg_ndglno_s > 0:
+    if cg_nonods_s > 0:
         cg_ndglno_s_new = np.vectorize(idx_dict_s.get)(cg_ndglno_s)
     else:  # no solid subdomain
         cg_ndglno_s_new = np.array([], dtype=np.int64)
