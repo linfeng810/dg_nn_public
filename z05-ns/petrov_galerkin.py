@@ -106,7 +106,7 @@ def get_pg_tau(u, w, v, vx, cell_volume, batch_in: int):
     tau_max = tau_max.unsqueeze(-1).unsqueeze(-1).expand(tau_1.shape)
 
     # eventually, tau
-    tau = torch.minimum(tau_1, torch.minimum(tau_2, tau_max)) * config.rho
+    tau = torch.minimum(tau_1, torch.minimum(tau_2, tau_max)) * config.rho_f
 
     debug = False
     if debug:
@@ -218,7 +218,7 @@ def get_pg_tau_on_face(u, w, v, vx, cell_volume, batch_in: int):
     tau_max = tau_max.unsqueeze(-1).unsqueeze(-1).expand(tau_1.shape)
 
     # eventually, tau
-    tau = torch.minimum(tau_1, torch.minimum(tau_2, tau_max)) * config.rho
+    tau = torch.minimum(tau_1, torch.minimum(tau_2, tau_max)) * config.rho_f
 
     return tau
 

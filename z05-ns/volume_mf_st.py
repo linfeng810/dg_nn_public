@@ -303,6 +303,8 @@ def _k_res_one_batch(
         # nothing to do here.
         return r0, diagK, bdiagK, diagS
     batch_in = diagK.shape[0]
+    if batch_in == 0:
+        return r0, diagK, bdiagK, diagS
     include_p = a01 or a10
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -350,12 +352,12 @@ def _k_res_one_batch(
         K += torch.einsum('bimg,bing,bg,jk->bmjnk', nx, nx, ndetwei,
                           torch.eye(ndim, device=dev, dtype=torch.float64)
                           ) \
-            * config.mu
+            * config.mu_f
         if sf_nd_nb.isTransient or use_fict_dt_in_vel_precond:
             # ni nj
             for idim in range(ndim):
                 K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) \
-                                          * config.rho / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
+                                          * config.rho_f / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
         # elif use_fict_dt_in_vel_precond:
         #     for idim in range(ndim):
         #         K[:, :, idim, :, idim] += torch.einsum('mg,ng,bg->bmn', n, n, ndetwei) * sf_nd_nb.fict_mass_coeff
@@ -369,7 +371,7 @@ def _k_res_one_batch(
                 n,
                 ndetwei,
                 torch.eye(ndim, device=dev, dtype=torch.float64)
-            ) * config.rho
+            ) * config.rho_f
             if sf_nd_nb.isPetrovGalerkin:  # TODO: this is not updated for moving mesh
                 # get tau for petrov galerkin, but only update tau at the start of one nonlinear step
                 tau = petrov_galerkin.get_pg_tau(
@@ -625,7 +627,7 @@ def _s_res_fi(
             gamma_e,  # (batch_in)
             torch.eye(ndim, device=dev, dtype=torch.float64),
         )
-        K *= config.mu
+        K *= config.mu_f
         if include_adv:
             x_k_dict = slicing_x_i(u_n)  # this is non-linear vel/pre/displacement
             # Edge stabilisation (vel gradient penalty term)
@@ -652,7 +654,7 @@ def _s_res_fi(
                 x_k_dict['vel'][E_F_inb, :, :] - sf_nd_nb.u_m[E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
                 snormal,  # (batch_in, ndim, sngi)
             ) * 0.5
-            wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho
+            wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
             K += -torch.einsum(
                 'bg,bmg,bng,bg,ij->bminj',
                 wknk_upwd,  # (batch_in, sngi)
@@ -764,7 +766,7 @@ def _s_res_fi(
             gamma_e,  # (batch_in)
             torch.eye(ndim, device=dev, dtype=torch.float64),
         ) * (-1.)  # because n2 \cdot n1 = -1
-        K *= config.mu
+        K *= config.mu_f
         if include_adv:
             # Edge stabilisation (vel gradient penalty term)
             if sf_nd_nb.isES:
@@ -995,7 +997,7 @@ def _s_res_fb(
             gamma_e,  # (batch_in)
             torch.eye(ndim, device=dev, dtype=torch.float64)
         )
-        K *= config.mu
+        K *= config.mu_f
         if include_adv:
             # get upwind velocity
             wknk_ave = torch.einsum(
@@ -1136,7 +1138,7 @@ def _s_res_itf(
         -snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
-    ) * config.mu
+    ) * config.mu_f
 
     # \gamma_e [u_Di] [v_i]
     r_dict['vel'][E_F_itf, ...] -= torch.einsum(
@@ -1146,7 +1148,7 @@ def _s_res_itf(
         sn_nb,
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
-    ) * config.mu
+    ) * config.mu_f
 
     # 2. {q} [u_Di n_i]
     r_dict['pre'][E_F_itf, ...] += torch.einsum(
@@ -1193,6 +1195,8 @@ def _k_rhs_one_batch(
         rhs_in, u_n, f, idx_in, isAdvExp, u_k
 ):
     batch_in = int(torch.sum(idx_in))  # only fluid subdomain
+    if batch_in < 1:  # nothing to do here.
+        return rhs_in
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
@@ -1237,7 +1241,7 @@ def _k_rhs_one_batch(
             ndetwei,
             torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
             u_n[idx_in, ...],
-        ) * config.rho / sf_nd_nb.dt
+        ) * config.rho_f / sf_nd_nb.dt
 
     # # p \nabla.v contribution to vel rhs
     # rhs[0][idx_in, ...] += torch.einsum(
@@ -1258,7 +1262,7 @@ def _k_rhs_one_batch(
             n,  # (u_nloc, ngi)
             ndetwei,  # (batch_in, ngi)
             u_th,  # (batch_in, u_nloc, ndim)
-        ) * config.rho
+        ) * config.rho_f
 
     return rhs_in
 
@@ -1433,7 +1437,7 @@ def _s_rhs_fi(
         u_k_nb,  # (batch_in, u_nloc, sngi)
         snormal,  # (batch_in, ndim, sngi)
     ) * 0.5
-    wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho
+    wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
 
     # this side
     rhs[0][E_F_i, ...] -= -torch.einsum(
@@ -1512,7 +1516,7 @@ def _s_rhs_fb(
         snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_bc_th,  # (batch_in, u_nloc, ndim)
-    ) * config.mu
+    ) * config.mu_f
 
     # 1.2 \gamma_e [u_Di] [v_i]
     rhs['vel'][E_F_b, ...] += torch.einsum(
@@ -1522,7 +1526,7 @@ def _s_rhs_fb(
         sn,
         sdetwei,  # (batch_in, sngi)
         u_bc_th,  # (batch_in, u_nloc, ndim)
-    ) * config.mu
+    ) * config.mu_f
 
     # 2. {q} [u_Di n_i]
     rhs['pre'][E_F_b, ...] += torch.einsum(
@@ -1555,7 +1559,7 @@ def _s_rhs_fb(
             u_bc_th,  # (batch_in, u_nloc, ndim)
             snormal,  # (batch_in, ndim, sngi)
         )
-        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho
+        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
         rhs['vel'][E_F_b, ...] += -torch.einsum(
             'bg,bmg,bng,bg,ij,bnj->bmi',
             wknk_upwd,
@@ -1574,7 +1578,7 @@ def _s_rhs_fb(
                 vx=snx,
                 cell_volume=sf_nd_nb.vel_func_space.cell_volume[E_F_b],
                 batch_in=batch_in,
-            ) * config.rho
+            ) * config.rho_f
             # 1.1 {dv_i / dx_j} [u_Di n_j tau_pg_i]
             rhs['vel'][E_F_b, ...] -= torch.einsum(
                 'bjmg,bng,bjg,bg,bni,big->bmi',
@@ -1651,7 +1655,7 @@ def _s_rhs_fitf(
         -snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
-    ) * config.mu
+    ) * config.mu_f
 
     # \gamma_e [u_Di] [v_i]
     rhs['vel'][E_F_itf, ...] -= torch.einsum(
@@ -1661,7 +1665,7 @@ def _s_rhs_fitf(
         sn_nb,
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
-    ) * config.mu
+    ) * config.mu_f
 
     # 2. {q} [u_Di n_i]
     rhs['pre'][E_F_itf, ...] += torch.einsum(
@@ -2063,7 +2067,7 @@ def pre_blk_precon(x_p):
         q,
         q,
         qdetwei
-    ) / config.mu  # 1/nu Q as pressure preconditioner
+    ) / config.mu_f  # 1/nu Q as pressure preconditioner
     Q = torch.linalg.inv(Q)
     x_temp = torch.einsum('bmn,bn->bm', Q, x_p)
     x_p *= 0
@@ -2442,7 +2446,9 @@ def get_RAR_and_sfc_data_Fp(
     cola = sf_nd_nb.sparse_f.cola
     ncola = sf_nd_nb.sparse_f.ncola
     cg_nonods = sf_nd_nb.sparse_f.cg_nonods
-
+    if cg_nonods == 0:
+        return None
+    print('=== get RAR and sfc data for fluid velocity blk ===')
     # prepare for MG on SFC-coarse grids
     if config.use_fict_dt_in_vel_precond:  # change mass matrix magnitude in vel blk preconditioner
         sf_nd_nb.dt = sf_nd_nb.fict_dt

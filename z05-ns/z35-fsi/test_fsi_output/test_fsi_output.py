@@ -49,7 +49,7 @@ if config.isFSI:
     sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
 material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
-                                ndim, dev, config.mu, config.lam)
+                                ndim, dev, config.mu_s, config.lam_s)
 # material = materials.LinearElastic(nloc, ndim, dev, mu, lam)
 sf_nd_nb.set_data(material=material)
 

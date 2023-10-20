@@ -109,6 +109,8 @@ def _k_res_one_batch(
     """this contains volume integral part of the residual update
     """
     batch_in = diagK.shape[0]
+    if batch_in == 0:  # no element in this batch
+        return r0, diagK, bdiagK
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
@@ -134,11 +136,11 @@ def _k_res_one_batch(
     K = torch.zeros(batch_in, p_nloc, p_nloc, device=dev, dtype=torch.float64)
 
     # Nx_i Nx_j
-    K += torch.einsum('bimg,bing,bg->bmn', qx, qx, ndetwei) * config.mu
+    K += torch.einsum('bimg,bing,bg->bmn', qx, qx, ndetwei) * config.mu_f
     if include_adv:
         if sf_nd_nb.isTransient:
             # ni nj
-            K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
+            K += torch.einsum('mg,ng,bg->bmn', q, q, ndetwei) * config.rho_f / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
         K += torch.einsum(
             'lg,bli,bing,mg,bg->bmn',
             v,
@@ -319,7 +321,7 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
     )
-    K *= config.mu
+    K *= config.mu_f
     if include_adv:
         # Edge stabilisation (vel gradient penalty term)
         if sf_nd_nb.isES:
@@ -386,7 +388,7 @@ def _s_res_fi(
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
     ) * (-1.)  # because n2 \cdot n1 = -1
-    K *= config.mu
+    K *= config.mu_f
     if include_adv:
         # Edge stabilisation (vel gradient penalty term)
         if sf_nd_nb.isES:
@@ -480,7 +482,7 @@ def _s_res_fb(
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
     )
-    K *= config.mu
+    K *= config.mu_f
     if include_adv:
         # get upwind velocity
         wknk_ave = torch.einsum(
@@ -757,9 +759,9 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
     nele = config.nele
     ncola = cola.shape[0]
     start_time = time.time()
-    print('to get space filling curve...', time.time() - start_time)
+    # print('to get space filling curve...', time.time() - start_time)
     if os.path.isfile(config.filename[:-4] + sf_nd_nb.sparse_f.name + '_sfc.npy'):
-        print('pre-calculated sfc exists. readin from file...')
+        # print('pre-calculated sfc exists. readin from file...')
         sfc = np.load(config.filename[:-4] + sf_nd_nb.sparse_f.name + '_sfc.npy')
     else:
         _, sfc = \
@@ -767,7 +769,7 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
                 cola + 1, fina + 1, starting_node, graph_trim, ncurve
             )  # note that fortran array index start from 1, so cola and fina should +1.
         np.save(config.filename[:-4] + sf_nd_nb.sparse_f.name + '_sfc.npy', sfc)
-    print('to get sfc operators...', time.time() - start_time)
+    # print('to get sfc operators...', time.time() - start_time)
 
     # get coarse grid info
     max_nlevel = sf.calculate_nlevel_sfc(cg_nonods) + 1
@@ -786,7 +788,7 @@ def _mg_on_P0CG_prep(fina, cola, RARvalues):
             max_ncola_sfc_all_un=max_ncola_sfc_all_un,
             max_nlevel=max_nlevel,
             ncola=ncola, nonods=cg_nonods)
-    print('back from sfc operator fortran subroutine,', time.time() - start_time)
+    # print('back from sfc operator fortran subroutine,', time.time() - start_time)
     nodes_per_level = [fin_sfc_nonods[i] - fin_sfc_nonods[i - 1] for i in range(1, nlevel + 1)]
     # print(fin_sfc_nonods.shape)
     a_sfc = a_sfc[:ncola_sfc_all_un]  # trim following zeros.
@@ -830,6 +832,7 @@ def get_RAR_and_sfc_data_Lp(
     """
     prepare for MG on SFC-coarse grids for pressure laplacian operator
     """
+    print('=== get RAR and sfc data for pressure laplacian ===')
     RARvalues = _calc_RAR_mf_color(
         sf_nd_nb.sparse_f.I_fc,
         sf_nd_nb.sparse_f.I_cf,
@@ -837,6 +840,8 @@ def get_RAR_and_sfc_data_Lp(
         fina, cola, ncola,
     )
     cg_nonods = sf_nd_nb.sparse_f.cg_nonods
+    if cg_nonods < 1: # nothing to do here.
+        return None
     if not config.is_sfc:
         RAR = csr_matrix((RARvalues.cpu(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
@@ -980,7 +985,7 @@ def pre_precond_invQ(x_p):
         q,
         q,
         qdetwei
-    ) / config.mu  # 1/nu Q as pressure preconditioner
+    ) / config.mu_f  # 1/nu Q as pressure preconditioner
     Q = torch.linalg.inv(Q)
     x_temp = torch.einsum('bmn,bn->bm', Q, x_p)
     x_p *= 0

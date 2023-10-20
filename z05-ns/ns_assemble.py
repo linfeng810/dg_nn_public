@@ -71,7 +71,7 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
     # values = []
 
     # volume integral
-    nxnx = np.einsum('bkmg,bkng,bg->bmn', nx, nx, detwei) * config.mu
+    nxnx = np.einsum('bkmg,bkng,bg->bmn', nx, nx, detwei) * config.mu_f
     nn = np.einsum('mg,ng,bg->bmn', n, n, detwei)
     qnx = np.einsum('mg,bing,bg->bmni', q, nx, detwei)
     nxq = np.einsum('bimg,ng,bg->bmin', nx, q, detwei)
@@ -91,7 +91,7 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
                     # print('     glb_jloc', glb_jloc)
                     value = nxnx[ele, iloc, jloc]
                     if sf_nd_nb.isTransient or use_fict_dt_in_vel_precond:
-                        value += nn[ele, iloc, jloc] * config.rho / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
+                        value += nn[ele, iloc, jloc] * config.rho_f / sf_nd_nb.dt * sf_nd_nb.bdfscm.gamma
                     # elif add_mass_to_precond:
                     #     value += nn[ele, iloc, jloc] * sf_nd_nb.fict_mass_coeff
                     indices.append([glb_iloc, glb_jloc])
@@ -158,9 +158,9 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
                                              sdetwei[ele, iface, :]) * mu_e
                                 # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                                 indices.append([glb_inod, glb_jnod])
-                                values.append((-vnux - vxun + nn) * config.mu)
+                                values.append((-vnux - vxun + nn) * config.mu_f)
                                 # add boundary contribution to rhs
-                                rhs[glb_inod] += u_bc[glb_jnod] * (-vxun + nn) * config.mu
+                                rhs[glb_inod] += u_bc[glb_jnod] * (-vxun + nn) * config.mu_f
                             # G
                             for jnod in range(p_nloc):
                                 glb_jnod = nele*u_nloc*ndim + ele*p_nloc + jnod
@@ -236,7 +236,7 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
                                              sdetwei[ele, iface, :]) * mu_e
                                 # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                                 indices.append([glb_inod, glb_jnod])
-                                values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
+                                values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu_f + vxux * sf_nd_nb.isES)
                             # G
                             for jnod in range(p_nloc):
                                 glb_jnod = nele * u_nloc * ndim + ele * p_nloc + jnod
@@ -270,7 +270,7 @@ def assemble(u_bc_in, f, indices, values, use_fict_dt_in_vel_precond=False):
                                              sdetwei[ele, iface, :]) * mu_e * (-1.)
                                 # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
                                 indices.append([glb_inod, glb_jnod2])
-                                values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
+                                values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu_f + vxux * sf_nd_nb.isES)
                             # G
                             for jnod2 in range(p_nloc):
                                 glb_jnod2 = nele * u_nloc * ndim + ele2 * p_nloc + jnod2
@@ -663,7 +663,7 @@ def pressure_laplacian_assemble(indices, values):
     # values = []
 
     # volume integral
-    qxqx = np.einsum('bkmg,bkng,bg->bmn', qx, qx, detwei) * config.mu
+    qxqx = np.einsum('bkmg,bkng,bg->bmn', qx, qx, detwei) * config.mu_f
 
     for ele in tqdm(range(nele), disable=config.disabletqdm):
         # K and G
@@ -719,7 +719,7 @@ def pressure_laplacian_assemble(indices, values):
                                          sdetwei[ele, iface, :]) * mu_e
                             # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
-                            values.append((-vnux - vxun + nn) * config.mu)
+                            values.append((-vnux - vxun + nn) * config.mu_f)
                     # print('ele iface values final', ele, iface, values[-1])
                 elif glb_iface_type == 1:
                     # neumann boundary
@@ -762,7 +762,7 @@ def pressure_laplacian_assemble(indices, values):
                                          sdetwei[ele, iface, :]) * mu_e
                             # print('    inod, idim, jnod, jdim, glbi, glbj', inod, idim, jnod, jdim, glb_inod, glb_jnod)
                             indices.append([glb_inod, glb_jnod])
-                            values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
+                            values.append((-0.5*vnux - 0.5*vxun + nn) * config.mu_f + vxux * sf_nd_nb.isES)
 
                         # other side
                         # K
@@ -787,6 +787,6 @@ def pressure_laplacian_assemble(indices, values):
                                          sdetwei[ele, iface, :]) * mu_e * (-1.)
                             # print('    inod, idim, jnod, jdim2, glbi, glbj', inod, idim, jnod2, jdim2, glb_inod, glb_jnod2)
                             indices.append([glb_inod, glb_jnod2])
-                            values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu + vxux * sf_nd_nb.isES)
+                            values.append((-0.5 * vnux - 0.5 * vxun + nn) * config.mu_f + vxux * sf_nd_nb.isES)
 
     return indices, values

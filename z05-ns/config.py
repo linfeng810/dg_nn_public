@@ -13,7 +13,7 @@ np.set_printoptions(precision=16)
 disabletqdm = False
 #
 # device
-dev=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # dev="cpu" # if force funning on cpu
 torch.manual_seed(0)
 
@@ -27,7 +27,7 @@ if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
 tend = 1 * dt  # end time
-isTransient = True  # decide if we are doing transient simulation
+isTransient = False  # decide if we are doing transient simulation
 isAdvExp = False  # treat advection term explicitly
 if True:  # isTransient:
     time_order = 3  # time discretisation order
@@ -38,8 +38,9 @@ solver = 'iterative'  # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube_diri_neu.msh' # directory to mesh file (gmsh)
-filename='z32-square-mesh/square_poiseuille.msh'
+filename = 'z31-cube-mesh/cube_diri_neu.msh'  # directory to mesh file (gmsh)
+# filename='z32-square-mesh/square_poiseuille.msh'
+filename = 'z31-cube-mesh/cube_only_diri_solid.msh'
 # filename = 'z32-square-mesh/square.msh'
 # filename = 'z34-bfs/bfs.msh'
 # filename = 'z33-fpc/fpc.msh'
@@ -50,7 +51,7 @@ if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
 #     filename = sys.argv[1]
-mesh = meshio.read(filename) # mesh object
+mesh = meshio.read(filename)  # mesh object
 isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
 use_fict_dt_in_vel_precond = False
@@ -64,12 +65,12 @@ sf_nd_nb.dt = dt
 
 # mesh info
 # Check the dimension of the mesh
-if 'triangle' in mesh.cells_dict:
-    ndim = 2  # It's a 2D mesh (contains triangles)
-    vol_ele_name = 'triangle'
-elif 'tetra' in mesh.cells_dict:
+if 'tetra' in mesh.cells_dict:
     ndim = 3  # It's a 3D mesh (contains tetrahedra)
     vol_ele_name = 'tetra'
+elif 'triangle' in mesh.cells_dict:
+    ndim = 2  # It's a 2D mesh (contains triangles)
+    vol_ele_name = 'triangle'
 else:
     # Handle other cases or raise an error if necessary
     raise ValueError("Unknown or unsupported mesh dimension")
@@ -78,8 +79,10 @@ if not isFSI:
     # nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
     nele = mesh.cell_sets_dict['fluid'][vol_ele_name].shape[0]
 else:
-    nele_f = mesh.cell_sets_dict['fluid'][vol_ele_name].shape[0]
+    nele_f = 0
     nele_s = 0
+    if 'fluid' in mesh.cell_sets_dict:
+        nele_f = mesh.cell_sets_dict['fluid'][vol_ele_name].shape[0]
     if 'solid' in mesh.cell_sets_dict:
         nele_s = mesh.cell_sets_dict['solid'][vol_ele_name].shape[0]
     # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
@@ -94,9 +97,9 @@ tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = tol  # convergence criteria
-jac_wei = 2./3. # jacobi weight
-mg_its = [1, 1, 1, 1, 1, 1, 1]          # smooth steps on each level: P1CG(SFC0), SFC1, ...
-mg_tol = 0.1    # multigrid smoother raletive residual tolorance (if we want)
+jac_wei = 2. / 3.  # jacobi weight
+mg_its = [1, 1, 1, 1, 1, 1, 1]  # smooth steps on each level: P1CG(SFC0), SFC1, ...
+mg_tol = 0.1  # multigrid smoother raletive residual tolorance (if we want)
 mg_smooth_its = 1
 pre_smooth_its = 3
 post_smooth_its = 3  # thus we have a V(pre,post)-cycle
@@ -110,14 +113,14 @@ blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' di
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
 is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
-print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_its),
+print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,
       'with SFC?', is_sfc)
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
-gmres_m = 80  # restart
-gmres_its = 400  # max GMRES steps
+gmres_m = 20  # restart
+gmres_its = 200  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
@@ -130,7 +133,7 @@ relax_coeff = 1.
 ####################
 # material property
 ####################
-problem = 'tgv'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'hyper-elastic'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -139,25 +142,25 @@ problem = 'tgv'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'k
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
-# mu = E/2.0/(1.+nu)
-lam = 8.0e6
-mu = 2.0e6
-E = mu * (3*lam + 2*mu) / (lam + mu)
-nu = lam/2/(lam+mu)
-lam = torch.tensor(lam, device=dev, dtype=torch.float64)
-mu = torch.tensor(mu, device=dev, dtype=torch.float64)
-print('Lame coefficient: lamda, mu', lam, mu)
-# lam = 1.0; mu = 1.0
+# mu_s = E/2.0/(1.+nu)
+lam_s = 10
+mu_s = 1
+E = mu_s * (3 * lam_s + 2 * mu_s) / (lam_s + mu_s)
+nu = lam_s / 2 / (lam_s + mu_s)
+lam_s = torch.tensor(lam_s, device=dev, dtype=torch.float64)
+mu_s = torch.tensor(mu_s, device=dev, dtype=torch.float64)
+print('Lame coefficient: lamda, mu', lam_s, mu_s)
+# lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
-# print('lam, mu', lam, mu)
-rho = 1.
+# print('lam_s, mu_s', lam_s, mu_s)
+rho_f = 1.
 if isFSI:
-    rho_s = 1.e3  # solid density at initial configuration
+    rho_s = 1.  # solid density at initial configuration
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
-kijkl = torch.einsum('ik,jl->ijkl',a,a)  # k tensor for double diffusion
-cijkl = lam*torch.einsum('ij,kl->ijkl',a,a)\
-    +mu*torch.einsum('ik,jl->ijkl',a,a)\
-    +mu*torch.einsum('il,jk->ijkl',a,a)  # c_ijkl elasticity tensor
+kijkl = torch.einsum('ik,jl->ijkl', a, a)  # k tensor for double diffusion
+cijkl = lam_s * torch.einsum('ij,kl->ijkl', a, a) \
+        + mu_s * torch.einsum('ik,jl->ijkl', a, a) \
+        + mu_s * torch.einsum('il,jk->ijkl', a, a)  # c_ijkl elasticity tensor
 
 if ndim == 2:
     ijkldim_nz = [[0, 0, 0, 0], [0, 0, 1, 1], [0, 1, 0, 1], [0, 1, 1, 0],
@@ -172,21 +175,21 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu = 1./10  # this is diffusion coefficient (viscosity)
-    _Re = int(1/mu)
+    mu_f = 1. / 10  # this is diffusion coefficient (viscosity)
+    _Re = int(1 / mu_f)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
     include_adv = True  # if Navier-Stokes, include advection term.
     if isAdvExp:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
-    print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu, _Re, hasNullSpace, is_pressure_stablise)
+    print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu_f, _Re, hasNullSpace, is_pressure_stablise)
 
     initialCondition = 1  # 1. use zero as initial condition
     # 2. solve steady stokes as initial condition
     # 3. to use a precalculated fields (u and p) in a file as initial condition
     if initialCondition == 3:
         initDataFile = 'Re109_t20.00.pt'
-        print('use this data file as initial condition: '+initDataFile)
+        print('use this data file as initial condition: ' + initDataFile)
 
 # === all kinds of stabilisation for convection-dominant flow ===
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
@@ -217,7 +220,7 @@ print('Surface jump penalty coefficient eta_e: ', eta_e)
 no_batch = 1
 print('No of batch: ', no_batch)
 
-case_name = '_'+problem+'Re'+str(_Re)+'_p'+str(ele_p)+'p'+str(ele_p_pressure)+\
-            '_'+time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
+case_name = '_' + problem + 'Re' + str(_Re) + '_p' + str(ele_p) + 'p' + str(ele_p_pressure) + \
+            '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
 # case_name = '_bfsRe109_p3p2_20230828-190846'
-print('case name is: '+case_name)
+print('case name is: ' + case_name)
