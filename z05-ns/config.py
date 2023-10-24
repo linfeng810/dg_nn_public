@@ -22,12 +22,14 @@ isFSI = True  # fsi problem or not
 #####################################################
 # time step settings
 #####################################################
-dt = 0.1  # timestep
+dt = 0.05  # timestep
 if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
-tend = 1 * dt  # end time
-isTransient = False  # decide if we are doing transient simulation
+tend = 6  # end time
+isTransient = True  # decide if we are doing transient simulation
+if not isTransient:
+    dt = 1e8  # if not transient, set dt to a large value
 isAdvExp = False  # treat advection term explicitly
 if True:  # isTransient:
     time_order = 3  # time discretisation order
@@ -46,7 +48,8 @@ filename = 'z31-cube-mesh/cube_only_diri_solid.msh'
 # filename = 'z33-fpc/fpc.msh'
 # filename = 'z35-fsi/fs_square.msh'
 # # filename = 'z35-fsi/test_mesh_displacement/square_circle.msh'
-# filename = 'z35-fsi/z01-turek/turek.msh'
+filename = 'z35-fsi/z01-turek/turek.msh'
+# filename = 'z35-fsi/z02-etienne/etienne.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -119,32 +122,33 @@ print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
-gmres_m = 20  # restart
-gmres_its = 200  # max GMRES steps
+gmres_m = 80  # restart
+gmres_its = 400  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
 
 # non-linear iteration parameters
-n_its_max = 15
+n_its_max = 5
 n_tol = 1.e-6
-relax_coeff = 1.
+relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
 
 ####################
 # material property
 ####################
-problem = 'hyper-elastic'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'turek'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
 # or 'fsi-test' = test fluid-structure boundary
 # or 'turek' = turek benchmark FSI-2
+# or 'fsi-poiseuille' = fsi poiseuille flow
 # E = 2.5
 # nu = 0.25  # or 0.49, or 0.4999
 # lam = E*nu/(1.+nu)/(1.-2.*nu)
 # mu_s = E/2.0/(1.+nu)
-lam_s = 10
-mu_s = 1
+lam_s = 8e6
+mu_s = 2e6
 E = mu_s * (3 * lam_s + 2 * mu_s) / (lam_s + mu_s)
 nu = lam_s / 2 / (lam_s + mu_s)
 lam_s = torch.tensor(lam_s, device=dev, dtype=torch.float64)
@@ -153,9 +157,9 @@ print('Lame coefficient: lamda, mu', lam_s, mu_s)
 # lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
 # print('lam_s, mu_s', lam_s, mu_s)
-rho_f = 1.
+rho_f = 1.e3
 if isFSI:
-    rho_s = 1.  # solid density at initial configuration
+    rho_s = 1.e3  # solid density at initial configuration
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
 kijkl = torch.einsum('ik,jl->ijkl', a, a)  # k tensor for double diffusion
 cijkl = lam_s * torch.einsum('ij,kl->ijkl', a, a) \
@@ -175,7 +179,7 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu_f = 1. / 10  # this is diffusion coefficient (viscosity)
+    mu_f = 1.  # this is diffusion coefficient (viscosity)
     _Re = int(1 / mu_f)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
