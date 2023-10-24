@@ -247,7 +247,7 @@ def get_residual_only(r0, x_i, x_rhs,
         r0_dict['pre'] += x_rhs_dict['pre']
     for i in range(nnn):
         # volume integral
-        idx_in = torch.zeros(nele, device=dev, dtype=bool)  # element indices in this batch
+        idx_in = torch.zeros(nele, device=dev, dtype=torch.bool)  # element indices in this batch
         idx_in[brk_pnt[i]:brk_pnt[i + 1]] = True
         batch_in = int(torch.sum(idx_in))
         # dummy diagA and bdiagA
@@ -262,7 +262,7 @@ def get_residual_only(r0, x_i, x_rhs,
                                                     a00, a01, a10, a11,
                                                     use_fict_dt_in_vel_precond,)
         # surface integral
-        idx_in_f = torch.zeros(nele * nface, dtype=bool, device=dev)
+        idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
         r0, diagK, bdiagK, diagS = _s_res_one_batch(
             r0, x_i,
@@ -1006,7 +1006,7 @@ def _s_res_fb(
                 u_bc[E_F_b, ...],  # (batch_in, u_nloc, ndim)
                 snormal,  # (batch_in, ndim, sngi)
             )
-            wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
+            wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
             K += -torch.einsum(
                 'bg,bmg,bng,bg,ij->bminj',
                 wknk_upwd,
@@ -1131,7 +1131,7 @@ def _s_res_itf(
     u_s_nb = x_i_dict['disp'][E_F_itf_nb, ...] / config.dt * sf_nd_nb.bdfscm.gamma
 
     # {dv_i / dx_j} [u_Si n_Sj]
-    r_dict['vel'][E_F_itf, ...] -= torch.einsum(
+    r_dict['vel'][E_F_itf, ...] += torch.einsum(
         'bjmg,bng,bjg,bg,bni->bmi',
         snx,  # (batch_in, ndim, u_nloc, sngi)
         sn_nb,  # (batch_in, u_nloc, sngi)
@@ -1141,7 +1141,7 @@ def _s_res_itf(
     ) * config.mu_f
 
     # \gamma_e [u_Di] [v_i]
-    r_dict['vel'][E_F_itf, ...] -= torch.einsum(
+    r_dict['vel'][E_F_itf, ...] += torch.einsum(
         'b,bmg,bng,bg,bni->bmi',
         gamma_e,  # (batch_in)
         sn,  # (batch_in, u_nloc, sngi)
@@ -1151,7 +1151,7 @@ def _s_res_itf(
     ) * config.mu_f
 
     # 2. {q} [u_Di n_i]
-    r_dict['pre'][E_F_itf, ...] += torch.einsum(
+    r_dict['pre'][E_F_itf, ...] -= torch.einsum(
         'bmg,bng,big,bg,bni->bm',
         sq,  # (batch_in, p_nloc, sngi)
         sn_nb,  # (batch_in, u_nloc, sngi)
@@ -1645,20 +1645,20 @@ def _s_rhs_fitf(
     if ndim == 3:
         h = torch.sqrt(h)
     gamma_e = config.eta_e / h
-    u_s_nb = d_n[E_F_itf_nb, ...] / config.dt
+    u_s_nb = d_n[E_F_itf_nb, ...] / sf_nd_nb.dt
 
     # {dv_i / dx_j} [u_Si n_Sj]
     rhs['vel'][E_F_itf, ...] -= torch.einsum(
         'bjmg,bng,bjg,bg,bni->bmi',
         snx,  # (batch_in, ndim, u_nloc, sngi)
         sn_nb,  # (batch_in, u_nloc, sngi)
-        -snormal,  # (batch_in, ndim, sngi)
+        snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
     ) * config.mu_f
 
     # \gamma_e [u_Di] [v_i]
-    rhs['vel'][E_F_itf, ...] -= torch.einsum(
+    rhs['vel'][E_F_itf, ...] += torch.einsum(
         'b,bmg,bng,bg,bni->bmi',
         gamma_e,  # (batch_in)
         sn,  # (batch_in, u_nloc, sngi)
@@ -1672,7 +1672,7 @@ def _s_rhs_fitf(
         'bmg,bng,big,bg,bni->bm',
         sq,  # (batch_in, p_nloc, sngi)
         sn_nb,  # (batch_in, u_nloc, sngi)
-        -snormal,  # (batch_in, ndim, sngi)
+        snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
     )
@@ -2131,7 +2131,7 @@ def vel_precond_invK_mg(x_i, x_rhs, include_adv, x_k=None, u_bc=None):
     if not config.is_sfc:  # two-grid method
         e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
         e_direct = sp.sparse.linalg.spsolve(
-            sf_nd_nb.RARmat,
+            sf_nd_nb.RARmat_F,
             r1.contiguous().view(-1).cpu().numpy()
         )
         e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods, ndim)
@@ -2467,7 +2467,7 @@ def get_RAR_and_sfc_data_Fp(
     if not config.is_sfc:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
                          shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
-        sf_nd_nb.set_data(RARmat=RAR.tocsr())
+        sf_nd_nb.set_data(RARmat_F=RAR.tocsr())
     # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
     RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
     # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?

@@ -19,7 +19,7 @@ import output
 import petrov_galerkin
 import shape_function
 import sparsity
-import volume_mf_st, volume_mf_um, volume_mf_he
+import volume_mf_st, volume_mf_um, volume_mf_he, volume_mf_um_on_fix_mesh
 from function_space import FuncSpace, Element
 import solvers
 from config import sf_nd_nb
@@ -113,6 +113,7 @@ if False:  # test mesh displacement
             torch.ones(nele_s, disp_func_space.element.nloc, ndim, device=dev, dtype=torch.float64,)
                                               ) * 0.01
         x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+        # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
 
         # move velocity mesh
         sf_nd_nb.vel_func_space.x_ref_in *= 0
@@ -140,17 +141,17 @@ print('nele=', nele)
 print('1. time elapsed, ',time.time()-starttime)
 
 """solve a fsi problem"""
-# u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
-#                              prob=config.problem,
-#                                  t=0)
+u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
+                             prob=config.problem,
+                             t=0)
 """as a test we first solve a fluid only problem"""
 # u_bc, f, fNorm = bc_f.vel_bc_f(ndim, vel_func_space.bc_node_list, vel_func_space.x_all,
 #                                prob=config.problem,
 #                                t=0)
 """as another test we solve a solid only problem"""
-u_bc, f, fNorm = bc_f.he_bc_f(ndim, disp_func_space.bc_node_list, disp_func_space.x_all,
-                              prob=config.problem
-                              )
+# u_bc, f, fNorm = bc_f.he_bc_f(ndim, disp_func_space.bc_node_list, disp_func_space.x_all,
+#                               prob=config.problem
+#                               )
 
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
 if not sf_nd_nb.isTransient:
@@ -393,8 +394,8 @@ if config.solver=='iterative':
         t = tstart  # physical time (start time)
 
         alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64).view(nele, -1, ndim)
-        alpha_d_n = torch.zeros_like(alpha_u_n, device=dev, dtype=torch.float64)  # disp. (1st derivative) integrator
-        beta_d_n = torch.zeros_like(alpha_u_n, device=dev, dtype=torch.float64)  # disp. (2nd derivativa) integrator
+        d_n_dt = torch.zeros_like(alpha_u_n, device=dev, dtype=torch.float64)  # disp. (1st deri.) integrator w/o dt
+        d_n_dt2 = torch.zeros_like(alpha_u_n, device=dev, dtype=torch.float64)  # disp. (2nd deri.) integrator w/o dt
 
         if sf_nd_nb.isPetrovGalerkin:  # get projection operator
             sf_nd_nb.projection_one_order_lower = petrov_galerkin.get_projection_one_order_lower(
@@ -427,59 +428,60 @@ if config.solver=='iterative':
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=1))
                         alpha_u_n *= 0
                         alpha_u_n += x_all_previous[0]['vel'].view(alpha_u_n.shape)
-                        alpha_d_n *= 0
-                        alpha_d_n += x_all_previous[0]['disp'].view(alpha_d_n.shape)
-                        beta_d_n *= 0
-                        beta_d_n -= x_all_previous[1]['disp'].view(beta_d_n.shape) * sf_nd_nb.bdfscm.beta[1]
+                        d_n_dt *= 0
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
+                        d_n_dt2 *= 0
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
                         # assume 0 initial displacement for displacement thus no need to account for
                         # displacement at tstep=-1:
-                        #   beta_d_n -= d_(n-1) * sf_nd_nb.bdfscm.beta[1]
+                        #   d_n_dt2 += d_(n-1) * sf_nd_nb.bdfscm.beta[1]
                     elif itime == 2:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=2))
                         alpha_u_n *= 0
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
-                        alpha_d_n *= 0
-                        alpha_d_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(alpha_d_n.shape)
-                        alpha_d_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(alpha_d_n.shape)
-                        beta_d_n *= 0
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(beta_d_n.shape)
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(beta_d_n.shape)
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(beta_d_n.shape)
+                        d_n_dt *= 0
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(d_n_dt.shape)
+                        d_n_dt2 *= 0
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(d_n_dt2.shape)
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(d_n_dt2.shape)
                     elif itime == 3:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=3))
                         alpha_u_n *= 0
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['vel'].view(alpha_u_n.shape)
-                        alpha_d_n *= 0
-                        alpha_d_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(alpha_d_n.shape)
-                        alpha_d_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(alpha_d_n.shape)
-                        alpha_d_n += sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['disp'].view(alpha_d_n.shape)
-                        beta_d_n *= 0
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(beta_d_n.shape)
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(beta_d_n.shape)
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(beta_d_n.shape)
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[4] * x_all_previous[3]['disp'].view(beta_d_n.shape)
+                        d_n_dt *= 0
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(d_n_dt.shape)
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['disp'].view(d_n_dt.shape)
+                        d_n_dt2 *= 0
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(d_n_dt2.shape)
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(d_n_dt2.shape)
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[4] * x_all_previous[3]['disp'].view(d_n_dt2.shape)
                 else:
                     alpha_u_n *= 0
-                    alpha_d_n *= 0
+                    d_n_dt *= 0
                     for i in range(0, config.time_order):
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['vel'].view(alpha_u_n.shape)
-                        alpha_d_n += sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['disp'].view(alpha_d_n.shape)
+                        d_n_dt -= sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['disp'].view(d_n_dt.shape)
+                    d_n_dt2 *= 0
                     for i in range(1, config.time_order + 2):
-                        beta_d_n -= sf_nd_nb.bdfscm.beta[i] * x_all_previous[i - 1]['disp'].view(beta_d_n.shape)
+                        d_n_dt2 += sf_nd_nb.bdfscm.beta[i] * x_all_previous[i - 1]['disp'].view(d_n_dt2.shape)
 
             t += dt
             print('====physical time: ', t, ' ====')
             # get boundary and rhs body force condition
-            # u_bc, f, fNorm = bc_f.fsi_bc(
-            #     ndim,
-            #     vel_func_space.bc_node_list,
-            #     vel_func_space.x_all,
-            #     prob=config.problem,
-            #     t=t
-            # )
+            u_bc, f, fNorm = bc_f.fsi_bc(
+                ndim,
+                vel_func_space.bc_node_list,
+                vel_func_space.x_all,
+                prob=config.problem,
+                t=t
+            )
             # u_bc, f, fNorm = bc_f.vel_bc_f(
             #     ndim,
             #     vel_func_space.bc_node_list,
@@ -487,13 +489,13 @@ if config.solver=='iterative':
             #     prob=config.problem,
             #     t=t
             # )
-            u_bc, f, fNorm = bc_f.he_bc_f(
-                ndim,
-                vel_func_space.bc_node_list,
-                vel_func_space.x_all,
-                prob=config.problem,
-                t=t
-            )
+            # u_bc, f, fNorm = bc_f.he_bc_f(
+            #     ndim,
+            #     vel_func_space.bc_node_list,
+            #     vel_func_space.x_all,
+            #     prob=config.problem,
+            #     t=t
+            # )
             # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
             if config.isGradDivStab or sf_nd_nb.isES:
                 u_ave = petrov_galerkin.get_ave_vel(x_all_previous[0]['vel'])
@@ -501,6 +503,10 @@ if config.solver=='iterative':
 
             x_i *= 0
             x_i += x_all_previous[0]['all']  # use last timestep p as start value
+            x_i_k *= 0  # use last timestep value as non-linear iteration start value
+            x_i_k += x_all_previous[0]['all']
+            d_n_dt += sf_nd_nb.bdfscm.gamma * x_i_k_dict['disp'].view(d_n_dt.shape)
+            d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * x_i_k_dict['disp'].view(d_n_dt2.shape)
 
             r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
             its = 0  # linear solver iteration
@@ -511,11 +517,10 @@ if config.solver=='iterative':
             total_its = 0  # total linear iteration number / restart
 
             while sf_nd_nb.nits < config.n_its_max:
+                sf_nd_nb.nits += 1
+                print('============')  # start new non-linear iteration
                 sf_nd_nb.Kmatinv = None
-                x_i_k_dict['vel'] *= 0
-                x_i_k_dict['vel'] += x_i_dict['vel']  # non-linear velocity is updated here
-                alpha_d_n -= sf_nd_nb.bdfscm.gamma * x_i_k_dict['disp']
-                beta_d_n -= sf_nd_nb.bdfscm.beta[0] * x_i_k_dict['disp']
+
                 # get rhs and non-linear residual
                 r0 *= 0
                 x_rhs *= 0
@@ -526,7 +531,7 @@ if config.solver=='iterative':
                     u_n=alpha_u_n,  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
                     isAdvExp=config.isAdvExp,  # whether to treat advection explicity
                     u_k=x_i_k_dict['vel'][0:nele_f, ...],  # non-lienar velocity
-                    d_n=alpha_d_n,  # previous *timesteps* displacement x BDF coeff.
+                    d_n=d_n_dt,  # previous *timesteps* displacement x BDF coeff.
                 )
                 # get rhs and non-linear residual for solid
                 x_rhs, r0_dict = volume_mf_he.get_rhs(
@@ -534,12 +539,18 @@ if config.solver=='iterative':
                     u=x_i_k_dict['disp'],  # displacement at current non-linear step
                     u_bc=u_bc,  # boundary condition(s)
                     f=f,  # body force
-                    u_n=beta_d_n,  # displacement at last timestep(s) (used in BDF scheme)
+                    u_n=d_n_dt2,  # displacement at last timestep(s) (used in BDF scheme)
                     is_get_nonlin_res=True,
-                    x_i_dict=x_i_dict,
+                    x_k_dict=x_i_k_dict,
                     r0_dict=r0_dict,
                 )
+                # print('before adding fluid residual, non-linear residual is ', torch.linalg.norm(r0))
+                # we're solving for correction for displacement in solid
+                # so we set starting value to 0
+                x_i_dict['disp'][nele_f:nele_f + nele_s, ...] *= 0
                 # get fluid subdomain non-linear residual
+                # print('is x_i and x_k the same? ', torch.linalg.norm(x_i_dict['vel'] - x_i_k_dict['vel']))
+                # print('mesh velocity norm... ', torch.linalg.norm(sf_nd_nb.u_m.view(-1)))
                 r0 = volume_mf_st.get_residual_only(
                     r0, x_i, x_rhs,
                     include_adv=config.include_adv,
@@ -548,7 +559,6 @@ if config.solver=='iterative':
                     include_itf=True,
                 )
                 nr0l2 = volume_mf_st.get_r0_l2_norm(r0)
-                print('============')
                 print('nits = ', sf_nd_nb.nits, 'non-linear residual = ', nr0l2.cpu().numpy())
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
@@ -567,9 +577,6 @@ if config.solver=='iterative':
                 volume_mf_he.get_RAR_and_sfc_data_Sp(x_i_k)
                 # print('9. time elapsed, ', time.time() - starttime)
 
-                # we're solving for correction for displacement in solid
-                # so we set starting value to 0
-                x_i_dict['disp'][nele_f:nele_f + nele_s, ...] *= 0
                 # dp_i *= 0  # solve for delta p_i and u_i
                 if config.linear_solver == 'gmres-mg':
                     # nullspace = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
@@ -596,53 +603,88 @@ if config.solver=='iterative':
                     # x_i = solvers.right_gmres_mg_solver(x_i, x_rhs, config.tol)
                 else:
                     raise Exception('choose a valid solver...')
-                # TODO: I don't think the following is necessary.
-                # # get final residual after we're back to fine grid
-                # r0 *= 0
-                # r0 = volume_mf_st.get_residual_only(
-                #     r0, x_i, x_rhs,
-                #     include_adv=config.include_adv,
-                #     u_n=u_k,
-                #     u_bc=u_bc[0],
-                # )
-                #
-                # r0l2 = torch.linalg.norm(r0) / fNorm
-                # r0l2all.append(r0l2.cpu().numpy())
-                # print('its=', its, 'residual l2 norm=', r0l2.cpu().numpy(),
-                #       'abs res=', torch.linalg.norm(r0).cpu().numpy(),
-                #       'fNorm', fNorm.cpu().numpy())
 
-                # nr0l2 = r0l2
+                # let's get non-linear residual here
+                # define the residual as the l2 norm of difference between two iterations
+                r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...])
+                r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...])
+                r_max_vel = torch.max(torch.abs(x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...].view(-1))
+                r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1)))
+                print('difference between 2 non-linear iteration norm: vel, disp: ', r_vel, r_disp)
+                print('max diff between 2 non-linear steps: vel, disp: ', r_max_vel, r_disp_max)
 
+                # before update displacement, let's first update time derivative of displacement (vel & acceleration)
+                # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
+                # d^2 d / dt^2 used in solid subdomain)
+                d_n_dt += sf_nd_nb.bdfscm.gamma * x_i_dict['disp'].view(d_n_dt.shape) * config.relax_coeff
+                d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * x_i_dict['disp'].view(d_n_dt2.shape) * config.relax_coeff
                 # update displacement (since we're solving the increment of displacement)
-                x_i_k_dict['disp'][nele_f:nele, ...] += x_i_dict['disp'][nele_f:nele, ...]
+                x_i_k_dict['disp'][nele_f:nele, ...] += x_i_dict['disp'][nele_f:nele, ...] * config.relax_coeff
                 x_i_dict['disp'][nele_f:nele, ...] *= 0
                 x_i_dict['disp'][nele_f:nele, ...] += x_i_k_dict['disp'][nele_f:nele, ...]
+                # update nonlinear velocity
+                x_i_k_dict['vel'] *= 0
+                x_i_k_dict['vel'] += x_i_dict['vel']  # non-linear velocity is updated here
 
-                # # solving for new mesh displacement/velocity
-                # # I think it's more sensible to compute the mesh displacement rather than
-                # # mesh velocity. We can easily get mesh velocity with BDF scheme.
-                # print('going to solve for mesh displacement and move the mesh...')
-                # x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
-                # # get mesh velocity and move mesh
-                # u_m *= 0  # (use BDF scheme)
-                # u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
-                # for ii in range(1, sf_nd_nb.bdfscm.order + 1):
-                #     u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii-1] / dt
-                # sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
-                # # move velocity mesh
-                # sf_nd_nb.vel_func_space.x_ref_in *= 0
-                # sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
-                #     + x_i_dict['disp'].permute(0, 2, 1)
-                #
-                # sf_nd_nb.pre_func_space.x_ref_in *= 0
-                # sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
+                if sf_nd_nb.nits % 1 == 0:  # move mesh every n non-linear steps
+                    pass
+                    # solving for new mesh displacement/velocity
+                    # I think it's more sensible to compute the mesh displacement rather than
+                    # mesh velocity. We can easily get mesh velocity with BDF scheme.
+                    print('going to solve for mesh displacement and move the mesh...')
+                    x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+                    # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+                    # get mesh velocity and move mesh
+                    u_m *= 0  # (use BDF scheme)
+                    u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
+                    for ii in range(1, sf_nd_nb.bdfscm.order):
+                        u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii] / dt
+                    sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+                    # move velocity mesh
+                    sf_nd_nb.vel_func_space.x_ref_in *= 0
+                    sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                        + x_i_dict['disp'].permute(0, 2, 1)
 
-                sf_nd_nb.nits += 1
+                    sf_nd_nb.pre_func_space.x_ref_in *= 0
+                    sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
 
-            # if converges,
-            sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
-            sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
+                    # since we have changed x_i_dict['disp'], we need to update d_n_dt and d_n_dt2 and x_i_k
+                    d_n_dt += sf_nd_nb.bdfscm.gamma * (x_i_dict['disp']
+                                                       - x_i_k_dict['disp']).view(d_n_dt.shape) * config.relax_coeff
+                    d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * (x_i_dict['disp']
+                                                          - x_i_k_dict['disp']).view(d_n_dt2.shape) * config.relax_coeff
+                    x_i_k_dict['disp'] *= 0
+                    x_i_k_dict['disp'] += x_i_dict['disp']
+
+                    # # output non-linear iteration steps to vtk for debugging
+                    # # if converges,
+                    # sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+                    # sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
+                    # fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space,
+                    #                           itime*100 + sf_nd_nb.nits)
+
+            # explicit mesh movement -- only move mesh at the end of a timestep
+            if False:
+                # solving for new mesh displacement/velocity
+                # I think it's more sensible to compute the mesh displacement rather than
+                # mesh velocity. We can easily get mesh velocity with BDF scheme.
+                print('going to solve for mesh displacement and move the mesh...')
+                x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+                # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+                # get mesh velocity and move mesh
+                u_m *= 0  # (use BDF scheme)
+                u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
+                for ii in range(1, sf_nd_nb.bdfscm.order + 1):
+                    u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii-1] / dt
+                sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+                # move velocity mesh
+                sf_nd_nb.vel_func_space.x_ref_in *= 0
+                sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                    + x_i_dict['disp'].permute(0, 2, 1)
+
+                sf_nd_nb.pre_func_space.x_ref_in *= 0
+                sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
+
             # x_i_n *= 0
             # x_i_n += x_i
             # store this step in case we want to use this for next timestep
@@ -658,6 +700,9 @@ if config.solver=='iterative':
             total_its = 0
 
             # output to vtk
+            # if converges,
+            sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+            sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
             fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime)
 
             # # get l2 error

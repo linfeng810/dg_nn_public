@@ -148,7 +148,7 @@ def _k_res_one_batch(
             qx,
             q,
             ndetwei
-        )
+        ) * config.rho_f
     # update residual of velocity block K
     r0[idx_in, ...] -= torch.einsum('bmn,bn->bm', K, x_i[idx_in, ...])
     # get diagonal of velocity block K
@@ -347,7 +347,7 @@ def _s_res_fi(
             u_n[E_F_inb, :, :],  # (batch_in, u_nloc, sngi)
             snormal,  # (batch_in, ndim, sngi)
         ) * 0.5
-        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
+        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
         K += -torch.einsum(
             'bg,bmg,bng,bg->bmn',
             wknk_upwd,  # (batch_in, sngi)
@@ -491,7 +491,7 @@ def _s_res_fb(
             u_bc[E_F_b, ...],  # (batch_in, u_nloc, ndim)
             snormal,  # (batch_in, ndim, sngi)
         )
-        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave))
+        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
         K += -torch.einsum(
             'bg,bmg,bng,bg->bmn',
             wknk_upwd,

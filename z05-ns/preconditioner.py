@@ -6,7 +6,6 @@ import scipy as sp
 import config
 import volume_mf_st  # stokes i.e. fluid (actually also contains advetion so it's navier-stokes)
 import volume_mf_he  # hyper-elastic i.e. solid
-import volume_mf_um  # mesh velocity / mesh displacement
 from config import sf_nd_nb
 import multigrid_linearelastic as mg
 
@@ -63,7 +62,7 @@ def disp_precond_all(x_i, x_rhs, x_k):
     if not config.is_sfc:  # two-grid method
         e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
         e_direct = sp.sparse.linalg.spsolve(
-            sf_nd_nb.RARmat,
+            sf_nd_nb.RARmat_S,
             r1.contiguous().view(-1).cpu().numpy())
         e_direct = np.reshape(e_direct, (cg_nonods, ndim))
         e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)

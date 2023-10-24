@@ -664,9 +664,10 @@ def _s_res_fitf(
     p_f_nb = x_i_dict['pre'][E_F_itf_nb, ...]  # (batch_in, p_nloc, ndim)
     Ieye = torch.eye(ndim, device=dev, dtype=torch.float64)
     # Cauchy stress on fluid side  (batch_in, ndim, ndim, sngi)
-    sigma = torch.einsum('bing,bnj,ij->bijg', snx_nb, u_f_nb, Ieye) * config.mu_f \
+    sigma = torch.einsum('bjng,bni->bijg', snx_nb, u_f_nb) * config.mu_f \
             - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
             # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
+            # the last term is (grad u)^T in full stress, omitted here.
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
     F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
     # determinant on face quadrature (batch_in, sngi)
@@ -676,7 +677,7 @@ def _s_res_fitf(
     # PK1 stress tensor on face quadrature
     PK1 = torch.einsum('bg,bijg,bgIj->biIg', detF, sigma, invF)
     # interface term
-    r_dict['disp'][E_F_itf, ...] -= torch.einsum(
+    r_dict['disp'][E_F_itf, ...] += torch.einsum(
         'bijg,bmg,bjg,bg->bmi',
         PK1,  # (batch_in, ndim, ndim, sngi)
         sn,  # (batch_in, nloc, sngi)
@@ -688,7 +689,7 @@ def _s_res_fitf(
 
 def get_rhs(rhs_in, u, u_bc, f, u_n=0,
             is_get_nonlin_res=True,
-            r0_dict=None, x_i_dict=None):
+            r0_dict=None, x_k_dict=None):
     """
     get right-hand side at the start of each newton step
     Note that in the input lists,
@@ -714,12 +715,15 @@ def get_rhs(rhs_in, u, u_bc, f, u_n=0,
         # surface integral
         idx_in_f *= False
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
-        rhs = _s_rhs_one_batch(rhs, u, u_bc, idx_in_f,
-                               is_get_nonlin_res, r0_dict, x_i_dict)
+        # print('before _s_rhs_one_batch, norm of r0', torch.linalg.norm(r0_dict['all']))
+        rhs, r0_dict = _s_rhs_one_batch(rhs, u, u_bc, idx_in_f,
+                                        is_get_nonlin_res, r0_dict, x_k_dict)
+        # print('after _s_rhs_one_batch, norm of r0', torch.linalg.norm(r0_dict['all']))
         if is_get_nonlin_res:
             # we already get interface contribution to r0 in _s_rhs_one_batch
             # now we add rhs to r0 (non-linear residual)
             r0_dict['disp'][idx_in, ...] += rhs['disp'][idx_in, ...]
+            # print('after adding rhs[disp], norm of r0', torch.linalg.norm(r0_dict['all']))
 
     return rhs_in, r0_dict
 
@@ -746,17 +750,17 @@ def _k_rhs_one_batch(rhs, u, u_n, f, idx_in):
         detwei,  # (batch_in, ngi)
         torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
         f[idx_in, ...],  # (batch_in, u_nloc, ndim)
-    )
+    ) * config.rho_s
     if config.isTransient:
         u_n = u_n.view(-1, nloc, ndim)
-        rhs['disp'][idx_in, ...] += torch.einsum(
+        rhs['disp'][idx_in, ...] -= torch.einsum(
             'mg,ng,bg,ij,bnj->bmi',
             n,
             n,
             detwei,
             torch.eye(ndim, device=dev, dtype=torch.float64),  # (ndim, ndim)
             u_n[idx_in, ...],
-        ) * config.rho_s / sf_nd_nb.dt * sf_nd_nb.bdfscm.beta[0]
+        ) * config.rho_s / sf_nd_nb.dt  # * sf_nd_nb.bdfscm.beta[0] (the u_n passed in already considered beta)
 
     # Nxi Nj P
     P = sf_nd_nb.material.calc_P(
@@ -776,10 +780,10 @@ def _k_rhs_one_batch(rhs, u, u_n, f, idx_in):
 
 def _s_rhs_one_batch(
         rhs, u, u_bc, idx_in_f,
-        is_get_nonlin_res, r0, x_i_dict
+        is_get_nonlin_res, r0, x_k_dict
 ):
     if torch.sum(idx_in_f) < 1:  # nothing to do here.
-        return rhs
+        return rhs, r0
     nbf = sf_nd_nb.disp_func_space.nbf
     alnmt = sf_nd_nb.disp_func_space.alnmt
     glb_bcface_type = sf_nd_nb.disp_func_space.glb_bcface_type
@@ -853,12 +857,12 @@ def _s_rhs_one_batch(
                 continue
             r0 = _s_rhs_f_itf(r0, rhs, f_itf[idx_iface], E_F_itf[idx_iface],
                               f_itf_nb[idx_iface], E_F_itf_nb[idx_iface],
-                              x_i_dict)
+                              x_k_dict)
     else:  # in 2D we requrie in the mesh, each element can have at most 1 boundary face
         raise Exception('2D hyper-elasticity is not implemented yet...')
         # rhs = _s_rhs_fb(rhs, f_b, E_F_b,
         #                 u, u_bc)
-    return rhs
+    return rhs, r0
 
 
 def _s_rhs_fi(rhs,
@@ -1126,7 +1130,7 @@ def _s_rhs_fb_neumann(
 def _s_rhs_f_itf(
         r0, rhs, f_itf, E_F_itf,
         f_itf_nb, E_F_itf_nb,
-        x_i_dict
+        x_k_dict
 ):
     """
     given rhs of solid subdomain, subtracting interface contribution
@@ -1134,7 +1138,7 @@ def _s_rhs_f_itf(
 
     input:
     r0: residual (already set to zero in solid subdomain)
-    x_i_dict: a dict of current field values (vel, pre, disp)
+    x_k_dict: a dict of current field values (vel, pre, disp)
     x_rhs: right-hand side at this non-linear step
     """
 
@@ -1176,14 +1180,15 @@ def _s_rhs_f_itf(
         sq_nb[idx] = sq_nb[idx][..., nb_aln]
         snx_nb[idx] = snx_nb[idx][..., nb_aln]
 
-    d_s_th = x_i_dict['disp'][E_F_itf, ...]  # displacement on solid side (batch_in, u_nloc, ndim)
-    u_f_nb = x_i_dict['vel'][E_F_itf_nb, ...]  # (batch_in, u_nloc, ndim)
-    p_f_nb = x_i_dict['pre'][E_F_itf_nb, ...]  # (batch_in, p_nloc, ndim)
+    d_s_th = x_k_dict['disp'][E_F_itf, ...]  # displacement on solid side (batch_in, u_nloc, ndim)
+    u_f_nb = x_k_dict['vel'][E_F_itf_nb, ...]  # (batch_in, u_nloc, ndim)
+    p_f_nb = x_k_dict['pre'][E_F_itf_nb, ...]  # (batch_in, p_nloc, ndim)
     Ieye = torch.eye(ndim, device=dev, dtype=torch.float64)
     # Cauchy stress on fluid side  (batch_in, ndim, ndim, sngi)
-    sigma = torch.einsum('bing,bnj,ij->bijg', snx_nb, u_f_nb, Ieye) * config.mu_f \
+    sigma = torch.einsum('bjng,bni->bijg', snx_nb, u_f_nb) * config.mu_f \
             - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
             # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
+            # the last term is the (grad u)^T term in the full stress which we're not using here.
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
     F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
     # determinant on face quadrature (batch_in, sngi)
@@ -1193,7 +1198,7 @@ def _s_rhs_f_itf(
     # PK1 stress tensor on face quadrature
     PK1 = torch.einsum('bg,bijg,bgIj->biIg', detF, sigma, invF)
     # interface term
-    r0['disp'][E_F_itf, ...] -= torch.einsum(
+    r0['disp'][E_F_itf, ...] += torch.einsum(
         'bijg,bmg,bjg,bg->bmi',
         PK1,  # (batch_in, ndim, ndim, sngi)
         sn,  # (batch_in, nloc, sngi)
@@ -1233,7 +1238,7 @@ def get_RAR_and_sfc_data_Sp(
 
     if not config.is_sfc:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
-        sf_nd_nb.set_data(RARmat=RAR.tocsr())
+        sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
     # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
     RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
     # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
