@@ -22,8 +22,10 @@ class SfNdNb:
         self.p1cg_nonods = None
         self.sparse_f = Sparsity()  # sparsity for fluid subdomain
         self.sparse_s = Sparsity()  # sparsity for solid subdomain
-        self.RARmat = None  # operator on P1CG (velocity and pressure both here. they are same shape on P1CG)
+        self.RARmat_F = None  # velocity blk on P1CG
         self.RARmat_Lp = None  # pressure laplacian on P1CG
+        self.RARmat_S = None  # solid blk on P1DG
+        self.RARmat_Um = None  # mesh displacement/velocity blk on P1DG
         self.sfc_data_F = SFCdata()  # sfc data for velocity block (adv + transient + diff)
         self.sfc_data_Lp = SFCdata()  # sfc data for pressure laplacian
         self.sfc_data_S = SFCdata()  # sfc data for solid block
@@ -60,8 +62,10 @@ class SfNdNb:
                  # pre_I_prol=None,
                  sparse_s=None,  # solid subdomain sparsity
                  sparse_f=None,  # fluid subdomain sparsity
-                 RARmat=None,  # operator on P1CG, type: scipy csr sparse matrix
+                 RARmat_F=None,  # velocity blk operator on P1CG, type: scipy csr sparse matrix
                  RARmat_Lp=None,  # pressure laplacian on P1CG
+                 RARmat_S=None,  # solid blk operator on P1DG, type: scipy csr sparse matrix
+                 RARmat_Um=None,  # mesh displacement/velocity blk operator on P1DG, type: scipy csr sparse matrix
                  Kmatinv=None,  # inverse of velocity block of stokes problem
                  indices_st=None,
                  values_st=None,
@@ -88,10 +92,14 @@ class SfNdNb:
             self.sparse_s = sparse_s
         if sparse_f is not None:
             self.sparse_f = sparse_f
-        if type(RARmat) != NoneType:
-            self.RARmat = RARmat  # operator on P1CG, type: scipy csr sparse matrix
-        if type(RARmat_Lp) != NoneType:
+        if RARmat_F is not None:
+            self.RARmat_F = RARmat_F  # velocity blk operator on P1CG, type: scipy csr sparse matrix
+        if RARmat_Lp is not None:
             self.RARmat_Lp = RARmat_Lp  # operator on P1CG, type: scipy csr sparse matrix
+        if RARmat_S is not None:
+            self.RARmat_S = RARmat_S
+        if RARmat_Um is not None:
+            self.RARmat_Um = RARmat_Um
         if type(Kmatinv) != NoneType:
             self.Kmatinv = Kmatinv
         if indices_st is not None:
