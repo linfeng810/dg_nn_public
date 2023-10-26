@@ -858,7 +858,7 @@ def ana_soln(problem, t=None):
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
         u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u, p = slicing_x_i(u_ana, isFSI=False)
         if t is None:
             raise ValueError('should provide t when using taylor-green vortex analytical soln')
         Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
@@ -1047,6 +1047,50 @@ def he_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
         f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
         f[:, 1] = 0.
         f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'he_test' and ndim == 3:
+        # uni-axial strentch test
+        for ibc in range(3, 4):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                if torch.abs(x-1) < 1e-8:  # x = 1 plane to apply force
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = 1.
+                    # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                    #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                    # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        # f[:, 1] = 0.
+        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'he_test' and ndim == 2:
+        # uni-axial strentch test
+        for ibc in range(3, 4):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(y-1) < 1e-8:  # x = 1 plane to apply force
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 1.
+                    # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                    #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                    # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        # f[:, 1] = 0.
+        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
         raise Exception('the problem ' + prob + ' is not defined in he_bc_f')
