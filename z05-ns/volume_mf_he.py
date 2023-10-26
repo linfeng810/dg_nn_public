@@ -323,15 +323,21 @@ def _s_res_one_batch(
         for nb_gi_aln in range(nface - 1):
             if include_s_blk:
                 idx_iface = (f_i == iface) & (sf_nd_nb.disp_func_space.alnmt[F_i] == nb_gi_aln)
-                if idx_iface.sum() < 1:
-                    # there is nothing to do here, go on
-                    continue
-                r_in, diagA, bdiagA = _s_res_fi(
-                    r_in, f_i[idx_iface], E_F_i[idx_iface],
-                    f_inb[idx_iface], E_F_inb[idx_iface],
-                    x_k, x_i,
-                    diagA, bdiagA, batch_start_idx,
-                    nb_gi_aln)
+                if idx_iface.sum() > 0:
+                    r_in, diagA, bdiagA = _s_res_fi(
+                        r_in, f_i[idx_iface], E_F_i[idx_iface],
+                        f_inb[idx_iface], E_F_inb[idx_iface],
+                        x_k, x_i,
+                        diagA, bdiagA, batch_start_idx,
+                        nb_gi_aln)
+            if include_itf:
+                idx_iface = f_itf == iface & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
+                r_in = _s_res_fitf(
+                    r_in, x_k, x_i,
+                    f_itf[idx_iface], E_F_itf[idx_iface],
+                    f_itf_nb[idx_iface], E_F_itf_nb[idx_iface],
+                    nb_gi_aln
+                )
 
     # update residual for boundary faces
     # r <= r + S*u_bc - S*u_i
@@ -343,13 +349,6 @@ def _s_res_one_batch(
                     r_in, f_b[idx_iface], E_F_b[idx_iface],
                     x_k, x_i,
                     diagA, bdiagA, batch_start_idx)
-            if include_itf:
-                idx_iface = f_itf == iface
-                r_in = _s_res_fitf(
-                    r_in, x_k, x_i,
-                    f_itf[idx_iface], E_F_itf[idx_iface],
-                    f_itf_nb[idx_iface], E_F_itf_nb[idx_iface],
-                )
     else:
         raise Exception('2D hyper-elasticity not implemented!')
         r, diagA, bdiagA = _S_fb(
@@ -617,7 +616,9 @@ def _s_res_fitf(
         r_in, x_k, x_i,
         f_itf, E_F_itf,
         f_itf_nb, E_F_itf_nb,
+        nb_gi_aln
 ):
+    # print('*** im inside _s_res_f_itf ***')
     # now compute interface contribution and add to r0['disp']
     batch_in = f_itf.shape[0]
     if batch_in < 1:  # nothing to do here.
@@ -645,19 +646,22 @@ def _s_res_fitf(
     sq_nb = sf_nd_nb.pre_func_space.element.sn[f_itf_nb, ...]  # (batch_in, nloc, sngi)
     snx_nb, _, _ = sdet_snlx(
         snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_itf],
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_itf_nb],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
         sngi=sf_nd_nb.vel_func_space.element.sngi,
         sn=sf_nd_nb.vel_func_space.element.sn,
     )
+    nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
+    sq_nb = sq_nb[..., nb_aln]
+    snx_nb = snx_nb[..., nb_aln]
     snx_nb = snx_nb[dummy_idx, f_itf_nb, ...]  # (batch_in, ndim, nloc, sngi)
-    for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
-        idx = sf_nd_nb.vel_func_space.alnmt[E_F_itf * nface + f_itf] == nb_gi_aln
-        nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
-        # sn_nb[idx] = sn_nb[idx][..., nb_aln]
-        sq_nb[idx] = sq_nb[idx][..., nb_aln]
-        snx_nb[idx] = snx_nb[idx][..., nb_aln]
+    # for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
+    #     idx = sf_nd_nb.vel_func_space.alnmt[E_F_itf * nface + f_itf] == nb_gi_aln
+    #     nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
+    #     # sn_nb[idx] = sn_nb[idx][..., nb_aln]
+    #     sq_nb[idx] = sq_nb[idx][..., nb_aln]
+    #     snx_nb[idx] = snx_nb[idx][..., nb_aln]
 
     d_s_th = x_k_dict['disp'][E_F_itf, ...]  # displacement on solid side (batch_in, u_nloc, ndim)
     u_f_nb = x_i_dict['vel'][E_F_itf_nb, ...]  # (batch_in, u_nloc, ndim)
@@ -715,15 +719,15 @@ def get_rhs(rhs_in, u, u_bc, f, u_n=0,
         # surface integral
         idx_in_f *= False
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
-        # print('before _s_rhs_one_batch, norm of r0', torch.linalg.norm(r0_dict['all']))
+        print('before _s_rhs_one_batch, norm of r0', torch.linalg.norm(r0_dict['all']))
         rhs, r0_dict = _s_rhs_one_batch(rhs, u, u_bc, idx_in_f,
                                         is_get_nonlin_res, r0_dict, x_k_dict)
-        # print('after _s_rhs_one_batch, norm of r0', torch.linalg.norm(r0_dict['all']))
+        print('after _s_rhs_one_batch, norm of r0', torch.linalg.norm(r0_dict['all']))
         if is_get_nonlin_res:
             # we already get interface contribution to r0 in _s_rhs_one_batch
             # now we add rhs to r0 (non-linear residual)
             r0_dict['disp'][idx_in, ...] += rhs['disp'][idx_in, ...]
-            # print('after adding rhs[disp], norm of r0', torch.linalg.norm(r0_dict['all']))
+            print('after adding rhs[disp], norm of r0', torch.linalg.norm(r0_dict['all']))
 
     return rhs_in, r0_dict
 
@@ -822,18 +826,25 @@ def _s_rhs_one_batch(
     f_itf = torch.remainder(F_itf, nface)
     f_itf_nb = torch.remainder(F_itf_nb, nface)
 
-    # interior face term
+    # interior face term and interface (because interface has neighbour and needs nb_gi_aln)
     for iface in range(nface):
         for nb_gi_aln in range(nface-1):
             idx_iface = (f_i == iface) & (alnmt[F_i] == nb_gi_aln)
-            if idx_iface.sum() < 1:
-                # there is nothing to do here, go on
-                continue
-            rhs = _s_rhs_fi(
-                rhs, f_i[idx_iface], E_F_i[idx_iface],
-                f_inb[idx_iface], E_F_inb[idx_iface],
-                u,
-                nb_gi_aln)
+            if idx_iface.sum() > 0:
+                rhs = _s_rhs_fi(
+                    rhs, f_i[idx_iface], E_F_i[idx_iface],
+                    f_inb[idx_iface], E_F_inb[idx_iface],
+                    u,
+                    nb_gi_aln)
+    if is_get_nonlin_res:
+        for iface in range(nface):
+            for nb_gi_aln in range(nface - 1):
+                idx_iface = (f_itf == iface) & (alnmt[F_itf] == nb_gi_aln)
+                if idx_iface.sum() > 0:
+                    r0 = _s_rhs_f_itf(r0, rhs, f_itf[idx_iface], E_F_itf[idx_iface],
+                                      f_itf_nb[idx_iface], E_F_itf_nb[idx_iface],
+                                      x_k_dict,
+                                      nb_gi_aln)
             # r0['disp'][E_F_i[idx_iface], ...] += rhs['disp'][E_F_i[idx_iface], ...]
 
     # boundary term
@@ -846,18 +857,8 @@ def _s_rhs_one_batch(
             # r0['disp'][E_F_b_d[idx_iface], ...] += rhs['disp'][E_F_b_d[idx_iface], ...]
             # neumann bc
             idx_iface = f_b_n == iface
-            if torch.sum(idx_iface) != 0:
-                rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3])
-                # r0['disp'][E_F_b_n[idx_iface], ...] += rhs['disp'][E_F_b_n[idx_iface], ...]
-            # interface
-            if not is_get_nonlin_res:
-                continue
-            idx_iface = f_itf == iface
-            if torch.sum(idx_iface) == 0:
-                continue
-            r0 = _s_rhs_f_itf(r0, rhs, f_itf[idx_iface], E_F_itf[idx_iface],
-                              f_itf_nb[idx_iface], E_F_itf_nb[idx_iface],
-                              x_k_dict)
+            rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3])
+            # r0['disp'][E_F_b_n[idx_iface], ...] += rhs['disp'][E_F_b_n[idx_iface], ...]
     else:  # in 2D we requrie in the mesh, each element can have at most 1 boundary face
         raise Exception('2D hyper-elasticity is not implemented yet...')
         # rhs = _s_rhs_fb(rhs, f_b, E_F_b,
@@ -1130,7 +1131,8 @@ def _s_rhs_fb_neumann(
 def _s_rhs_f_itf(
         r0, rhs, f_itf, E_F_itf,
         f_itf_nb, E_F_itf_nb,
-        x_k_dict
+        x_k_dict,
+        nb_gi_aln
 ):
     """
     given rhs of solid subdomain, subtracting interface contribution
@@ -1141,7 +1143,7 @@ def _s_rhs_f_itf(
     x_k_dict: a dict of current field values (vel, pre, disp)
     x_rhs: right-hand side at this non-linear step
     """
-
+    # print('*** im inside _s_rhs_f_itf ***')
     # now compute interface contribution and add to r0['disp']
     batch_in = f_itf.shape[0]
     if batch_in < 1:  # nothing to do here.
@@ -1166,19 +1168,22 @@ def _s_rhs_f_itf(
     sq_nb = sf_nd_nb.pre_func_space.element.sn[f_itf_nb, ...]  # (batch_in, nloc, sngi)
     snx_nb, _, _ = sdet_snlx(
         snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_itf],
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_itf_nb],
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
         sngi=sf_nd_nb.vel_func_space.element.sngi,
         sn=sf_nd_nb.vel_func_space.element.sn,
     )
+    nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
+    sq_nb = sq_nb[..., nb_aln]
+    snx_nb = snx_nb[..., nb_aln]
     snx_nb = snx_nb[dummy_idx, f_itf_nb, ...]  # (batch_in, ndim, nloc, sngi)
-    for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
-        idx = sf_nd_nb.vel_func_space.alnmt[E_F_itf * nface + f_itf] == nb_gi_aln
-        nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
-        # sn_nb[idx] = sn_nb[idx][..., nb_aln]
-        sq_nb[idx] = sq_nb[idx][..., nb_aln]
-        snx_nb[idx] = snx_nb[idx][..., nb_aln]
+    # for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
+    #     idx = sf_nd_nb.vel_func_space.alnmt[E_F_itf * nface + f_itf] == nb_gi_aln
+    #     nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
+    #     # sn_nb[idx] = sn_nb[idx][..., nb_aln]
+    #     sq_nb[idx] = sq_nb[idx][..., nb_aln]
+    #     snx_nb[idx] = snx_nb[idx][..., nb_aln]
 
     d_s_th = x_k_dict['disp'][E_F_itf, ...]  # displacement on solid side (batch_in, u_nloc, ndim)
     u_f_nb = x_k_dict['vel'][E_F_itf_nb, ...]  # (batch_in, u_nloc, ndim)
@@ -1205,6 +1210,7 @@ def _s_rhs_f_itf(
         snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
     )
+    # torch.save(PK1, 'PK1_'+str(sf_nd_nb.nits)+'.pt')
 
     return r0
 

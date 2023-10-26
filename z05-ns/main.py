@@ -371,7 +371,9 @@ if config.solver=='iterative':
 
         elif config.initialCondition == 1:
             x_all_previous[0]['all'] *= 0
-            # x_i_n += bc_f.ana_soln(problem=config.problem, t=tstart)
+            # ana_sln = bc_f.ana_soln(problem=config.problem, t=tstart)
+            # x_all_previous[0]['vel'] += ana_sln[0:u_nonods*ndim].view(nele, -1, ndim)
+            # x_all_previous[0]['pre'] += ana_sln[u_nonods*ndim:].view(nele, -1)
 
         elif config.initialCondition == 3:
             x_all_previous[0]['all'] *= 0
@@ -426,50 +428,50 @@ if config.solver=='iterative':
                 if itime <= config.time_order:
                     if itime == 1:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=1))
-                        alpha_u_n *= 0
-                        alpha_u_n += x_all_previous[0]['vel'].view(alpha_u_n.shape)
-                        d_n_dt *= 0
-                        d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
-                        d_n_dt2 *= 0
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
-                        # assume 0 initial displacement for displacement thus no need to account for
-                        # displacement at tstep=-1:
-                        #   d_n_dt2 += d_(n-1) * sf_nd_nb.bdfscm.beta[1]
+                        # alpha_u_n *= 0
+                        # alpha_u_n += x_all_previous[0]['vel'].view(alpha_u_n.shape)
+                        # d_n_dt *= 0
+                        # d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
+                        # d_n_dt2 *= 0
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
+                        # # assume 0 initial displacement for displacement thus no need to account for
+                        # # displacement at tstep=-1:
+                        # #   d_n_dt2 += d_(n-1) * sf_nd_nb.bdfscm.beta[1]
                     elif itime == 2:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=2))
-                        alpha_u_n *= 0
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
-                        d_n_dt *= 0
-                        d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
-                        d_n_dt -= sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(d_n_dt.shape)
-                        d_n_dt2 *= 0
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(d_n_dt2.shape)
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(d_n_dt2.shape)
+                        # alpha_u_n *= 0
+                        # alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
+                        # alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
+                        # d_n_dt *= 0
+                        # d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
+                        # d_n_dt -= sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(d_n_dt.shape)
+                        # d_n_dt2 *= 0
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(d_n_dt2.shape)
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(d_n_dt2.shape)
                     elif itime == 3:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=3))
-                        alpha_u_n *= 0
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
-                        alpha_u_n += sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['vel'].view(alpha_u_n.shape)
-                        d_n_dt *= 0
-                        d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
-                        d_n_dt -= sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(d_n_dt.shape)
-                        d_n_dt -= sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['disp'].view(d_n_dt.shape)
-                        d_n_dt2 *= 0
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(d_n_dt2.shape)
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(d_n_dt2.shape)
-                        d_n_dt2 += sf_nd_nb.bdfscm.beta[4] * x_all_previous[3]['disp'].view(d_n_dt2.shape)
-                else:
+                        # alpha_u_n *= 0
+                        # alpha_u_n += sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['vel'].view(alpha_u_n.shape)
+                        # alpha_u_n += sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['vel'].view(alpha_u_n.shape)
+                        # alpha_u_n += sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['vel'].view(alpha_u_n.shape)
+                        # d_n_dt *= 0
+                        # d_n_dt -= sf_nd_nb.bdfscm.alpha[0] * x_all_previous[0]['disp'].view(d_n_dt.shape)
+                        # d_n_dt -= sf_nd_nb.bdfscm.alpha[1] * x_all_previous[1]['disp'].view(d_n_dt.shape)
+                        # d_n_dt -= sf_nd_nb.bdfscm.alpha[2] * x_all_previous[2]['disp'].view(d_n_dt.shape)
+                        # d_n_dt2 *= 0
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[1] * x_all_previous[0]['disp'].view(d_n_dt2.shape)
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[2] * x_all_previous[1]['disp'].view(d_n_dt2.shape)
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[3] * x_all_previous[2]['disp'].view(d_n_dt2.shape)
+                        # d_n_dt2 += sf_nd_nb.bdfscm.beta[4] * x_all_previous[3]['disp'].view(d_n_dt2.shape)
+                if True:
                     alpha_u_n *= 0
                     d_n_dt *= 0
-                    for i in range(0, config.time_order):
+                    for i in range(0, sf_nd_nb.bdfscm.order):
                         alpha_u_n += sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['vel'].view(alpha_u_n.shape)
                         d_n_dt -= sf_nd_nb.bdfscm.alpha[i] * x_all_previous[i]['disp'].view(d_n_dt.shape)
                     d_n_dt2 *= 0
-                    for i in range(1, config.time_order + 2):
+                    for i in range(1, sf_nd_nb.bdfscm.order + 2):
                         d_n_dt2 += sf_nd_nb.bdfscm.beta[i] * x_all_previous[i - 1]['disp'].view(d_n_dt2.shape)
 
             t += dt
@@ -524,6 +526,19 @@ if config.solver=='iterative':
                 # get rhs and non-linear residual
                 r0 *= 0
                 x_rhs *= 0
+                print('before getting rhs and r0, lets check x_i_k and x_i')
+                print('norm x_i_k vel pre disp',
+                      torch.linalg.norm(x_i_k_dict['vel']).cpu().numpy(),
+                      torch.linalg.norm(x_i_k_dict['pre']).cpu().numpy(),
+                      torch.linalg.norm(x_i_k_dict['disp']).cpu().numpy())
+                print('norm x_i vel pre disp',
+                      torch.linalg.norm(x_i_dict['vel']).cpu().numpy(),
+                      torch.linalg.norm(x_i_dict['pre']).cpu().numpy(),
+                      torch.linalg.norm(x_i_dict['disp']).cpu().numpy())
+                print('difference between x_k and x_i',
+                      torch.linalg.norm(x_i_k_dict['vel'] - x_i_dict['vel']).cpu().numpy(),
+                      torch.linalg.norm(x_i_k_dict['pre'] - x_i_dict['pre']).cpu().numpy(),
+                      torch.linalg.norm(x_i_k_dict['disp'] - x_i_dict['disp']).cpu().numpy())
                 # get rhs for fluid
                 x_rhs = volume_mf_st.get_rhs(
                     x_rhs=x_rhs, u_bc=u_bc, f=f,
@@ -534,6 +549,7 @@ if config.solver=='iterative':
                     d_n=d_n_dt,  # previous *timesteps* displacement x BDF coeff.
                 )
                 # get rhs and non-linear residual for solid
+                print('r0_dict pointer', r0_dict['all'].data_ptr())
                 x_rhs, r0_dict = volume_mf_he.get_rhs(
                     rhs_in=x_rhs,  # right-hand side
                     u=x_i_k_dict['disp'],  # displacement at current non-linear step
@@ -544,13 +560,16 @@ if config.solver=='iterative':
                     x_k_dict=x_i_k_dict,
                     r0_dict=r0_dict,
                 )
-                # print('before adding fluid residual, non-linear residual is ', torch.linalg.norm(r0))
+                print('r0_dict pointer', r0_dict['all'].data_ptr())
+                print('before adding fluid residual, non-linear residual is ', torch.linalg.norm(r0_dict['vel']),
+                      torch.linalg.norm(r0_dict['pre']),
+                      torch.linalg.norm(r0_dict['disp']))
                 # we're solving for correction for displacement in solid
                 # so we set starting value to 0
                 x_i_dict['disp'][nele_f:nele_f + nele_s, ...] *= 0
                 # get fluid subdomain non-linear residual
                 # print('is x_i and x_k the same? ', torch.linalg.norm(x_i_dict['vel'] - x_i_k_dict['vel']))
-                # print('mesh velocity norm... ', torch.linalg.norm(sf_nd_nb.u_m.view(-1)))
+                print('mesh velocity norm... ', torch.linalg.norm(sf_nd_nb.u_m.view(-1)))
                 r0 = volume_mf_st.get_residual_only(
                     r0, x_i, x_rhs,
                     include_adv=config.include_adv,
@@ -558,8 +577,16 @@ if config.solver=='iterative':
                     u_bc=u_bc[0],
                     include_itf=True,
                 )
+                print('r0_dict pointer', r0_dict['all'].data_ptr())
                 nr0l2 = volume_mf_st.get_r0_l2_norm(r0)
-                print('nits = ', sf_nd_nb.nits, 'non-linear residual = ', nr0l2.cpu().numpy())
+                print('nits = ', sf_nd_nb.nits, 'non-linear residual = ', nr0l2.cpu().numpy(),
+                      'vel, pre, disp', torch.linalg.norm(r0_dict['vel']),
+                      torch.linalg.norm(r0_dict['pre']),
+                      torch.linalg.norm(r0_dict['disp']))
+                x_rhs_dict = volume_mf_st.slicing_x_i(x_rhs)
+                print('rhs norm: vel, pre, disp', torch.linalg.norm(x_rhs_dict['vel']),
+                      torch.linalg.norm(x_rhs_dict['pre']),
+                      torch.linalg.norm(x_rhs_dict['disp']))
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
                     break
@@ -606,12 +633,16 @@ if config.solver=='iterative':
 
                 # let's get non-linear residual here
                 # define the residual as the l2 norm of difference between two iterations
-                r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...])
-                r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...])
-                r_max_vel = torch.max(torch.abs(x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...].view(-1))
-                r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1)))
-                print('difference between 2 non-linear iteration norm: vel, disp: ', r_vel, r_disp)
-                print('max diff between 2 non-linear steps: vel, disp: ', r_max_vel, r_disp_max)
+                r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                                                x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                                                x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
+                print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
 
                 # before update displacement, let's first update time derivative of displacement (vel & acceleration)
                 # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
@@ -625,6 +656,9 @@ if config.solver=='iterative':
                 # update nonlinear velocity
                 x_i_k_dict['vel'] *= 0
                 x_i_k_dict['vel'] += x_i_dict['vel']  # non-linear velocity is updated here
+                # update pressure
+                x_i_k_dict['pre'] *= 0
+                x_i_k_dict['pre'] += x_i_dict['pre']  # we need pressure to update fluid stress for solid subdomain
 
                 if sf_nd_nb.nits % 1 == 0:  # move mesh every n non-linear steps
                     pass
@@ -632,7 +666,7 @@ if config.solver=='iterative':
                     # I think it's more sensible to compute the mesh displacement rather than
                     # mesh velocity. We can easily get mesh velocity with BDF scheme.
                     print('going to solve for mesh displacement and move the mesh...')
-                    x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+                    x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'], t)
                     # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
                     # get mesh velocity and move mesh
                     u_m *= 0  # (use BDF scheme)
@@ -656,12 +690,15 @@ if config.solver=='iterative':
                     x_i_k_dict['disp'] *= 0
                     x_i_k_dict['disp'] += x_i_dict['disp']
 
-                    # # output non-linear iteration steps to vtk for debugging
-                    # # if converges,
-                    # sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
-                    # sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
-                    # fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space,
-                    #                           itime*100 + sf_nd_nb.nits)
+                # output non-linear iteration steps to vtk for debugging
+                # put structure velocity in 'vel'
+                x_i_dict['vel'][nele_f:nele, ...] *= 0
+                x_i_dict['vel'][nele_f:nele, ...] += d_n_dt.view(nele, -1, ndim)[nele_f:nele, ...] / sf_nd_nb.dt
+                # if converges,
+                sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+                sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
+                fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space,
+                                          itime*100 + sf_nd_nb.nits)
 
             # explicit mesh movement -- only move mesh at the end of a timestep
             if False:
@@ -685,8 +722,11 @@ if config.solver=='iterative':
                 sf_nd_nb.pre_func_space.x_ref_in *= 0
                 sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
 
-            # x_i_n *= 0
-            # x_i_n += x_i
+            x_i_dict['disp'] *= 0
+            x_i_dict['disp'] += x_i_k_dict['disp']
+            # put structure velocity in 'vel'
+            x_i_dict['vel'][nele_f:nele, ...] *= 0
+            x_i_dict['vel'][nele_f:nele, ...] += d_n_dt.view(nele, -1, ndim)[nele_f:nele, ...] / sf_nd_nb.dt
             # store this step in case we want to use this for next timestep
             for ii in range(len(x_all_previous)-1, 0, -1):
                 x_all_previous[ii]['all'] *= 0

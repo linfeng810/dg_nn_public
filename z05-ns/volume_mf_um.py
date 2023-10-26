@@ -27,7 +27,8 @@ mesh_mu = 1.0  # mesh deformation diffusion coefficient
 
 
 def solve_for_mesh_disp(
-        x_i
+        x_i,
+        t=None,
 ):
     """
     input: current non-linear step solution
@@ -42,9 +43,23 @@ def solve_for_mesh_disp(
     we will separate them into x_i fluid subdomain to solve;
     and x_i solid subdomain as boundary condition
     """
+    given_mesh_disp = False
+    if given_mesh_disp:  # given mesh displacement to test ALE
+        if ndim == 2:
+            d = 0.125  # magnitude
+            x_i *= 0
+            x = sf_nd_nb.disp_func_space.x_ref_in[:, 0, :]
+            y = sf_nd_nb.disp_func_space.x_ref_in[:, 1, :]
+            x_i[:, :, 0] = 1 / 4 * torch.sin(2 * torch.pi * x) * (1 - torch.cos(2 * torch.pi * y)) \
+                           * (1 - np.cos(2 * np.pi * t)) * d
+            x_i[:, :, 1] = 1 / 4 * (1 - torch.cos(2 * torch.pi * x)) * torch.sin(2 * torch.pi * y) \
+                           * (1 - np.cos(2 * np.pi * t)) * d
+        else:
+            raise NotImplementedError
+        return x_i
     x_i = _solve_diffusion(x_i)
-    x_i = _project_to_make_continuous(x_i)
-    x_i = _make_0_bc_strongly_enforced(x_i)
+    # x_i = _project_to_make_continuous(x_i)
+    # x_i = _make_0_bc_strongly_enforced(x_i)
     x_i = x_i.view(nele, -1, ndim)
     return x_i
 
@@ -77,7 +92,7 @@ def _solve_diffusion(
                         x_rhs=0,
                         do_smooth=False,
                     )
-                    Amat[:, jdim*u_nonods + inod] -= x_dummy.view(-1)
+                    Amat[:, jdim * u_nonods + inod] -= x_dummy.view(-1)
             Amat_np = Amat[0:nele_f * nloc * ndim, 0:nele_f * nloc * ndim].cpu().numpy()
             Amat_sp = sp.sparse.csr_matrix(Amat_np)
             sf_nd_nb.Kmatinv = Amat_sp
