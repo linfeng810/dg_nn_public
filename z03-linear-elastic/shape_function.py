@@ -60,6 +60,72 @@ def _gi_pnts_tetra(ngi):
                   0.0482142857142857, 0.0482142857142857, 0.0482142857142857]
         weight = np.asarray(weight, dtype=np.float64)
         weight *= 1. / 6.
+    elif ngi == 57:
+        # 57 points, degree of precision = 9
+        # see https://www.math.unipd.it/~alvise/POINTSETS/TETRAHEDRON/cub_tetrahedron_lowcard.m
+        L = [
+            2.2877192125946921e-02, 3.8542777903625408e-01, 2.0379378742476220e-01, 3.0756840158447096e-03,
+            1.7790137091100908e-01, 4.0917891522012823e-01, 3.7683201442262837e-01, 4.3948073563222969e-03,
+            1.5334628850485484e-02, 4.3954143146276636e-01, 3.8569159229073496e-01, 2.1640604999558742e-03,
+            4.1026614348743252e-02, 8.7026657070585256e-01, 5.2400750094335126e-02, 1.2561647912206831e-03,
+            1.2214350779212574e-01, 1.7036321132402049e-01, 6.9314838932836809e-01, 1.8817024326249754e-03,
+            1.3006478824908219e-05, 1.6917958784019915e-01, 7.8406368021712647e-01, 6.9957657516871196e-04,
+            6.5395460880382150e-01, 3.5801389833550162e-02, 1.0844296767946209e-01, 3.2549580207523261e-03,
+            4.2372027441104680e-02, 4.6233039133440457e-02, 3.6944313766950045e-02, 1.1783547181534102e-03,
+            1.6767679439644187e-01, 2.7610605652078905e-02, 2.6337831506674042e-01, 3.0382597698155548e-03,
+            3.0041654562109617e-02, 1.6844888661914711e-01, 2.2579288606673173e-01, 3.1623749966577228e-03,
+            2.9691019727874690e-01, 3.4633786897721969e-01, 2.4338782909081532e-02, 2.0798383174434935e-03,
+            4.3893093989659476e-01, 2.4275269360318819e-02, 3.5994853619023326e-01, 3.1431671421639587e-03,
+            5.0608940041766615e-01, 1.1297669956891548e-01, 2.8480341940587328e-01, 3.9580918136275017e-03,
+            3.0934541587272413e-01, 3.2498225554071541e-01, 1.7747210521740339e-01, 6.8110897047179847e-03,
+            2.0032885792600444e-01, 6.3561094600368262e-01, 1.4595073309612550e-01, 2.0463572354941844e-03,
+            6.4094431483210434e-01, 1.6696555879029140e-01, 3.8043071004891313e-04, 1.1801619561303941e-03,
+            8.6843489061556411e-01, 4.5952417930432740e-02, 4.1943857936918391e-02, 1.3737805061690628e-03,
+            3.5324418662479380e-02, 3.4260278175843331e-02, 1.9264569946843446e-01, 1.6994659288306479e-03,
+            2.0825250478141871e-01, 7.4989005445734733e-03, 5.8748040567491749e-02, 1.1948455244992526e-03,
+            4.2497932190207900e-02, 3.8522252388103126e-02, 7.1224309313844314e-01, 2.3426694099169258e-03,
+            3.9921387436856731e-01, 1.7575436769174094e-01, 5.0952782620618371e-02, 4.8038522878425527e-03,
+            1.9768576817889710e-01, 7.3433718597029163e-01, 1.9630274028151394e-02, 1.4846229259406311e-03,
+            2.0996870833682468e-01, 1.0449924641363989e-01, 7.5402683078327394e-07, 1.1076199811301494e-03,
+            7.5492795456114634e-02, 1.9557804606423232e-01, 5.9532049207794036e-01, 4.9839210909091280e-03,
+            3.4826797193867498e-02, 6.6035736272551493e-01, 1.2006518343314496e-01, 3.3266632437580859e-03,
+            2.8378708526272528e-02, 7.8467347227124162e-01, 4.0327145847729505e-07, 5.4838187259838268e-04,
+            4.5995704485202071e-01, 3.2939521905493103e-02, 4.7856652940575645e-01, 1.7087737826402816e-03,
+            3.5217985182574962e-01, 1.7515880711809234e-01, 4.6123740071415847e-01, 2.0790982968057494e-03,
+            2.1718257289017148e-01, 4.8615987198161223e-02, 6.0830762427594265e-01, 2.7422678344886410e-03,
+            1.7698350414861891e-01, 1.2214218895574602e-01, 1.0938515104369009e-01, 5.7203225654653697e-03,
+            3.8568839636676233e-02, 6.7375653045872297e-01, 2.5083416444610829e-01, 2.2909162789921281e-03,
+            5.7113578779213592e-01, 1.7278557941961167e-01, 1.0300223185321282e-01, 4.8478433619384689e-03,
+            2.6465966730447965e-01, 1.8846604941813222e-01, 4.2912592759534512e-01, 6.6542741423637379e-03,
+            1.5712928280450669e-01, 5.8054614060751575e-01, 3.4239844855217354e-02, 3.3967773808471547e-03,
+            6.6353808293888261e-01, 1.2176106877385690e-01, 1.9695863856745391e-01, 1.9659277273207953e-03,
+            2.1365936844395289e-01, 3.0848661487529926e-02, 7.1715305571968679e-01, 1.4899463057187030e-03,
+            1.5667739179979978e-01, 3.1751817360343332e-01, 2.4600504908210370e-07, 1.2376298526826633e-03,
+            1.0799766738274277e-01, 4.0176314897022974e-01, 2.9868129463552245e-01, 6.4141832870261367e-03,
+            4.4098068804594520e-01, 4.9701197743904696e-01, 3.9950602693486367e-02, 1.6227696694729092e-03,
+            4.2544775143185332e-01, 3.4014214543184856e-01, 1.9804488378835067e-01, 4.7235917252439032e-03,
+            6.9469283845697993e-01, 2.3193177359852557e-01, 3.8855343379169703e-02, 2.0611699169846109e-03,
+            3.5650581054802240e-02, 4.0362934307635018e-01, 5.2946850406988266e-01, 1.9449084068383523e-03,
+            3.3487400656926104e-02, 3.6186093443979238e-02, 4.5817081080370808e-01, 2.2465453181998115e-03,
+            4.5443036664799763e-02, 3.3591440076535986e-02, 8.8039523305197420e-01, 1.0042778236124463e-03,
+            1.0448185548277283e-03, 1.9169150895452686e-01, 5.0741813184824869e-01, 1.6398981473798226e-03,
+            3.1632702086870768e-01, 1.3636783375790240e-01, 2.4137906123321556e-01, 7.1406481146937617e-03,
+            3.8964054927081027e-01, 2.7774245419337672e-02, 1.8786884491079076e-01, 3.1862865109132999e-03,
+            7.4063641044717354e-01, 2.7169502564854724e-02, 1.0088448625600395e-03, 5.5809085491771845e-04,
+            1.4777946018303334e-01, 3.3398610604069628e-01, 1.1712805970972855e-01, 6.8435401865184478e-03,
+            1.8864049041199146e-01, 3.2179191036744145e-02, 4.8313484720848204e-01, 3.6506664208082926e-03,
+            7.2813571924107801e-01, 1.1296813087092605e-02, 2.1756370921046458e-01, 1.0840715477146506e-03,
+            3.2405127761277297e-02, 4.9247080087622030e-01, 3.8118057591388969e-02, 2.2136580437931053e-03,
+            4.1084042443568253e-01, 4.1613277231472839e-01, 3.4155132922309872e-02, 3.7217642293741692e-03,
+            1.8784043083892338e-01, 5.6318724070938531e-01, 1.3765014721480071e-01, 4.1896772830223349e-03,
+            1.0891379999322381e-01, 1.7037634746588992e-01, 3.6710646106172645e-01, 7.3023443266282857e-03,
+            4.5391629975180497e-01, 3.8270448072734262e-02, 3.7610183241574287e-02, 2.3863928753715094e-03,
+            3.5049017304033134e-02, 2.2298618247688448e-01, 4.6550714146934034e-02, 2.4079323312008009e-03,
+        ]
+        L = np.asarray(L, dtype=np.float64)
+        L = np.reshape(L, (ngi, 4))
+        weight = L[:, 3]  # last column is weight, sum is 1/6
+        L = L[:, 0:3]
     elif ngi == 11:
         # keast4 quadrature, 11 points, order 4
         # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tet/quadrature_rules_tet.html
@@ -116,7 +182,7 @@ def _gi_pnts_tri(sngi):
     (0,0) - (0,1) - (1,0)
     """
     if sngi == 9:
-        # 9 pnts triangle quadrature rule, 6 degree precision
+        # 9 pnts triangle quadrature rule, 5 degree precision
         # c.f. https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
         # strang8
         a = 0.437525248383384
@@ -147,6 +213,97 @@ def _gi_pnts_tri(sngi):
                      2, 1, 0, 8, 7, 6, 5, 4, 3]
         sweight = np.asarray(sweight, dtype=np.float64)
         sweight *= 0.5
+    elif sngi == 19:
+        # toms612_19, 19 points, degree of precision = 9
+        pnts = np.asarray([
+            0.33333333333333331, 0.33333333333333331,
+            2.06349616025259287E-002, 0.48968251919873701,
+            0.48968251919873701, 2.06349616025259287E-002,
+            0.48968251919873701, 0.48968251919873701,
+            0.12582081701412900, 0.43708959149293553,
+            0.43708959149293553, 0.12582081701412900,
+            0.43708959149293553, 0.43708959149293553,
+            0.62359292876193562, 0.18820353561903219,
+            0.18820353561903219, 0.62359292876193562,
+            0.18820353561903219, 0.18820353561903219,
+            0.91054097321109406, 4.47295133944529688E-002,
+            4.47295133944529688E-002, 0.91054097321109406,
+            4.47295133944529688E-002, 4.47295133944529688E-002,
+            0.74119859878449801, 3.68384120547362581E-002,
+            0.74119859878449801, 0.22196298916076573,
+            3.68384120547362581E-002, 0.74119859878449801,
+            3.68384120547362581E-002, 0.22196298916076573,
+            0.22196298916076573, 0.74119859878449801,
+            0.22196298916076573, 3.68384120547362581E-002
+        ], dtype=np.float64).reshape((sngi, 2))
+        pnts3 = 1 - np.sum(pnts, axis=1)
+        pnts = np.concatenate((pnts, pnts3.reshape(sngi, 1)), axis=1)
+        sweight = np.asarray([
+            9.71357962827961025E-002,
+            3.13347002271398278E-002,
+            3.13347002271398278E-002,
+            3.13347002271398278E-002,
+            7.78275410047754301E-002,
+            7.78275410047754301E-002,
+            7.78275410047754301E-002,
+            7.96477389272090969E-002,
+            7.96477389272090969E-002,
+            7.96477389272090969E-002,
+            2.55776756586981006E-002,
+            2.55776756586981006E-002,
+            2.55776756586981006E-002,
+            4.32835393772893970E-002,
+            4.32835393772893970E-002,
+            4.32835393772893970E-002,
+            4.32835393772893970E-002,
+            4.32835393772893970E-002,
+            4.32835393772893970E-002,
+        ], dtype=np.float64)
+        sweight *= 0.5
+        alignment = np.asarray([
+            1, 2, 4, 3, 5, 7, 6, 8, 10, 9, 11, 13, 12, 15, 14, 17, 16, 19, 18,
+            1, 3, 2, 4, 6, 5, 7, 9, 8, 10, 12, 11, 13, 16, 18, 14, 19, 15, 17,
+            1, 4, 3, 2, 7, 6, 5, 10, 9, 8, 13, 12, 11, 19, 17, 18, 15, 16, 14,
+        ]) - 1
+
+    elif sngi == 12:
+        # strang9, 12 points, degree of precision 6
+        pnts = np.asarray([
+            0.873821971016996, 0.063089014491502,
+            0.063089014491502, 0.873821971016996,
+            0.063089014491502, 0.063089014491502,
+            0.501426509658179, 0.249286745170910,
+            0.249286745170910, 0.501426509658179,
+            0.249286745170910, 0.249286745170910,
+            0.636502499121399, 0.310352451033785,
+            0.636502499121399, 0.053145049844816,
+            0.310352451033785, 0.636502499121399,
+            0.310352451033785, 0.053145049844816,
+            0.053145049844816, 0.636502499121399,
+            0.053145049844816, 0.310352451033785,
+        ], dtype=np.float64).reshape((sngi, 2))
+        pnts3 = 1 - np.sum(pnts, axis=1)
+        pnts = np.concatenate((pnts, pnts3.reshape(sngi, 1)), axis=1)
+        sweight = np.asarray([
+            0.050844906370207,
+            0.050844906370207,
+            0.050844906370207,
+            0.116786275726379,
+            0.116786275726379,
+            0.116786275726379,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+            0.082851075618374,
+        ], dtype=np.float64)
+        sweight *= 0.5
+        alignment = np.asarray([
+            1, 3, 2, 4, 6, 5, 8, 7, 10, 9, 12, 11,
+            2, 1, 3, 5, 4, 6, 9, 11, 7, 12, 8, 10,
+            3, 2, 1, 6, 5, 4, 12, 10, 11, 8, 9, 7,
+        ]) - 1
     elif sngi == 6:
         # strang5 6 pnts quadrature rule, order 4 precision
         # cf https://people.sc.fsu.edu/~jburkardt/datasets/quadrature_rules_tri/quadrature_rules_tri.html
@@ -190,19 +347,125 @@ def _gi_pnts_tri(sngi):
     return pnts, sweight, alignment
 
 
-def SHATRInew(nloc,ngi,ndim, snloc, sngi):
+def _gi_pnts_line(ngi):
+    """get gaussian points on reference line segment [0, 1],
+    given no of gi points,
+    output:
+    1. gi points coordinates: L
+    2. gi points weights: weight
+    3. gi points alignment on the other side"""
+    if ngi == 5:
+        # 5 pnt gaussian quadrature, degree of precision = 9
+        a = 0
+        b = 1 / 3 * np.sqrt(5 - 2 * np.sqrt(10 / 7))
+        c = 1 / 3 * np.sqrt(5 + 2 * np.sqrt(10 / 7))
+        d = 128 / 225
+        e = (322 + 13 * np.sqrt(70)) / 900
+        f = (322 - 13 * np.sqrt(70)) / 900
+        # transfer to [0,1]
+        a = 0.5
+        b1 = 0.5 + 0.5 * b
+        b2 = 0.5 - 0.5 * b
+        c1 = 0.5 + 0.5 * c
+        c2 = 0.5 - 0.5 * c
+        pnts = np.asarray([
+            c2, 1 - c2,
+            b2, 1 - b2,
+            a, 1 - a,
+            b1, 1 - b1,
+            c1, 1 - c1,
+        ])
+        pnts = pnts.reshape((ngi, 2))
+        sweight = np.zeros(ngi, dtype=np.float64)
+        sweight[0] = f
+        sweight[1] = e
+        sweight[2] = d
+        sweight[3] = e
+        sweight[4] = f
+        sweight /= 2.
+        alignment = [
+            [0, 1, 2, 3, 4],
+            [4, 3, 2, 1, 0],
+        ]
+    elif ngi == 4:
+        ## 4pnt gaussian quadrature in 1D
+        a = 0.339981043584856
+        b = 0.861136311594053
+        w1 = 0.652145154862546
+        w2 = 0.347854845137454
+        ## transfer to [0,1]
+        a1 = 0.5 + 0.5 * a
+        a2 = 0.5 - 0.5 * a
+        b1 = 0.5 + 0.5 * b
+        b2 = 0.5 - 0.5 * b
+        pnts = np.asarray([
+            b2, 1 - b2,
+            a2, 1 - a2,
+            a1, 1 - a1,
+            b1, 1 - b1,
+        ])
+        pnts = pnts.reshape((ngi, 2))
+        sweight = np.zeros(ngi, dtype=np.float64)
+        #
+        sweight[0] = w2
+        sweight[1] = w1
+        sweight[2] = w1
+        sweight[3] = w2
+        sweight /= 2.
+        alignment = [
+            [0, 1, 2, 3],
+            [3, 2, 1, 0],
+        ]
+    elif ngi == 3:
+        a = np.sqrt(3. / 5.)
+        a1 = 0.5 - 0.5 * a
+        a2 = 0.5
+        a3 = 0.5 + 0.5 * a
+        pnts = np.asarray([
+            a1, 1 - a1,
+            a2, 1 - a2,
+            a3, 1 - a3,
+        ])
+        pnts = pnts.reshape((ngi, 2))
+        sweight = np.asarray([
+            5. / 18, 4. / 9, 5. / 18.,
+        ])
+        alignment = [
+            [0, 1, 2],
+            [2, 1, 0]
+        ]
+    elif ngi == 2:
+        a = np.sqrt(3.)
+        a1 = 0.5 - 0.5 / a
+        a2 = 0.5 + 0.5 / a
+        pnts = np.asarray([
+            a1, 1 - a1,
+            a2, 1 - a2,
+        ])
+        pnts = pnts.reshape((ngi, 2))
+        sweight = np.asarray([0.5, 0.5])
+        alignment = [
+            [0, 1],
+            [1, 0],
+        ]
+    else:
+        raise Exception('ngi ', ngi, 'for line segment is not implemented or existed!')
+    return pnts, sweight, alignment
+
+
+def SHATRInew(nloc, ngi, ndim, snloc, sngi):
     '''
     shape functions on a reference element
 
-    input: 
-    
+    input:
+
     nloc, ngi, ndim
 
     surface input: snloc, sngi
 
-    output: 
+    output:
 
-    n, shape functions on a reference element at quadrature points, 
+    n, shape functions on a reference element at quadrature points,
           numpy array (nloc, ngi)
 
     nlx, shape function deriatives on a reference element at quad pnts,
@@ -212,13 +475,13 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
 
     sn, surface shape functions on a reference element, numpy array (nface,nloc,sngi)
 
-    snlx_all, shape function derivatives on surface, on a reference element, 
+    snlx_all, shape function derivatives on surface, on a reference element,
            numpy array (nface, ndim, nloc, sngi)
 
     sweight, quad pnts weights on face, np array (sngi)
     '''
 
-    if ndim == 3 :
+    if ndim == 3:
         # 3D tetrahedron
         # volume shape function
         if nloc == 20:  # cubic elements
@@ -232,9 +495,9 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             nly = np.zeros((nloc, ngi))
             nlz = np.zeros((nloc, ngi))
             for gi in range(ngi):
-                l1 = L[gi,0]
-                l2 = L[gi,1]
-                l3 = L[gi,2]
+                l1 = L[gi, 0]
+                l2 = L[gi, 1]
+                l3 = L[gi, 2]
                 l4 = 1. - l1 - l2 - l3
                 # corner nodes
                 n[0, gi] = 1. / 2. * (3. * l1 - 1) * (3 * l1 - 2) * l1
@@ -261,13 +524,13 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 n[19, gi] = 27 * l1 * l2 * l4
                 # x - derivative
                 nlx[0, gi] = (3 * l1 - 2) * ((3 * l1) / 2 - 1 / 2) + (3 * l1 * (3 * l1 - 2)) / 2 + 3 * l1 * (
-                            (3 * l1) / 2 - 1 / 2)
+                        (3 * l1) / 2 - 1 / 2)
                 nlx[1, gi] = 0
                 nlx[2, gi] = 0
                 nlx[3, gi] = - (3 * (l1 + l2 + l3 - 1) * (3 * l1 + 3 * l2 + 3 * l3 - 1)) / 2 - 3 * (
-                            l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
-                                         3 * l1 + 3 * l2 + 3 * l3 - 1) * (
-                                         (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
+                        l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
+                                     3 * l1 + 3 * l2 + 3 * l3 - 1) * (
+                                     (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
                 nlx[4, gi] = (27 * l1 * l3) / 2 + l3 * ((27 * l1) / 2 - 9 / 2)
                 nlx[5, gi] = l3 * ((27 * l3) / 2 - 9 / 2)
                 nlx[6, gi] = (27 * l1 * l2) / 2 + l2 * ((27 * l1) / 2 - 9 / 2)
@@ -275,16 +538,16 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nlx[8, gi] = 0
                 nlx[9, gi] = 0
                 nlx[10, gi] = - ((27 * l1) / 2 - 9 / 2) * (l1 + l2 + l3 - 1) - (
-                            27 * l1 * (l1 + l2 + l3 - 1)) / 2 - l1 * ((27 * l1) / 2 - 9 / 2)
+                        27 * l1 * (l1 + l2 + l3 - 1)) / 2 - l1 * ((27 * l1) / 2 - 9 / 2)
                 nlx[11, gi] = (27 * l1 * (l1 + l2 + l3 - 1)) / 2 + l1 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
-                                          (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
+                                      (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nlx[12, gi] = -l2 * ((27 * l2) / 2 - 9 / 2)
                 nlx[13, gi] = (27 * l2 * (l1 + l2 + l3 - 1)) / 2 + l2 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nlx[14, gi] = -l3 * ((27 * l3) / 2 - 9 / 2)
                 nlx[15, gi] = (27 * l3 * (l1 + l2 + l3 - 1)) / 2 + l3 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nlx[16, gi] = -27 * l2 * l3
                 nlx[17, gi] = 27 * l2 * l3
                 nlx[18, gi] = - 27 * l1 * l3 - 27 * l3 * (l1 + l2 + l3 - 1)
@@ -292,12 +555,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 # y - derivative
                 nly[0, gi] = 0
                 nly[1, gi] = (3 * l2 - 2) * ((3 * l2) / 2 - 1 / 2) + (3 * l2 * (3 * l2 - 2)) / 2 + 3 * l2 * (
-                            (3 * l2) / 2 - 1 / 2)
+                        (3 * l2) / 2 - 1 / 2)
                 nly[2, gi] = 0
                 nly[3, gi] = - (3 * (l1 + l2 + l3 - 1) * (3 * l1 + 3 * l2 + 3 * l3 - 1)) / 2 - 3 * (
-                            l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
-                                         3 * l1 + 3 * l2 + 3 * l3 - 1) * (
-                                         (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
+                        l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
+                                     3 * l1 + 3 * l2 + 3 * l3 - 1) * (
+                                     (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
                 nly[4, gi] = 0
                 nly[5, gi] = 0
                 nly[6, gi] = l1 * ((27 * l1) / 2 - 9 / 2)
@@ -306,15 +569,15 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nly[9, gi] = l3 * ((27 * l3) / 2 - 9 / 2)
                 nly[10, gi] = -l1 * ((27 * l1) / 2 - 9 / 2)
                 nly[11, gi] = (27 * l1 * (l1 + l2 + l3 - 1)) / 2 + l1 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nly[12, gi] = - ((27 * l2) / 2 - 9 / 2) * (l1 + l2 + l3 - 1) - (
-                            27 * l2 * (l1 + l2 + l3 - 1)) / 2 - l2 * ((27 * l2) / 2 - 9 / 2)
+                        27 * l2 * (l1 + l2 + l3 - 1)) / 2 - l2 * ((27 * l2) / 2 - 9 / 2)
                 nly[13, gi] = (27 * l2 * (l1 + l2 + l3 - 1)) / 2 + l2 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
-                                          (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
+                                      (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nly[14, gi] = -l3 * ((27 * l3) / 2 - 9 / 2)
                 nly[15, gi] = (27 * l3 * (l1 + l2 + l3 - 1)) / 2 + l3 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nly[16, gi] = - 27 * l2 * l3 - 27 * l3 * (l1 + l2 + l3 - 1)
                 nly[17, gi] = 27 * l1 * l3
                 nly[18, gi] = -27 * l1 * l3
@@ -323,11 +586,11 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nlz[0, gi] = 0
                 nlz[1, gi] = 0
                 nlz[2, gi] = (3 * l3 - 2) * ((3 * l3) / 2 - 1 / 2) + (3 * l3 * (3 * l3 - 2)) / 2 + 3 * l3 * (
-                            (3 * l3) / 2 - 1 / 2)
+                        (3 * l3) / 2 - 1 / 2)
                 nlz[3, gi] = - (3 * (l1 + l2 + l3 - 1) * (3 * l1 + 3 * l2 + 3 * l3 - 1)) / 2 - 3 * (
-                            l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
-                                         3 * l1 + 3 * l2 + 3 * l3 - 1) * (
-                                         (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
+                        l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
+                                     3 * l1 + 3 * l2 + 3 * l3 - 1) * (
+                                     (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
                 nlz[4, gi] = l1 * ((27 * l1) / 2 - 9 / 2)
                 nlz[5, gi] = (27 * l1 * l3) / 2 + l1 * ((27 * l3) / 2 - 9 / 2)
                 nlz[6, gi] = 0
@@ -336,15 +599,15 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 nlz[9, gi] = (27 * l2 * l3) / 2 + l2 * ((27 * l3) / 2 - 9 / 2)
                 nlz[10, gi] = -l1 * ((27 * l1) / 2 - 9 / 2)
                 nlz[11, gi] = (27 * l1 * (l1 + l2 + l3 - 1)) / 2 + l1 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nlz[12, gi] = -l2 * ((27 * l2) / 2 - 9 / 2)
                 nlz[13, gi] = (27 * l2 * (l1 + l2 + l3 - 1)) / 2 + l2 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nlz[14, gi] = - ((27 * l3) / 2 - 9 / 2) * (l1 + l2 + l3 - 1) - (
-                            27 * l3 * (l1 + l2 + l3 - 1)) / 2 - l3 * ((27 * l3) / 2 - 9 / 2)
+                        27 * l3 * (l1 + l2 + l3 - 1)) / 2 - l3 * ((27 * l3) / 2 - 9 / 2)
                 nlz[15, gi] = (27 * l3 * (l1 + l2 + l3 - 1)) / 2 + l3 * (
-                            (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
-                                          (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                        (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
+                                      (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                 nlz[16, gi] = - 27 * l2 * l3 - 27 * l2 * (l1 + l2 + l3 - 1)
                 nlz[17, gi] = 27 * l1 * l2
                 nlz[18, gi] = - 27 * l1 * l3 - 27 * l1 * (l1 + l2 + l3 - 1)
@@ -452,7 +715,8 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             # if sngi != 9:
             #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
+            # sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
+            gi_align = torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 3-2-4, l1 = 0
             SL[0, :, 0] = 0
@@ -509,14 +773,15 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                     sn[iface, 18, gi] = 27 * l1 * l3 * l4
                     sn[iface, 19, gi] = 27 * l1 * l2 * l4
                     # x - derivative
-                    snlx[iface, 0, gi] = (3 * l1 - 2) * ((3 * l1) / 2 - 1 / 2) + (3 * l1 * (3 * l1 - 2)) / 2 + 3 * l1 * (
-                            (3 * l1) / 2 - 1 / 2)
+                    snlx[iface, 0, gi] = (3 * l1 - 2) * ((3 * l1) / 2 - 1 / 2) + (
+                                3 * l1 * (3 * l1 - 2)) / 2 + 3 * l1 * (
+                                                 (3 * l1) / 2 - 1 / 2)
                     snlx[iface, 1, gi] = 0
                     snlx[iface, 2, gi] = 0
                     snlx[iface, 3, gi] = - (3 * (l1 + l2 + l3 - 1) * (3 * l1 + 3 * l2 + 3 * l3 - 1)) / 2 - 3 * (
                             l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
-                                         3 * l1 + 3 * l2 + 3 * l3 - 1) * (
-                                         (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
+                                                 3 * l1 + 3 * l2 + 3 * l3 - 1) * (
+                                                 (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
                     snlx[iface, 4, gi] = (27 * l1 * l3) / 2 + l3 * ((27 * l1) / 2 - 9 / 2)
                     snlx[iface, 5, gi] = l3 * ((27 * l3) / 2 - 9 / 2)
                     snlx[iface, 6, gi] = (27 * l1 * l2) / 2 + l2 * ((27 * l1) / 2 - 9 / 2)
@@ -527,7 +792,7 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                             27 * l1 * (l1 + l2 + l3 - 1)) / 2 - l1 * ((27 * l1) / 2 - 9 / 2)
                     snlx[iface, 11, gi] = (27 * l1 * (l1 + l2 + l3 - 1)) / 2 + l1 * (
                             (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
-                                          (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                                                  (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                     snlx[iface, 12, gi] = -l2 * ((27 * l2) / 2 - 9 / 2)
                     snlx[iface, 13, gi] = (27 * l2 * (l1 + l2 + l3 - 1)) / 2 + l2 * (
                             (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
@@ -540,13 +805,14 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                     snlx[iface, 19, gi] = - 27 * l1 * l2 - 27 * l2 * (l1 + l2 + l3 - 1)
                     # y - derivative
                     snly[iface, 0, gi] = 0
-                    snly[iface, 1, gi] = (3 * l2 - 2) * ((3 * l2) / 2 - 1 / 2) + (3 * l2 * (3 * l2 - 2)) / 2 + 3 * l2 * (
-                            (3 * l2) / 2 - 1 / 2)
+                    snly[iface, 1, gi] = (3 * l2 - 2) * ((3 * l2) / 2 - 1 / 2) + (
+                                3 * l2 * (3 * l2 - 2)) / 2 + 3 * l2 * (
+                                                 (3 * l2) / 2 - 1 / 2)
                     snly[iface, 2, gi] = 0
                     snly[iface, 3, gi] = - (3 * (l1 + l2 + l3 - 1) * (3 * l1 + 3 * l2 + 3 * l3 - 1)) / 2 - 3 * (
                             l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
-                                         3 * l1 + 3 * l2 + 3 * l3 - 1) * (
-                                         (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
+                                                 3 * l1 + 3 * l2 + 3 * l3 - 1) * (
+                                                 (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
                     snly[iface, 4, gi] = 0
                     snly[iface, 5, gi] = 0
                     snly[iface, 6, gi] = l1 * ((27 * l1) / 2 - 9 / 2)
@@ -560,7 +826,7 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                             27 * l2 * (l1 + l2 + l3 - 1)) / 2 - l2 * ((27 * l2) / 2 - 9 / 2)
                     snly[iface, 13, gi] = (27 * l2 * (l1 + l2 + l3 - 1)) / 2 + l2 * (
                             (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
-                                          (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                                                  (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                     snly[iface, 14, gi] = -l3 * ((27 * l3) / 2 - 9 / 2)
                     snly[iface, 15, gi] = (27 * l3 * (l1 + l2 + l3 - 1)) / 2 + l3 * (
                             (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
@@ -571,12 +837,13 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                     # z - derivative
                     snlz[iface, 0, gi] = 0
                     snlz[iface, 1, gi] = 0
-                    snlz[iface, 2, gi] = (3 * l3 - 2) * ((3 * l3) / 2 - 1 / 2) + (3 * l3 * (3 * l3 - 2)) / 2 + 3 * l3 * (
-                            (3 * l3) / 2 - 1 / 2)
+                    snlz[iface, 2, gi] = (3 * l3 - 2) * ((3 * l3) / 2 - 1 / 2) + (
+                                3 * l3 * (3 * l3 - 2)) / 2 + 3 * l3 * (
+                                                 (3 * l3) / 2 - 1 / 2)
                     snlz[iface, 3, gi] = - (3 * (l1 + l2 + l3 - 1) * (3 * l1 + 3 * l2 + 3 * l3 - 1)) / 2 - 3 * (
                             l1 + l2 + l3 - 1) * ((3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1) - (
-                                         3 * l1 + 3 * l2 + 3 * l3 - 1) * (
-                                         (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
+                                                 3 * l1 + 3 * l2 + 3 * l3 - 1) * (
+                                                 (3 * l1) / 2 + (3 * l2) / 2 + (3 * l3) / 2 - 1)
                     snlz[iface, 4, gi] = l1 * ((27 * l1) / 2 - 9 / 2)
                     snlz[iface, 5, gi] = (27 * l1 * l3) / 2 + l1 * ((27 * l3) / 2 - 9 / 2)
                     snlz[iface, 6, gi] = 0
@@ -593,7 +860,7 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                             27 * l3 * (l1 + l2 + l3 - 1)) / 2 - l3 * ((27 * l3) / 2 - 9 / 2)
                     snlz[iface, 15, gi] = (27 * l3 * (l1 + l2 + l3 - 1)) / 2 + l3 * (
                             (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9) + (l1 + l2 + l3 - 1) * (
-                                          (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
+                                                  (27 * l1) / 2 + (27 * l2) / 2 + (27 * l3) / 2 - 9)
                     snlz[iface, 16, gi] = - 27 * l2 * l3 - 27 * l2 * (l1 + l2 + l3 - 1)
                     snlz[iface, 17, gi] = 27 * l1 * l2
                     snlz[iface, 18, gi] = - 27 * l1 * l3 - 27 * l1 * (l1 + l2 + l3 - 1)
@@ -603,9 +870,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
 
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                    device=dev,
-                                                    dtype=torch.int64).view(ndim, sngi))
+            # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+            #                                         device=dev,
+            #                                         dtype=torch.int64).view(ndim, sngi))
+            gi_align = torch.tensor(alignment,
+                                    device=dev,
+                                    dtype=torch.int64).view(ndim, sngi)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 2-1-3, l1 = 0
             SL[0, :, 0] = 0
@@ -687,9 +957,12 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             # if sngi != 3:
             #     raise Exception('sngi ', sngi, 'is not compatible with snloc ', snloc)
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
-            sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                    device=dev,
-                                                    dtype=torch.int64).view(ndim, sngi))
+            # sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
+            #                                         device=dev,
+            #                                         dtype=torch.int64).view(ndim, sngi))
+            gi_align = torch.tensor(alignment,
+                                    device=dev,
+                                    dtype=torch.int64).view(ndim, sngi)
             SL = np.zeros((nface, sngi, 4), dtype=np.float64)
             # face1  triangle 2-1-3, l1 = 0
             SL[0, :, 0] = 0
@@ -746,12 +1019,13 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             raise Exception('snloc %d is not accpted in 3D' % snloc)
         nlx_all = np.stack([nlx, nly, nlz], axis=0)
         snlx_all = np.stack([snlx, snly, snlz], axis=1)
+        sf_nd_nb.set_data(gi_align=gi_align)
         return n, nlx_all, weight, sn, snlx_all, sweight
     # ================== FROM here on, its 2D shape functions.==============================
-    l1=np.zeros(ngi)
-    l2=np.zeros(ngi)
-    l3=np.zeros(ngi)
-    weight=np.zeros(ngi)
+    l1 = np.zeros(ngi)
+    l2 = np.zeros(ngi)
+    l3 = np.zeros(ngi)
+    weight = np.zeros(ngi)
 
     nface = ndim + 1
     sl1 = np.zeros((nface, sngi))
@@ -759,158 +1033,153 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
     sl3 = np.zeros((nface, sngi))
     sweight = np.zeros(sngi)
 
-    if nloc==10:  # cubic elements
-        alpha = -0.149570044467682
-        beta = 0.333333333333333
-        alpha1 = 0.175615257433208
-        beta1 = 0.479308067841920
-        gamma1 = 0.260345966079040
-        alpha2 = 0.053347235608838
-        beta2 = 0.869739794195568
-        gamma2 = 0.065130102902216
-        alpha3 = 0.077113760890257
-        beta3 = 0.048690315425316
-        gamma3 = 0.312865496004874
-        gamma4 = 0.638444188569810
-        # ! get wild
-        weight[0] = alpha;   l1[0] = beta ;  l2[0] = beta;     l3[0] = beta
-        weight[1] = alpha1;  l1[1] = beta1;  l2[1] = gamma1;   l3[1] = gamma1
-        weight[2] = alpha1;  l1[2] = gamma1; l2[2] = beta1;    l3[2] = gamma1 
-        weight[3] = alpha1;  l1[3] = gamma1; l2[3] = gamma1;   l3[3] = beta1 
-        weight[4] = alpha2;  l1[4] = beta2;  l2[4] = gamma2;   l3[4] = gamma2 
-        weight[5] = alpha2;  l1[5] = gamma2; l2[5] = beta2;    l3[5] = gamma2 
-        weight[6] = alpha2;  l1[6] = gamma2; l2[6] = gamma2;   l3[6] = beta2 
-        weight[7] = alpha3;  l1[7] = beta3;  l2[7] = gamma3;   l3[7] = gamma4 
-        weight[8] = alpha3;  l1[8] = beta3;  l2[8] = gamma4;   l3[8] = gamma3
-        weight[9] = alpha3;  l1[9]= gamma3;  l2[9]= gamma4;    l3[9]= beta3 
-        weight[10] = alpha3; l1[10]= gamma3; l2[10]= beta3;    l3[10]= gamma4 
-        weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3 
-        weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
-        # print('sum of weights', np.sum(weight))
-    elif nloc==3:  # linear elements
-        weight[:] = 1./3.
-        l1[0] = 0.5;    l2[0] = 0.5;    l3[0] = 0
-        l1[1] = 0;      l2[1] = 0.5;    l3[1] = 0.5
-        l1[2] = 0.5;    l2[2] = 0;      l3[2] = 0.5
+    if nloc == 10:  # cubic elements
+        # alpha = -0.149570044467682
+        # beta = 0.333333333333333
+        # alpha1 = 0.175615257433208
+        # beta1 = 0.479308067841920
+        # gamma1 = 0.260345966079040
+        # alpha2 = 0.053347235608838
+        # beta2 = 0.869739794195568
+        # gamma2 = 0.065130102902216
+        # alpha3 = 0.077113760890257
+        # beta3 = 0.048690315425316
+        # gamma3 = 0.312865496004874
+        # gamma4 = 0.638444188569810
+        # # ! get wild
+        # weight[0] = alpha;   l1[0] = beta ;  l2[0] = beta;     l3[0] = beta
+        # weight[1] = alpha1;  l1[1] = beta1;  l2[1] = gamma1;   l3[1] = gamma1
+        # weight[2] = alpha1;  l1[2] = gamma1; l2[2] = beta1;    l3[2] = gamma1
+        # weight[3] = alpha1;  l1[3] = gamma1; l2[3] = gamma1;   l3[3] = beta1
+        # weight[4] = alpha2;  l1[4] = beta2;  l2[4] = gamma2;   l3[4] = gamma2
+        # weight[5] = alpha2;  l1[5] = gamma2; l2[5] = beta2;    l3[5] = gamma2
+        # weight[6] = alpha2;  l1[6] = gamma2; l2[6] = gamma2;   l3[6] = beta2
+        # weight[7] = alpha3;  l1[7] = beta3;  l2[7] = gamma3;   l3[7] = gamma4
+        # weight[8] = alpha3;  l1[8] = beta3;  l2[8] = gamma4;   l3[8] = gamma3
+        # weight[9] = alpha3;  l1[9]= gamma3;  l2[9]= gamma4;    l3[9]= beta3
+        # weight[10] = alpha3; l1[10]= gamma3; l2[10]= beta3;    l3[10]= gamma4
+        # weight[11] = alpha3; l1[11]= gamma4; l2[11]= beta3;    l3[11]= gamma3
+        # weight[12] = alpha3; l1[12]= gamma4; l2[12]= gamma3;   l3[12]= beta3
+        # # print('sum of weights', np.sum(weight))
+        L, weight, _ = _gi_pnts_tri(ngi)
+        l1 = L[:, 0]
+        l2 = L[:, 1]
+        l3 = L[:, 2]
+    elif nloc == 6:  # quadratic elements
+        L, weight, _ = _gi_pnts_tri(ngi)
+        l1 = L[:, 0]
+        l2 = L[:, 1]
+        l3 = L[:, 2]
+    elif nloc == 3:  # linear elements
+        # weight[:] = 1./3.
+        # l1[0] = 0.5;    l2[0] = 0.5;    l3[0] = 0
+        # l1[1] = 0;      l2[1] = 0.5;    l3[1] = 0.5
+        # l1[2] = 0.5;    l2[2] = 0;      l3[2] = 0.5
+        L, weight, _ = _gi_pnts_tri(ngi)
+        l1 = L[:, 0]
+        l2 = L[:, 1]
+        l3 = L[:, 2]
+    else:
+        raise ValueError('nloc %d for triangle element is not implemented.' % nloc)
 
-    weight = weight*0.5
+    # weight = weight*0.5
 
-    if snloc == 4:  # cubic element
-        ## 4pnt gaussian quadrature in 1D
-        a = 0.339981043584856
-        b = 0.861136311594053
-        w1 = 0.652145154862546
-        w2 = 0.347854845137454
-        ## transfer to [0,1]
-        a1 = 0.5 + 0.5*a 
-        a2 = 0.5 - 0.5*a
-        b1 = 0.5 + 0.5*b 
-        b2 = 0.5 - 0.5*b
-        # 
-        sweight[0] = w2
-        sweight[1] = w1
-        sweight[2] = w1
-        sweight[3] = w2
-        alignment = [
-            [0, 1, 2, 3],
-            [3, 2, 1, 0],
-        ]
-        sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                device=dev,
-                                                dtype=torch.int64).view(ndim, sngi))
-        # face 1
-        sl1[0,:] = np.asarray([b2,a2,a1,b1])
-        sl2[0,:] = 1-sl1[0,:]
-        sl3[0,:] = 0.
-        # face 2
-        sl1[1,:] = 0.
-        sl2[1,:] = np.asarray([b2,a2,a1,b1])
-        sl3[1,:] = 1-sl2[1,:]
-        # face 3 
-        sl2[2,:] = 0.
-        sl3[2,:] = np.asarray([b2,a2,a1,b1])
-        sl1[2,:] = 1-sl3[2,:]
-    elif snloc == 2:  # linear element
-        # 2 pnt gaussian quadrature in 1D
-        a = 0.5 + 0.5/np.sqrt(3.)
-        b = 0.5 - 0.5/np.sqrt(3.)
-        sweight = 1.
-        alignment = [
-            [0, 1],
-            [1, 0],
-        ]
-        sf_nd_nb.set_data(gi_align=torch.tensor(alignment,
-                                                device=dev,
-                                                dtype=torch.int64).view(ndim, sngi))
-        # face 1
-        sl1[0, :] = np.asarray([b, a])
-        sl2[0, :] = 1 - sl1[0, :]
-        sl3[0, :] = 0.
-        # face 2
-        sl1[1, :] = 0.
-        sl2[1, :] = np.asarray([b, a])
-        sl3[1, :] = 1 - sl2[1, :]
-        # face 3
-        sl2[2, :] = 0.
-        sl3[2, :] = np.asarray([b, a])
-        sl1[2, :] = 1 - sl3[2, :]
-    
-    sweight = sweight/2.
+    # get face quadrature
+    SL, sweight, alignment = _gi_pnts_line(sngi)
+    gi_align = torch.tensor(alignment,
+                            device=dev,
+                            dtype=torch.int64).view(ndim, sngi)
+    # face 0: 0-1
+    sl1[0, :] = SL[:, 0]
+    sl2[0, :] = SL[:, 1]
+    sl3[0, :] = 0.
+    # face 1: 1-2
+    sl1[1, :] = 0.
+    sl2[1, :] = SL[:, 0]
+    sl3[1, :] = SL[:, 1]
+    # face 2: 2-0
+    sl1[2, :] = SL[:, 1]
+    sl2[2, :] = 0.
+    sl3[2, :] = SL[:, 0]
 
-    n = np.zeros((nloc,ngi))
-    nlx = np.zeros((nloc,ngi))
-    nly = np.zeros((nloc,ngi))
-    if (nloc==10) :
+    # sweight = sweight/2.
+
+    n = np.zeros((nloc, ngi))
+    nlx = np.zeros((nloc, ngi))
+    nly = np.zeros((nloc, ngi))
+    if (nloc == 10):
         for gi in range(ngi):
             # corner nodes...
-            n[ 0, gi ] = 0.5*( 3. * l1[ gi ] - 1. ) * (3. * l1[ gi ]   -2.) *  l1[ gi ]
-            n[ 1, gi ] = 0.5*( 3. * l2[ gi ] - 1. ) * (3. * l2[ gi ]   -2.) *  l2[ gi ]
-            n[ 2, gi ] = 0.5*( 3. * l3[ gi ] - 1. ) * (3. * l3[ gi ]   -2.) *  l3[ gi ]
+            n[0, gi] = 0.5 * (3. * l1[gi] - 1.) * (3. * l1[gi] - 2.) * l1[gi]
+            n[1, gi] = 0.5 * (3. * l2[gi] - 1.) * (3. * l2[gi] - 2.) * l2[gi]
+            n[2, gi] = 0.5 * (3. * l3[gi] - 1.) * (3. * l3[gi] - 2.) * l3[gi]
             # mid side nodes...
-            n[ 3, gi ] = (9./2.)*l1[ gi ]*l2[ gi ]*( 3. * l1[ gi ] - 1. )
-            n[ 4, gi ] = (9./2.)*l2[ gi ]*l1[ gi ]*( 3. * l2[ gi ] - 1. )
+            n[3, gi] = (9. / 2.) * l1[gi] * l2[gi] * (3. * l1[gi] - 1.)
+            n[4, gi] = (9. / 2.) * l2[gi] * l1[gi] * (3. * l2[gi] - 1.)
 
-            n[ 5, gi ] = (9./2.)*l2[ gi ]*l3[ gi ]*( 3. * l2[ gi ] - 1. )
-            n[ 6, gi ] = (9./2.)*l3[ gi ]*l2[ gi ]*( 3. * l3[ gi ] - 1. )
+            n[5, gi] = (9. / 2.) * l2[gi] * l3[gi] * (3. * l2[gi] - 1.)
+            n[6, gi] = (9. / 2.) * l3[gi] * l2[gi] * (3. * l3[gi] - 1.)
 
-            n[ 7, gi ] = (9./2.)*l3[ gi ]*l1[ gi ]*( 3. * l3[ gi ] - 1. )
-            n[ 8, gi ] = (9./2.)*l1[ gi ]*l3[ gi ]*( 3. * l1[ gi ] - 1. )
+            n[7, gi] = (9. / 2.) * l3[gi] * l1[gi] * (3. * l3[gi] - 1.)
+            n[8, gi] = (9. / 2.) * l1[gi] * l3[gi] * (3. * l1[gi] - 1.)
             # central node...
-            n[ 9, gi ] = 27.*l1[ gi ]*l2[ gi ]*l3[ gi ]
+            n[9, gi] = 27. * l1[gi] * l2[gi] * l3[gi]
 
             # x-derivative (nb. l1 + l2 + l3  = 1 )
             # corner nodes...
-            nlx[ 0, gi ] = 0.5*( 27. * l1[ gi ]**2  - 18. *  l1[ gi ] + 2. )
-            nlx[ 1, gi ] = 0.0
-            nlx[ 2, gi ] = 0.5*( 27. * l3[ gi ]**2  - 18. *  l3[ gi ] + 2. )   *  (-1.0)
+            nlx[0, gi] = 0.5 * (27. * l1[gi] ** 2 - 18. * l1[gi] + 2.)
+            nlx[1, gi] = 0.0
+            nlx[2, gi] = 0.5 * (27. * l3[gi] ** 2 - 18. * l3[gi] + 2.) * (-1.0)
             # mid side nodes...
-            nlx[ 3, gi ] = (9./2.)*(6.*l1[ gi ]*l2[ gi ]  - l2[ gi ] )
-            nlx[ 4, gi ] = (9./2.)*l2[ gi ]*( 3. * l2[ gi ] - 1. )
+            nlx[3, gi] = (9. / 2.) * (6. * l1[gi] * l2[gi] - l2[gi])
+            nlx[4, gi] = (9. / 2.) * l2[gi] * (3. * l2[gi] - 1.)
 
-            nlx[ 5, gi ] = - (9./2.)*l2[ gi ]*( 3. * l2[ gi ] - 1. )
-            nlx[ 6, gi ] = (9./2.)*(   -l2[gi]*( 6.*l3[gi] -1. )    )
+            nlx[5, gi] = - (9. / 2.) * l2[gi] * (3. * l2[gi] - 1.)
+            nlx[6, gi] = (9. / 2.) * (-l2[gi] * (6. * l3[gi] - 1.))
 
-            nlx[ 7, gi ] = (9./2.)*( l1[ gi ]*(-6.*l3[gi]+1.) + l3[gi]*(3.*l3[gi]-1.)  )
-            nlx[ 8, gi ] = (9./2.)*(  l3[gi]*(6.*l1[gi]-1.) -l1[gi]*(3.*l1[gi]-1.)  )
+            nlx[7, gi] = (9. / 2.) * (l1[gi] * (-6. * l3[gi] + 1.) + l3[gi] * (3. * l3[gi] - 1.))
+            nlx[8, gi] = (9. / 2.) * (l3[gi] * (6. * l1[gi] - 1.) - l1[gi] * (3. * l1[gi] - 1.))
             # central node...
-            nlx[ 9, gi ] = 27.*l2[ gi ]*( 1. - 2.*l1[gi]  - l2[ gi ] )
+            nlx[9, gi] = 27. * l2[gi] * (1. - 2. * l1[gi] - l2[gi])
 
             # y-derivative (nb. l1 + l2 + l3  = 1 )
             # corner nodes...
-            nly[ 0, gi ] = 0.0
-            nly[ 1, gi ] = 0.5*( 27. * l2[ gi ]**2  - 18. *  l2[ gi ] + 2.  )
-            nly[ 2, gi ] = 0.5*( 27. * l3[ gi ]**2  - 18. *  l3[ gi ] + 2.  )   *  (-1.0)
+            nly[0, gi] = 0.0
+            nly[1, gi] = 0.5 * (27. * l2[gi] ** 2 - 18. * l2[gi] + 2.)
+            nly[2, gi] = 0.5 * (27. * l3[gi] ** 2 - 18. * l3[gi] + 2.) * (-1.0)
             # mid side nodes...
-            nly[ 3, gi ] = (9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
-            nly[ 4, gi ] = (9./2.)*l1[ gi ]*( 6. * l2[ gi ] - 1. )
+            nly[3, gi] = (9. / 2.) * l1[gi] * (3. * l1[gi] - 1.)
+            nly[4, gi] = (9. / 2.) * l1[gi] * (6. * l2[gi] - 1.)
 
-            nly[ 5, gi ] = (9./2.)*( l3[ gi ]*( 6. * l2[ gi ] - 1. ) -l2[gi]*( 3.*l2[gi]-1. )  )
-            nly[ 6, gi ] = (9./2.)*( -l2[ gi ]*( 6. * l3[ gi ] - 1. ) +l3[gi]*(3.*l3[gi]-1.)  )
+            nly[5, gi] = (9. / 2.) * (l3[gi] * (6. * l2[gi] - 1.) - l2[gi] * (3. * l2[gi] - 1.))
+            nly[6, gi] = (9. / 2.) * (-l2[gi] * (6. * l3[gi] - 1.) + l3[gi] * (3. * l3[gi] - 1.))
 
-            nly[ 7, gi ] = -(9./2.)*l1[ gi ]*( 6. * l3[ gi ] - 1. )
-            nly[ 8, gi ] = -(9./2.)*l1[ gi ]*( 3. * l1[ gi ] - 1. )
+            nly[7, gi] = -(9. / 2.) * l1[gi] * (6. * l3[gi] - 1.)
+            nly[8, gi] = -(9. / 2.) * l1[gi] * (3. * l1[gi] - 1.)
             # central node...
-            nly[ 9, gi ] = 27.*l1[ gi ]*( 1. - 2.*l2[gi]  - l1[ gi ] )
+            nly[9, gi] = 27. * l1[gi] * (1. - 2. * l2[gi] - l1[gi])
+    elif nloc == 6:  # quadratic element
+        for gi in range(ngi):
+            n[0, gi] = l1[gi] * (2 * l1[gi] - 1)
+            n[1, gi] = l2[gi] * (2 * l2[gi] - 1)
+            n[2, gi] = (l1[gi] + l2[gi] - 1) * (2 * l1[gi] + 2 * l2[gi] - 1)
+            n[3, gi] = 4 * l1[gi] * l2[gi]
+            n[4, gi] = -4 * l2[gi] * (l1[gi] + l2[gi] - 1)
+            n[5, gi] = -l1[gi] * (4 * l1[gi] + 4 * l2[gi] - 4)
+            # x-derivative
+            nlx[0, gi] = 4 * l1[gi] - 1
+            nlx[1, gi] = 0
+            nlx[2, gi] = 4 * l1[gi] + 4 * l2[gi] - 3
+            nlx[3, gi] = 4 * l2[gi]
+            nlx[4, gi] = -4 * l2[gi]
+            nlx[5, gi] = 4 - 4 * l2[gi] - 8 * l1[gi]
+            # y-derivative
+            nly[0, gi] = 0
+            nly[1, gi] = 4 * l2[gi] - 1
+            nly[2, gi] = 4 * l1[gi] + 4 * l2[gi] - 3
+            nly[3, gi] = 4 * l1[gi]
+            nly[4, gi] = 4 - 8 * l2[gi] - 4 * l1[gi]
+            nly[5, gi] = -4 * l1[gi]
     elif nloc == 3:  # linear element
         for gi in range(ngi):
             n[0, gi] = l1[gi]
@@ -925,64 +1194,91 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             nly[1, gi] = 1.0
             nly[2, gi] = -1.0
 
-    nlx_all=np.stack([nlx,nly],axis=0)
+    nlx_all = np.stack([nlx, nly], axis=0)
 
     ## shape function at surface gaussian quadrature points
     sn = np.zeros((nface, nloc, sngi))
     snlx = np.zeros((nface, nloc, sngi))
     snly = np.zeros((nface, nloc, sngi))
-    if (snloc==4) :
+    if (snloc == 4):
         for iface in range(nface):
             for gi in range(sngi):
                 # corner nodes...
-                sn[iface, 0, gi ] = 0.5*( 3. * sl1[iface, gi ] - 1. ) * (3. * sl1[iface, gi ]   -2.) *  sl1[iface, gi ]
-                sn[iface, 1, gi ] = 0.5*( 3. * sl2[iface, gi ] - 1. ) * (3. * sl2[iface, gi ]   -2.) *  sl2[iface, gi ]
-                sn[iface, 2, gi ] = 0.5*( 3. * sl3[iface, gi ] - 1. ) * (3. * sl3[iface, gi ]   -2.) *  sl3[iface, gi ]
+                sn[iface, 0, gi] = 0.5 * (3. * sl1[iface, gi] - 1.) * (3. * sl1[iface, gi] - 2.) * sl1[iface, gi]
+                sn[iface, 1, gi] = 0.5 * (3. * sl2[iface, gi] - 1.) * (3. * sl2[iface, gi] - 2.) * sl2[iface, gi]
+                sn[iface, 2, gi] = 0.5 * (3. * sl3[iface, gi] - 1.) * (3. * sl3[iface, gi] - 2.) * sl3[iface, gi]
                 # mid side nodes...
-                sn[iface, 3, gi ] = (9./2.)*sl1[iface, gi ]*sl2[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
-                sn[iface, 4, gi ] = (9./2.)*sl2[iface, gi ]*sl1[iface, gi ]*( 3. * sl2[iface, gi ] - 1. )
+                sn[iface, 3, gi] = (9. / 2.) * sl1[iface, gi] * sl2[iface, gi] * (3. * sl1[iface, gi] - 1.)
+                sn[iface, 4, gi] = (9. / 2.) * sl2[iface, gi] * sl1[iface, gi] * (3. * sl2[iface, gi] - 1.)
 
-                sn[iface, 5, gi ] = (9./2.)*sl2[iface, gi ]*sl3[iface, gi ]*( 3. * sl2[iface, gi ] - 1. )
-                sn[iface, 6, gi ] = (9./2.)*sl3[iface, gi ]*sl2[iface, gi ]*( 3. * sl3[iface, gi ] - 1. )
+                sn[iface, 5, gi] = (9. / 2.) * sl2[iface, gi] * sl3[iface, gi] * (3. * sl2[iface, gi] - 1.)
+                sn[iface, 6, gi] = (9. / 2.) * sl3[iface, gi] * sl2[iface, gi] * (3. * sl3[iface, gi] - 1.)
 
-                sn[iface, 7, gi ] = (9./2.)*sl3[iface, gi ]*sl1[iface, gi ]*( 3. * sl3[iface, gi ] - 1. )
-                sn[iface, 8, gi ] = (9./2.)*sl1[iface, gi ]*sl3[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
+                sn[iface, 7, gi] = (9. / 2.) * sl3[iface, gi] * sl1[iface, gi] * (3. * sl3[iface, gi] - 1.)
+                sn[iface, 8, gi] = (9. / 2.) * sl1[iface, gi] * sl3[iface, gi] * (3. * sl1[iface, gi] - 1.)
                 # central node...
-                sn[iface, 9, gi ] = 27.*sl1[iface, gi ]*sl2[iface, gi ]*sl3[iface, gi ]
+                sn[iface, 9, gi] = 27. * sl1[iface, gi] * sl2[iface, gi] * sl3[iface, gi]
 
                 # x-derivative (nb. sl1 + sl2 + sl3  = 1 )
                 # corner nodes...
-                snlx[iface, 0, gi ] = 0.5*( 27. * sl1[iface, gi ]**2  - 18. *  sl1[iface, gi ] + 2. )
-                snlx[iface, 1, gi ] = 0.0
-                snlx[iface, 2, gi ] = 0.5*( 27. * sl3[iface, gi ]**2  - 18. *  sl3[iface, gi ] + 2. )   *  (-1.0)
+                snlx[iface, 0, gi] = 0.5 * (27. * sl1[iface, gi] ** 2 - 18. * sl1[iface, gi] + 2.)
+                snlx[iface, 1, gi] = 0.0
+                snlx[iface, 2, gi] = 0.5 * (27. * sl3[iface, gi] ** 2 - 18. * sl3[iface, gi] + 2.) * (-1.0)
                 # mid side nodes...
-                snlx[iface, 3, gi ] = (9./2.)*(6.*sl1[iface, gi ]*sl2[iface, gi ]  - sl2[iface, gi ] )
-                snlx[iface, 4, gi ] = (9./2.)*sl2[iface, gi ]*( 3. * sl2[iface, gi ] - 1. )
+                snlx[iface, 3, gi] = (9. / 2.) * (6. * sl1[iface, gi] * sl2[iface, gi] - sl2[iface, gi])
+                snlx[iface, 4, gi] = (9. / 2.) * sl2[iface, gi] * (3. * sl2[iface, gi] - 1.)
 
-                snlx[iface, 5, gi ] = - (9./2.)*sl2[iface, gi ]*( 3. * sl2[iface, gi ] - 1. )
-                snlx[iface, 6, gi ] = (9./2.)*(   -sl2[iface,gi]*( 6.*sl3[iface,gi] -1. )    )
+                snlx[iface, 5, gi] = - (9. / 2.) * sl2[iface, gi] * (3. * sl2[iface, gi] - 1.)
+                snlx[iface, 6, gi] = (9. / 2.) * (-sl2[iface, gi] * (6. * sl3[iface, gi] - 1.))
 
-                snlx[iface, 7, gi ] = (9./2.)*( sl1[iface, gi ]*(-6.*sl3[iface,gi]+1.) + sl3[iface,gi]*(3.*sl3[iface,gi]-1.)  )
-                snlx[iface, 8, gi ] = (9./2.)*(  sl3[iface,gi]*(6.*sl1[iface,gi]-1.) -sl1[iface,gi]*(3.*sl1[iface,gi]-1.)  )
+                snlx[iface, 7, gi] = (9. / 2.) * (
+                            sl1[iface, gi] * (-6. * sl3[iface, gi] + 1.) + sl3[iface, gi] * (3. * sl3[iface, gi] - 1.))
+                snlx[iface, 8, gi] = (9. / 2.) * (
+                            sl3[iface, gi] * (6. * sl1[iface, gi] - 1.) - sl1[iface, gi] * (3. * sl1[iface, gi] - 1.))
                 # central node...
-                snlx[iface, 9, gi ] = 27.*sl2[iface, gi ]*( 1. - 2.*sl1[iface,gi]  - sl2[iface, gi ] )
+                snlx[iface, 9, gi] = 27. * sl2[iface, gi] * (1. - 2. * sl1[iface, gi] - sl2[iface, gi])
 
                 # y-derivative (nb. sl1 + sl2 + sl3  = 1 )
                 # corner nodes...
-                snly[iface, 0, gi ] = 0.0
-                snly[iface, 1, gi ] = 0.5*( 27. * sl2[iface, gi ]**2  - 18. *  sl2[iface, gi ] + 2.  )
-                snly[iface, 2, gi ] = 0.5*( 27. * sl3[iface, gi ]**2  - 18. *  sl3[iface, gi ] + 2.  )   *  (-1.0)
+                snly[iface, 0, gi] = 0.0
+                snly[iface, 1, gi] = 0.5 * (27. * sl2[iface, gi] ** 2 - 18. * sl2[iface, gi] + 2.)
+                snly[iface, 2, gi] = 0.5 * (27. * sl3[iface, gi] ** 2 - 18. * sl3[iface, gi] + 2.) * (-1.0)
                 # mid side nodes...
-                snly[iface, 3, gi ] = (9./2.)*sl1[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
-                snly[iface, 4, gi ] = (9./2.)*sl1[iface, gi ]*( 6. * sl2[iface, gi ] - 1. )
+                snly[iface, 3, gi] = (9. / 2.) * sl1[iface, gi] * (3. * sl1[iface, gi] - 1.)
+                snly[iface, 4, gi] = (9. / 2.) * sl1[iface, gi] * (6. * sl2[iface, gi] - 1.)
 
-                snly[iface, 5, gi ] = (9./2.)*( sl3[iface, gi ]*( 6. * sl2[iface, gi ] - 1. ) -sl2[iface,gi]*( 3.*sl2[iface,gi]-1. )  )
-                snly[iface, 6, gi ] = (9./2.)*( -sl2[iface, gi ]*( 6. * sl3[iface, gi ] - 1. ) +sl3[iface,gi]*(3.*sl3[iface,gi]-1.)  )
+                snly[iface, 5, gi] = (9. / 2.) * (
+                            sl3[iface, gi] * (6. * sl2[iface, gi] - 1.) - sl2[iface, gi] * (3. * sl2[iface, gi] - 1.))
+                snly[iface, 6, gi] = (9. / 2.) * (
+                            -sl2[iface, gi] * (6. * sl3[iface, gi] - 1.) + sl3[iface, gi] * (3. * sl3[iface, gi] - 1.))
 
-                snly[iface, 7, gi ] = -(9./2.)*sl1[iface, gi ]*( 6. * sl3[iface, gi ] - 1. )
-                snly[iface, 8, gi ] = -(9./2.)*sl1[iface, gi ]*( 3. * sl1[iface, gi ] - 1. )
+                snly[iface, 7, gi] = -(9. / 2.) * sl1[iface, gi] * (6. * sl3[iface, gi] - 1.)
+                snly[iface, 8, gi] = -(9. / 2.) * sl1[iface, gi] * (3. * sl1[iface, gi] - 1.)
                 # central node...
-                snly[iface, 9, gi ] = 27.*sl1[iface, gi ]*( 1. - 2.*sl2[iface,gi]  - sl1[iface, gi ] )
+                snly[iface, 9, gi] = 27. * sl1[iface, gi] * (1. - 2. * sl2[iface, gi] - sl1[iface, gi])
+    elif nloc == 6:  # quadratic element
+        for iface in range(nface):
+            for gi in range(sngi):
+                sn[iface, 0, gi] = sl1[iface, gi] * (2 * sl1[iface, gi] - 1)
+                sn[iface, 1, gi] = sl2[iface, gi] * (2 * sl2[iface, gi] - 1)
+                sn[iface, 2, gi] = (sl1[iface, gi] + sl2[iface, gi] - 1) * (2 * sl1[iface, gi] + 2 * sl2[iface, gi] - 1)
+                sn[iface, 3, gi] = 4 * sl1[iface, gi] * sl2[iface, gi]
+                sn[iface, 4, gi] = -4 * sl2[iface, gi] * (sl1[iface, gi] + sl2[iface, gi] - 1)
+                sn[iface, 5, gi] = -sl1[iface, gi] * (4 * sl1[iface, gi] + 4 * sl2[iface, gi] - 4)
+                # x-derivative
+                snlx[iface, 0, gi] = 4 * sl1[iface, gi] - 1
+                snlx[iface, 1, gi] = 0
+                snlx[iface, 2, gi] = 4 * sl1[iface, gi] + 4 * sl2[iface, gi] - 3
+                snlx[iface, 3, gi] = 4 * sl2[iface, gi]
+                snlx[iface, 4, gi] = -4 * sl2[iface, gi]
+                snlx[iface, 5, gi] = 4 - 4 * sl2[iface, gi] - 8 * sl1[iface, gi]
+                # y-derivative
+                snly[iface, 0, gi] = 0
+                snly[iface, 1, gi] = 4 * sl2[iface, gi] - 1
+                snly[iface, 2, gi] = 4 * sl1[iface, gi] + 4 * sl2[iface, gi] - 3
+                snly[iface, 3, gi] = 4 * sl1[iface, gi]
+                snly[iface, 4, gi] = 4 - 8 * sl2[iface, gi] - 4 * sl1[iface, gi]
+                snly[iface, 5, gi] = -4 * sl1[iface, gi]
     elif nloc == 3:  # linear element
         for iface in range(nface):
             for gi in range(sngi):
@@ -998,8 +1294,8 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 snly[iface, 1, gi] = 1.0
                 snly[iface, 2, gi] = -1.0
 
-    snlx_all=np.stack([snlx,snly],axis=1)
-
+    snlx_all = np.stack([snlx, snly], axis=1)
+    sf_nd_nb.set_data(gi_align=gi_align)
     return n, nlx_all, weight, sn, snlx_all, sweight
 
 

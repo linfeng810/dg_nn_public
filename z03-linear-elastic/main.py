@@ -113,9 +113,11 @@ sf_nd_nb.set_data(x_ref_in = torch.tensor(x_ref_in,
 del x_ref_in
 
 # initical condition
-u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
+# u = torch.zeros(nele, nloc, ndim, device=dev, dtype=torch.float64)  # now we have a vector filed to solve
+#
+# u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, prob=config.problem)  # 'linear-elastic')
 
-u, f, fNorm = bc_f.bc_f(ndim, bc, u, x_all, prob=config.problem)  # 'linear-elastic')
+u, f, fNorm = bc_f.he_bc_f(ndim, bc, x_all, prob=config.problem)  # 'linear-elastic')
 
 # print(u)
 tstep=int(np.ceil((tend-tstart)/dt))+1
@@ -361,6 +363,14 @@ if (config.solver=='iterative') :
 
             # if jacobi converges,
             u = u_i.view(nele, nloc, ndim)
+
+            # get l2 error
+            u_ana = bc_f.he_ana_sln(config.problem)
+            u_l2, u_linf = volume_mf_he.get_l2_error(u_i, u_ana)
+            print('after solving, compare to previous timestep, l2 error is: \n',
+                  'displacement ', u_l2)
+            print('l infinity error is: \n',
+                  'displacement ', u_linf)
 
             # combine inner/inter element contribution
             u_all[itime, :, :, :] = u.cpu().numpy()
