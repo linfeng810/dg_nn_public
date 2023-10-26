@@ -9,7 +9,8 @@ import volume_mf_st
 import output
 
 
-def output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime):
+def output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime,
+                   u_m=None):
     """
     output fsi results to vtu file,
 
@@ -25,6 +26,8 @@ def output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime):
         displacement FunctionSpace
     itime: int
         current time step
+    u_m: torch.Tensor (nele, u_nloc, ndim)
+        mesh velocity
     """
     x_i_dict = volume_mf_st.slicing_x_i(x_i)
 
@@ -37,6 +40,9 @@ def output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime):
     vtk.write_cell_data(idct, 'subdomain')
     # write velocity
     vtk.write_vector(x_i_dict['vel'], 'velocity', vel_func_space)
+    # write mesh velocity
+    if u_m is not None:
+        vtk.write_vector(u_m, 'mesh_velocity', vel_func_space)
     # write pressure
     # first project pressure to velocity space
     prolongator = pre_func_space.get_pndg_prolongator(

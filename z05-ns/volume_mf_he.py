@@ -857,7 +857,8 @@ def _s_rhs_one_batch(
             # r0['disp'][E_F_b_d[idx_iface], ...] += rhs['disp'][E_F_b_d[idx_iface], ...]
             # neumann bc
             idx_iface = f_b_n == iface
-            rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3])
+            if idx_iface.sum() > 0:
+                rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3])
             # r0['disp'][E_F_b_n[idx_iface], ...] += rhs['disp'][E_F_b_n[idx_iface], ...]
     else:  # in 2D we requrie in the mesh, each element can have at most 1 boundary face
         raise Exception('2D hyper-elasticity is not implemented yet...')
@@ -1096,8 +1097,6 @@ def _s_rhs_fb_neumann(
     """
     batch_in = f_b.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
-    if batch_in < 1:  # nothing to do here.
-        return rhs
 
     # shape function
     snx, sdetwei, snormal = sdet_snlx(

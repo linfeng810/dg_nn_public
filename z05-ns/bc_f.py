@@ -969,7 +969,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
             for inod in range(bci.shape[0]):
                 if not bci[inod]:  # this is not a boundary node
                     continue
-                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
                 x = x_inod[0]
                 y = x_inod[1]
                 if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
@@ -1064,6 +1064,28 @@ def he_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
                     # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
                     #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
                     # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        # f[:, 1] = 0.
+        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'he_test_translation' and ndim == 3:
+        # "rigid-body" translation test
+        for ibc in range(2, 3):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = np.sin(np.pi / 2 * t)
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = np.sin(np.pi / 2 * t)
+                u_bc[ibc][inod // nloc, inod % nloc, 2] = np.sin(np.pi / 2 * t)
         x = torch.tensor(x_all[:, 0], device=dev)
         y = torch.tensor(x_all[:, 1], device=dev)
         z = torch.tensor(x_all[:, 2], device=dev)

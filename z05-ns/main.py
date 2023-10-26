@@ -150,8 +150,8 @@ u_bc, f, fNorm = bc_f.fsi_bc(ndim, vel_func_space.bc_node_list, vel_func_space.x
 #                                t=0)
 """as another test we solve a solid only problem"""
 # u_bc, f, fNorm = bc_f.he_bc_f(ndim, disp_func_space.bc_node_list, disp_func_space.x_all,
-#                               prob=config.problem
-#                               )
+#                               prob=config.problem,
+#                               t=0)
 
 tstep = int(np.ceil((tend-tstart)/dt)) + 1
 if not sf_nd_nb.isTransient:
@@ -391,7 +391,7 @@ if config.solver=='iterative':
         # p_all[0, ...] = x_i_list[1].cpu().numpy()
 
         # save initial condition to vtk
-        fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0)
+        fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
 
         t = tstart  # physical time (start time)
 
@@ -545,7 +545,7 @@ if config.solver=='iterative':
                     include_adv=config.include_adv,
                     u_n=alpha_u_n,  # previous *timesteps* velocity multiplied by BDF extrapolation coeffs
                     isAdvExp=config.isAdvExp,  # whether to treat advection explicity
-                    u_k=x_i_k_dict['vel'][0:nele_f, ...],  # non-lienar velocity
+                    u_k=x_i_k_dict['vel'],  # non-lienar velocity
                     d_n=d_n_dt,  # previous *timesteps* displacement x BDF coeff.
                 )
                 # get rhs and non-linear residual for solid
@@ -669,11 +669,15 @@ if config.solver=='iterative':
                     x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'], t)
                     # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
                     # get mesh velocity and move mesh
+                    # print('u_m address', u_m.data_ptr(), 'u_m in sf_nd_nb address', u_m.data_ptr(),
+                    #       'is two the same?', torch.allclose(u_m, sf_nd_nb.u_m))
                     u_m *= 0  # (use BDF scheme)
                     u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
-                    for ii in range(1, sf_nd_nb.bdfscm.order):
+                    for ii in range(0, sf_nd_nb.bdfscm.order):
                         u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii] / dt
                     sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+                    # print('u_m address', u_m.data_ptr(), 'u_m in sf_nd_nb address', u_m.data_ptr(),
+                    #       'is two the same?', torch.allclose(u_m, sf_nd_nb.u_m))
                     # move velocity mesh
                     sf_nd_nb.vel_func_space.x_ref_in *= 0
                     sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
@@ -682,11 +686,11 @@ if config.solver=='iterative':
                     sf_nd_nb.pre_func_space.x_ref_in *= 0
                     sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
 
-                    # since we have changed x_i_dict['disp'], we need to update d_n_dt and d_n_dt2 and x_i_k
-                    d_n_dt += sf_nd_nb.bdfscm.gamma * (x_i_dict['disp']
-                                                       - x_i_k_dict['disp']).view(d_n_dt.shape) * config.relax_coeff
-                    d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * (x_i_dict['disp']
-                                                          - x_i_k_dict['disp']).view(d_n_dt2.shape) * config.relax_coeff
+                    # # since we have changed x_i_dict['disp'], we need to update d_n_dt and d_n_dt2 and x_i_k
+                    # d_n_dt += sf_nd_nb.bdfscm.gamma * (x_i_dict['disp']
+                    #                                    - x_i_k_dict['disp']).view(d_n_dt.shape) * config.relax_coeff
+                    # d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * (x_i_dict['disp']
+                    #                                       - x_i_k_dict['disp']).view(d_n_dt2.shape) * config.relax_coeff
                     x_i_k_dict['disp'] *= 0
                     x_i_k_dict['disp'] += x_i_dict['disp']
 
@@ -698,7 +702,8 @@ if config.solver=='iterative':
                 sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
                 sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
                 fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space,
-                                          itime*100 + sf_nd_nb.nits)
+                                          itime*100 + sf_nd_nb.nits,
+                                          u_m)
 
             # explicit mesh movement -- only move mesh at the end of a timestep
             if False:
@@ -743,7 +748,7 @@ if config.solver=='iterative':
             # if converges,
             sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
             sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
-            fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime)
+            fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime, u_m)
 
             # # get l2 error
             # x_ana = bc_f.ana_soln(config.problem, t=t)

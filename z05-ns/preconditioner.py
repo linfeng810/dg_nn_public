@@ -153,6 +153,8 @@ def fsi_precond_all(x_i, x_k, u_bc):
         include_adv=False,
         a00=False, a01=False, a10=False, a11=False,
         include_itf=True,
+        x_k=x_k,
+        u_bc=u_bc[0]
     )
     # move x_temp to x_i
     x_i_dict['vel'] *= 0

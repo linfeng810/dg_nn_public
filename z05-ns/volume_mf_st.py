@@ -507,6 +507,8 @@ def _s_res_one_batch(
                         r0, x_i,
                         f_itf, E_F_itf,
                         f_itf_nb, E_F_itf_nb,
+                        include_adv=include_adv,
+                        x_k_in=u_n,
                     )  # include interface term
         else:
             raise Exception('2D hyper-elasticity not implemented!')
@@ -517,6 +519,8 @@ def _s_res_one_batch(
                 r0, x_i,
                 f_itf, E_F_itf,
                 f_itf_nb, E_F_itf_nb,
+                include_adv=include_adv,
+                x_k_in=u_n,
             )  # include interface term
     return r0, diagK, bdiagK, diagS
 
@@ -919,7 +923,7 @@ def _s_res_fb(
         include_adv, u_bc, u_n,
         a00, a01, a10, a11
 ):
-    """boundary faces"""
+    """boundary faces and interface on fluid side"""
     batch_in = f_b.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     if batch_in < 1:  # nothing to do here.
@@ -1000,6 +1004,10 @@ def _s_res_fb(
         K *= config.mu_f
         if include_adv:
             # get upwind velocity
+            # note that here u_bc will always be 0 on interface
+            # so we add no advection term to interface here.
+            # if we want to add advection term, we should do it in
+            # _s_res_itf
             wknk_ave = torch.einsum(
                 'bmg,bmi,big->bg',
                 sn,  # (batch_in, u_nloc, sngi)
@@ -1091,6 +1099,8 @@ def _s_res_itf(
         r_in, x_i_in,
         f_itf, E_F_itf,
         f_itf_nb, E_F_itf_nb,
+        include_adv,
+        x_k_in,
 ):
     """
     add contribution from solid to interface
@@ -1159,6 +1169,36 @@ def _s_res_itf(
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
     )
+
+    if False:  # include_adv:
+        x_k_dict = slicing_x_i(x_k_in)
+        u_f_k_th = x_k_dict['vel'][E_F_itf, ...]
+        u_f_th = x_i_dict['vel'][E_F_itf, ...]
+        # get upwind velocity
+        # add advection term on interface
+        wknk_ave = torch.einsum(
+            'bmg,bmi,big->bg',
+            sn,  # (batch_in, u_nloc, sngi)
+            u_f_k_th - sf_nd_nb.u_m[E_F_itf, ...],  # (batch_in, u_nloc, ndim)
+            snormal,  # (batch_in, ndim, sngi)
+        )
+        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
+        r_dict['vel'][E_F_itf, ...] += torch.einsum(
+            'bg,bmg,bng,bg,bnj->bmj',
+            wknk_upwd,
+            sn,  # (batch_in, u_nloc, sngi)
+            sn,  # (batch_in, u_nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            u_f_th,  # (batch_in, u_nloc, ndim)
+        )
+        r_dict['vel'][E_F_itf, ...] += torch.einsum(
+            'bg,bmg,bng,bg,bnj->bmj',
+            wknk_upwd,
+            sn,  # (batch_in, u_nloc, sngi)
+            sn_nb,  # (batch_in, u_nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            u_s_nb,  # (batch_in, u_nloc, ndim)
+        )
     return r_in
 
 
@@ -1281,8 +1321,6 @@ def _s_rhs_one_batch(
     # change view
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    if type(u_k) is torch.Tensor:
-        u_k = u_k.view(nele_f, u_nloc, ndim)
 
     d_n = d_n.view(nele, u_nloc, ndim)
 
@@ -1351,6 +1389,7 @@ def _s_rhs_one_batch(
                 rhs,
                 f_itf[idx_iface_itf], E_F_itf[idx_iface_itf],
                 f_itf_nb[idx_iface_itf], E_F_itf_nb[idx_iface_itf],
+                include_adv,
                 u_bc, u_k,
                 d_n
             )  # rhs terms from interface
@@ -1607,6 +1646,7 @@ def _s_rhs_fitf(
     rhs_in,
     f_itf, E_F_itf,
     f_itf_nb, E_F_itf_nb,
+    include_adv,
     u_bc, u_k,
     d_n
 ):
@@ -1675,6 +1715,27 @@ def _s_rhs_fitf(
         sdetwei,  # (batch_in, sngi)
         u_s_nb,  # (batch_in, u_nloc, ndim)
     )
+
+    if False:  # include_adv:
+        # add advection term on interface
+        # get upwind velocity
+        u_f_k_th = u_k[E_F_itf, ...]
+        wknk_ave = torch.einsum(
+            'bmg,bmi,big->bg',
+            sn,  # (batch_in, u_nloc, sngi)
+            u_f_k_th - sf_nd_nb.u_m[E_F_itf, ...],  # (batch_in, u_nloc, ndim)
+            snormal,  # (batch_in, ndim, sngi)
+        )
+        wknk_upwd = 0.5 * (wknk_ave - torch.abs(wknk_ave)) * config.rho_f
+        rhs['vel'][E_F_itf, ...] += torch.einsum(
+            'bg,bmg,bng,bg,bnj->bmj',
+            wknk_upwd,
+            sn,  # (batch_in, u_nloc, sngi)
+            sn_nb,  # (batch_in, u_nloc, sngi)
+            sdetwei,  # (batch_in, sngi)
+            u_s_nb,  # (batch_in, u_nloc, ndim)
+        )
+
     return rhs_in
 
 

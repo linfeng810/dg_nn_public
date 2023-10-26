@@ -93,6 +93,7 @@ class File():
             np.savetxt(f, data, delimiter=' ', fmt='%d')
             f.write(b'</DataArray>\n'
                     b'</CellData>\n')
+            f.write(('<PointData Vectors="%s">\n' % name).encode('ascii'))
         return self.filename
 
     def write_vector(self, u, name, func_space: FuncSpace):
@@ -111,7 +112,6 @@ class File():
                np.dtype("uint8"): "UInt8"}[u_np.dtype]
         ncmp = 3  # vector has 3 components [MUST. if in 2D, append 0]
         with open(self.filename, "ab") as f:
-            f.write(('<PointData Vectors="%s">\n' % name).encode('ascii'))
             f.write(('<DataArray Name="%s" type="%s" '
                      'NumberOfComponents="%s" '
                      'format="ascii">\n' % (name, typ, ncmp)).encode('ascii'))
