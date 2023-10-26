@@ -116,7 +116,7 @@ def get_residual_and_smooth_once(
     r0 += u_rhs
     for i in range(nnn):
         # volume integral
-        idx_in = torch.zeros(nele, device=dev, dtype=bool)
+        idx_in = torch.zeros(nele, device=dev, dtype=torch.bool)
         idx_in[brk_pnt[i]:brk_pnt[i + 1]] = True
         batch_in = int(torch.sum(idx_in))
         # dummy diagA and bdiagA
@@ -328,7 +328,10 @@ def _s_res_fi(
     # don't forget to change gaussian points order on sn_nb!
     sn_nb = sn_nb[..., nb_aln]
 
-    mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    if ndim == 2:
+        mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    else:
+        mu_e = config.eta_e / torch.sqrt(torch.sum(sdetwei, -1))
     u_ith = u_i[E_F_i, ...]  # u^n on this side (th)
     u_inb = u_i[E_F_inb, ...]  # u^n on the other side (neighbour)
 
@@ -460,7 +463,10 @@ def _s_res_fb(
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
-    mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    if ndim == 2:
+        mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    else:
+        mu_e = config.eta_e / torch.sqrt(torch.sum(sdetwei, -1))
     # get elasticity tensor at face quadrature points
     # (batch_in, ndim, ndim, ndim, ndim, sngi)
     AA = material.calc_AA(nx=snx, u=u_i[E_F_b, ...], batch_in=batch_in)
@@ -657,7 +663,10 @@ def _s_rhs_fi(rhs,
     # don't forget to change gaussian points order on sn_nb!
     sn_nb = sn_nb[..., nb_aln]
 
-    mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    if ndim == 2:
+        mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    else:
+        mu_e = config.eta_e / torch.sqrt(torch.sum(sdetwei, -1))
     u_i = u[E_F_i, ...]  # u^n on this side
     u_inb = u[E_F_inb, ...]  # u^n on the other side
 
@@ -748,7 +757,10 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim)
-    mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    if ndim == 2:
+        mu_e = config.eta_e / torch.sum(sdetwei, -1)
+    else:
+        mu_e = config.eta_e / torch.sqrt(torch.sum(sdetwei, -1))
     # get elasticity tensor at face quadrature points
     # (batch_in, ndim, ndim, ndim, ndim, sngi)
     AA = material.calc_AA(nx=snx, u=u[E_F_b, ...], batch_in=batch_in)
@@ -824,3 +836,44 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
     )
     return rhs
 
+
+def get_l2_error(u_i_in, u_ana):
+    """
+    calculate l2 and l_inf error between numerical solution and
+    analytical solution
+
+    input
+    =====
+    u_i: numerical solution (nonods, ndim) or equivalent size
+    u_ana: same size as u_i
+
+    output
+    ======
+    u_l2: l2 error
+    u_inf: infinite norm of error
+    """
+    if not type(u_i_in) == torch.Tensor:
+        u_i = torch.tensor(u_i_in, device=dev, dtype=torch.float64)
+    else:
+        u_i = u_i_in
+    u_i = u_i.view(nele, nloc, ndim)
+    u_ana = u_ana.view(nele, nloc, ndim)
+
+    n = sf_nd_nb.n  # shape function
+    nx, detwei = get_det_nlx(
+        nlx=sf_nd_nb.nlx,
+        x_loc=sf_nd_nb.x_ref_in,
+        weight=sf_nd_nb.weight
+    )  # shape function derivative and determinant x weights
+
+    u_i_gi = torch.einsum('ng,bni->bnig', n, u_i)
+    u_ana_gi = torch.einsum('ng,bni->bnig', n, u_ana)
+    u_l2 = torch.einsum(
+        'bnig,bg->bni',
+        (u_i_gi - u_ana_gi) ** 2,
+        detwei,
+    )
+    u_l2 = torch.sum(torch.sum(torch.sum(u_l2)))
+    u_l2 = torch.sqrt(u_l2).cpu().numpy()
+    u_linf = torch.max(torch.max(torch.max(torch.abs(u_i - u_ana))))
+    return u_l2, u_linf

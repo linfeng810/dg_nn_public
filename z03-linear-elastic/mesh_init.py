@@ -14,11 +14,13 @@ def init():
     mesh = config.mesh 
     nonods = config.nonods 
     nloc = config.nloc
+    cg_ndglno = np.zeros((nele, 3), dtype=np.int64)
+    cg_ndglno += mesh.cells_dict['triangle']
 
     # check and make sure triangle vertices are ordered anti-clockwisely
     for ele in range(nele):
         # vertex nodes global index
-        idx = mesh.cells[0][1][ele]
+        idx = cg_ndglno[ele]  # cells[0][1][ele]
         # vertex nodes coordinate 
         x_loc=[]
         for id in idx:
@@ -26,30 +28,26 @@ def init():
         x_loc = np.asarray(x_loc)
         x_loc[:,-1]=1.
         det = np.linalg.det(x_loc)
-        if (det<0) :
+        if det<0:
             # print(mesh.cells[0][1][ele])
-            mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1]]
+            cg_ndglno[ele] = [idx[0], idx[2], idx[1]]
             # print(mesh.cells[0][1][ele])
             # print('clockise')
 
     # create faces
     faces=[]
     for ele in range(nele):
-        element = mesh.cells[0][1][ele]
+        element = cg_ndglno[ele]
         for iloc in range(3):
             faces.append([element[iloc],element[(iloc+1)%3]])
 
-    cg_ndglno = np.zeros(nele*3, dtype=np.int64)
-    for ele in range(nele):
-        for iloc in range(3):
-            cg_ndglno[ele*3+iloc] = mesh.cells[0][1][ele][iloc]
     sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele,finele,colele,_ = getfinele(
         nele,nloc=3,snloc=2,nonods=mesh.points.shape[0],
-        ndglno=cg_ndglno+1,mx_nface_p1=4,mxnele=5*nele)
+        ndglno=cg_ndglno.reshape((nele*3))+1,mx_nface_p1=4,mxnele=5*nele)
     finele=finele-1 
     colele=colele-1
     # pytorch is very strict about the index order of cola
@@ -97,7 +95,7 @@ def init():
                         found[glb_iface]=True 
                         found[glb_iface2]=True 
     endtime = time.time()
-    print('nbf: ', nbf)
+    # print('nbf: ', nbf)
     print('time consumed in finding neighbouring:', endtime-starttime,' s')
 
     # find neighbouring elements associated with each face
@@ -115,7 +113,7 @@ def init():
         x_all = []
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = cg_ndglno[ele]
             # vertex nodes coordinate
             x_loc=[]
             for id in idx:
@@ -146,11 +144,40 @@ def init():
             x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
             # node 10
             x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+        ref_node_order = [1, 2, 0, 5, 6, 7, 8, 3, 4, 9]
+    elif nloc == 6:  # quadratic element
+        x_all = []
+        for ele in range(nele):
+            # vertex nodes global index
+            idx = cg_ndglno[ele]
+            # vertex nodes coordinate
+            x_loc = []
+            for id in idx:
+                x_loc.append(mesh.points[id])
+            # reference quadratic triangle
+            # !  y
+            # !  |
+            # !  2
+            # !  | \
+            # !  |  \
+            # !  5   4
+            # !  |    \
+            # !  |     \
+            # !  3--6---1--x
+            # nodes 1-3
+            x_all.append([x_loc[0][0], x_loc[0][1]])
+            x_all.append([x_loc[1][0], x_loc[1][1]])
+            x_all.append([x_loc[2][0], x_loc[2][1]])
+            # node 4-6
+            x_all.append([x_loc[0][0] * 0.5 + x_loc[1][0] * 0.5, x_loc[0][1] * 0.5 + x_loc[1][1] * 0.5])
+            x_all.append([x_loc[1][0] * 0.5 + x_loc[2][0] * 0.5, x_loc[1][1] * 0.5 + x_loc[2][1] * 0.5])
+            x_all.append([x_loc[2][0] * 0.5 + x_loc[0][0] * 0.5, x_loc[2][1] * 0.5 + x_loc[0][1] * 0.5])
+        ref_node_order = [1, 2, 0, 4, 5, 3]
     elif nloc == 3:  # linear element
         x_all = []
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = cg_ndglno[ele]
             # vertex nodes coordinate
             x_loc=[]
             for id in idx:
@@ -170,6 +197,7 @@ def init():
             x_all.append([x_loc[0][0], x_loc[0][1]])
             x_all.append([x_loc[1][0], x_loc[1][1]])
             x_all.append([x_loc[2][0], x_loc[2][1]])
+        ref_node_order = [1, 2, 0]
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
@@ -230,6 +258,9 @@ def init():
             cg_bc4.append(inod)
     cg_bc = [cg_bc1, cg_bc2, cg_bc3, cg_bc4]
 
+    # find boundary nodes and mark boundary faces
+    bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+
     # store P3DG from/to P1DG restrictor/prolongator
     sf_nd_nb.set_data(I_31=torch.tensor([
         [1., 0, 0],
@@ -250,6 +281,8 @@ def init():
             [0, 0, 1],
         ], device=config.dev, dtype=torch.float64))
 
+    cg_ndglno = cg_ndglno.reshape((nele * 3))
+    sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods, cg_bc
 
 
@@ -263,20 +296,23 @@ def init_3d():
     nloc = config.nloc
     nface = config.nface
 
+    cg_ndglno = np.zeros((nele, 4), dtype=np.int64)
+    cg_ndglno += mesh.cells_dict['tetra']
+
     # check and make sure tetrahedron are ordered left-handed
     for ele in range(nele):
-        idx = mesh.cells[0][1][ele]
+        idx = cg_ndglno[ele]
         x_loc = mesh.points[idx]
         det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         if det > 0:  # it's right-handed, flip two nodes to flip hand.
-            mesh.cells[0][1][ele] = [idx[0], idx[2], idx[1], idx[3]]
+            cg_ndglno[ele, :] = np.array([idx[3], idx[1], idx[2], idx[0]])
         # x_loc = mesh.points[idx]
         # det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         # print(det > 0)
     # create faces
     faces = []
     for ele in range(nele):
-        element = mesh.cells[0][1][ele]
+        element = cg_ndglno[ele]
         # for iface in range(nface):
         #     faces.append([element[iface],
         #                   element[(iface + 1) % nface],
@@ -302,14 +338,14 @@ def init_3d():
     # for ele in range(nele):
     #     for iloc in range(4):
     #         cg_ndglno[ele * 4 + iloc] = mesh.cells[0][1][ele][iloc]
-    cg_ndglno = mesh.cells[0][1].reshape((nele * 4))
-    sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
+
+    sf_nd_nb.set_data(cg_ndglno=cg_ndglno.reshape((nele * 4)))
     np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele, finele, colele, _ = getfinele(
         nele, nloc=4, snloc=3, nonods=mesh.points.shape[0],
-        ndglno=cg_ndglno + 1, mx_nface_p1=5, mxnele=6 * nele)
+        ndglno=cg_ndglno.reshape((nele*4)) + 1, mx_nface_p1=5, mxnele=6 * nele)
     finele = finele - 1
     colele = colele - 1
     # pytorch is very strict about the index order of cola
@@ -331,7 +367,7 @@ def init_3d():
     #       2  rotate twice (e.g. self is 1-2-3, nb is 3-1-2
     nbf = np.zeros(len(faces), dtype=np.int64) - 1
     alnmt = np.ones(len(faces), dtype=np.int64) * - 1
-    found = np.zeros(len(faces), dtype=np.bool)
+    found = np.zeros(len(faces), dtype=bool)
     for ele in range(config.nele):
         for iface in range(nface):
             glb_iface = ele * nface + iface
@@ -363,7 +399,7 @@ def init_3d():
                         found[glb_iface2] = True
                         continue
     endtime = time.time()
-    print('nbf: ', nbf)
+    # print('nbf: ', nbf)
     print('time consumed in finding neighbouring:', endtime - starttime, ' s')
 
     # find neighbouring elements associated with each face
@@ -386,7 +422,7 @@ def init_3d():
         sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = cg_ndglno[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:
@@ -493,7 +529,7 @@ def init_3d():
         sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = cg_ndglno[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:
@@ -556,7 +592,7 @@ def init_3d():
         sf_nd_nb.set_data(ref_node_order=ref_node_order)
         for ele in range(nele):
             # vertex nodes global index
-            idx = mesh.cells[0][1][ele]
+            idx = cg_ndglno[ele]
             # vertex nodes coordinate
             x_loc = []
             for id in idx:
@@ -601,6 +637,9 @@ def init_3d():
             bc6.append(inod)
     # mark boundary nodes
     bc = [bc1, bc2, bc3, bc4, bc5, bc6]
+
+    # mark boundary nodes and boundary face types
+    bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
 
     # store P3DG from/to P1DG restrictor/prolongator
     sf_nd_nb.set_data(I_31=torch.tensor([
@@ -663,7 +702,7 @@ def init_3d():
         #     [0, 0, 0, 0],
         #     [0, 0, 0, 0],
         # ], device=config.dev, dtype=torch.float64))  # P2DG to P1DG, element-wise prolongation operator
-    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno, cg_nonods
+    return x_all, nbf, nbele, alnmt, finele, colele, ncolele, bc, cg_ndglno.reshape((nele * 4)), cg_nonods
 
 
 def connectivity(nbele):
@@ -700,6 +739,106 @@ def connectivity(nbele):
     ncola=cola.shape[0]
 
     return fina, cola, ncola
+
+
+def get_bc_node(mesh, faces, alnmt, nloc, x_all=0):
+    """this is to find boundary nodes and
+    log them in a list. In the list, positive
+    number denotes bc 'physical label' as defined
+    in gmsh. negative number denotes non-bc nodes."""
+
+    # input mesh is meshio object. it contains boundary element physical tag info.
+    # we're going to use that to mark nodes in x_all with physical tag.
+
+    # no_entity = len(mesh.cells)  # among these entities, except for the last one is volume, the rest are boundaries
+    nele = config.nele
+    nface = config.ndim + 1
+    nonods = nloc * nele
+    face_iloc_list = face_iloc_array(config.ndim, nloc)
+    entity_labels = [key for key in mesh.cell_sets_dict]
+    no_labels = len(entity_labels) - 1
+    bc_list = [np.zeros(nonods, dtype=bool) for _ in range(no_labels-1)]  # a list of markers
+    found = np.zeros(nele*nface, dtype=bool)
+    bc_face_list = np.where(alnmt < 0)[0]
+    glb_bcface_type = np.ones(nele*nface, dtype=np.int64) * -1
+    if config.ndim == 2:
+        face_ele_key = 'line'
+    else:
+        face_ele_key = 'triangle'
+    sttime = time.time()
+    print('start getting bc nodes... ')
+    for ent_id in range(no_labels-1):
+        ent_lab = entity_labels[ent_id]
+        # print('ent_id, ent_lab', ent_id, ent_lab)
+        for fele in mesh.cell_sets_dict[ent_lab][face_ele_key]:
+            bc_face_nodes = mesh.cells_dict[face_ele_key][fele]
+            for glb_iface in bc_face_list:
+                if found[glb_iface]:
+                    continue
+                if set(faces[glb_iface]) == set(bc_face_nodes):
+                    # this is boundary face we're looking for!
+                    found[glb_iface] = True
+                    glb_bcface_type[glb_iface] = ent_id  # use ent_id to mark bc face's entity id.
+                    iface = glb_iface % nface  # local face idx
+                    ele = glb_iface // nface  # which element this face is in
+                    nod_list_in_this_ele = ele*nloc + face_iloc_list[iface]
+                    # print('ele iface nod_list', ele, '|', iface, '|', nod_list_in_this_ele)
+                    bc_list[ent_id][nod_list_in_this_ele] = True  # marked!
+    print('finishing getting bc nodes... time consumed: %f s' % (time.time() - sttime))
+    return bc_list, glb_bcface_type
+
+
+# local nodes number on a face
+def face_iloc_array(ndim, nloc):
+    # return local nodes number on a face
+    if ndim == 2:
+        if nloc == 10:  # cubic element
+            arr = np.asarray([
+                0,3,4,1,
+                1,5,6,2,
+                2,7,8,0,
+            ], dtype=np.int64).reshape((3, 4))
+        elif nloc == 6:  # quadratic element
+            arr = np.asarray([
+                0,3,1,
+                1,4,2,
+                2,5,0,
+            ], dtype=np.int64).reshape((3, 3))
+        elif nloc == 3:  # linear element
+            arr = np.asarray([
+                0,1,
+                1,2,
+                2,0,
+            ], dtype=np.int64).reshape((3, 2))
+        else:
+            raise ValueError('cannot find face nodes list for nloc = %d' % nloc)
+    elif ndim == 3:
+        if nloc == 20:  # cubic element
+            arr = np.asarray([
+                1, 2, 3, 8, 9, 14, 15, 12, 13, 16,
+                0, 2, 3, 4, 5, 10, 11, 14, 15, 18,
+                0, 1, 3, 6, 7, 10, 11, 12, 13, 19,
+                0, 1, 2, 4, 5, 6,  7,  8,  9,  17,
+            ], dtype=np.int64).reshape((4, 10))
+        elif nloc == 10:  # quadratic element
+            arr = np.asarray([
+                1,2,3,4,8,9,
+                0,2,3,5,7,9,
+                0,1,3,6,7,8,
+                0,1,2,4,5,6,
+            ], dtype=np.int64).reshape((4, 6))
+        elif nloc == 4:  # linear element
+            arr = np.asarray([
+                1,2,3,
+                0,2,3,
+                0,1,3,
+                0,1,2,
+            ], dtype=np.int64).reshape((4, 3))
+        else:
+            raise ValueError('cannot find face nodes list for nloc = %d' % nloc)
+    else:
+        raise ValueError('ndim not correct.')
+    return arr
 
 
 # local nodes number on a face

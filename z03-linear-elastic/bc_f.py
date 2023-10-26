@@ -115,7 +115,7 @@ def bc_f(ndim, bc, u, x_all, prob: str):
                     u[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
                     u[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
                                                         (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
-                    u[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+                    u[inod // nloc, inod % nloc, 2] = (1. / lam + gamma) * x_inod[2] + g + h
                     # # problem 2 Simple shear
                     # u[inod // nloc, inod % nloc, 0] = 0.1 * x_inod[1]
                     # u[inod // nloc, inod % nloc, 1] = 0
@@ -157,3 +157,74 @@ def bc_f(ndim, bc, u, x_all, prob: str):
     else:
         raise Exception('the problem ', prob, ' is not defined in bc_f.py')
     return u, f, fNorm
+
+
+def he_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
+    """
+    define boundary conditions and body force for hyper-elastic problems
+    """
+    # nloc = sf_nd_nb.disp_func_space.element.nloc
+    # nonods = sf_nd_nb.disp_func_space.nonods
+    u_bc = torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64)
+    f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+    if prob == 'hyper-elastic' and ndim == 3:
+        # analytical solution from Abbas 2018
+        alpha = 0.1
+        gamma = 0.1
+        lam = config.lam
+        mu = config.mu
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
+                g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
+                h = 0  # 0
+
+                u_bc[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
+                u_bc[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                                                    (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                u_bc[inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+        f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        f[:, 1] = 0.
+        f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    else:
+        raise Exception('the problem ' + prob + ' is not defined in he_bc_f')
+    return u_bc, f, fNorm
+
+
+def he_ana_sln(prob, t=None):
+    """
+    get analytical solution for hyper-elastic problems
+    (this is used to set first few timesteps; or to compute error)
+    """
+    ndim = config.ndim
+    if prob == 'hyper-elastic' and ndim == 3:
+        # abbas 2018
+        alpha = 0.1
+        gamma = 0.1
+        lam = config.lam
+        mu = config.mu
+        u_ana = torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64)
+        for inod in range(0, config.nele * nloc):
+            x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
+            theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
+            g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
+            h = 0  # 0
+
+            u_ana[inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
+            u_ana[inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                                                  (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+            u_ana[inod // nloc, inod % nloc, 2] = (1. / lam + gamma) * x_inod[2] + g + h
+    else:
+        raise Exception('the problem ' + prob + ' is not defined in he_bc_f')
+    return u_ana

@@ -1,5 +1,5 @@
 # configuration
-import toughio
+import meshio
 import numpy as np
 import torch
 import sys
@@ -18,25 +18,37 @@ torch.manual_seed(0)
 #####################################################
 dt = 1e8 # timestep
 tstart=0 # starting time
-tend=1e8 # end time, we'll need ~2s for the modal problem to reach static state
+tend= 4*dt # end time, we'll need ~2s for the modal problem to reach static state
 isTransient=False # decide if we are doing transient simulation
 solver='iterative' # 'direct' or 'iterative'
 
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename='z31-cube-mesh/cube.msh' # directory to mesh file (gmsh)
+filename='z31-cube-msh/cube.msh' # directory to mesh file (gmsh)
+filename = 'z31-cube-msh/cube_only_diri_solid.msh'
 case_name = 'cubic-ele-bonet-AA'  # this is used in output vtk.
 if len(sys.argv) > 1:
     filename = sys.argv[1]
-mesh = toughio.read_mesh(filename) # mesh object
+mesh = meshio.read(filename) # mesh object
 sf_nd_nb = cmmn_data.SfNdNb()
 
 # mesh info
-nele = mesh.n_cells # number of elements
+# nele = mesh.n_cells # number of elements
+# ndim = 3  # dimesnion of the problem
+if 'tetra' in mesh.cells_dict:
+    ndim = 3  # It's a 3D mesh (contains tetrahedra)
+    vol_ele_name = 'tetra'
+elif 'triangle' in mesh.cells_dict:
+    ndim = 2  # It's a 2D mesh (contains triangles)
+    vol_ele_name = 'triangle'
+else:
+    # Handle other cases or raise an error if necessary
+    raise ValueError("Unknown or unsupported mesh dimension")
+nele = mesh.cells_dict[vol_ele_name].shape[0]  # number of elements
+
 ele_type = 'cubic'  # 'linear' or 'cubic' or 'quadratic'
 print('element order: ', ele_type)
-ndim = 3  # dimesnion of the problem
 if ndim == 2:
     if ele_type == 'cubic':
         nloc = 10  # number of nodes in an element
@@ -60,7 +72,7 @@ else:  # ndim = 3
         nloc = 20
         ngi = 24
         snloc = 10
-        sngi = 9
+        sngi = 12
         ele_p = 3  # order of elements
     elif ele_type == 'linear':
         nloc = 4
@@ -110,14 +122,14 @@ print('MG parameters: \n this is V(%d,%d) cycle'%(pre_smooth_its, post_smooth_it
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
-gmres_m = 10  # restart
-gmres_its = 100  # max GMRES steps
+gmres_m = 20  # restart
+gmres_its = 10  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m)
 
 # non-linear iteration parameters
-n_its_max = 300
+n_its_max = 10
 n_tol = 1.e-10
 relax_coeff = 1.
 
@@ -162,7 +174,7 @@ else:
 ####################
 # discretisation settings
 classicIP = True  # boolean
-eta_e = 100.  # penalty coefficient
+eta_e = 36.  # penalty coefficient
 print('Surface jump penalty coefficient eta_e: ', eta_e)
 
 # no of batches in mf volume and surface integral
