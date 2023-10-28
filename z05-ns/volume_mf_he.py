@@ -837,6 +837,7 @@ def _s_rhs_one_batch(
                     u,
                     nb_gi_aln)
     if is_get_nonlin_res:
+        sf_nd_nb.inter_stress_imbalance = torch.zeros(ndim, device=dev, dtype=torch.float64)
         for iface in range(nface):
             for nb_gi_aln in range(nface - 1):
                 idx_iface = (f_itf == iface) & (alnmt[F_itf] == nb_gi_aln)
@@ -1210,6 +1211,16 @@ def _s_rhs_f_itf(
         sdetwei,  # (batch_in, sngi)
     )
     # torch.save(PK1, 'PK1_'+str(sf_nd_nb.nits)+'.pt')
+    if sf_nd_nb.inter_stress_imbalance is not None:
+        # get inter_stress_imbalance
+        PK1_s = sf_nd_nb.material.calc_P(nx=snx, u=d_s_th, batch_in=batch_in)
+        # [v_i n_j] {P_ij}
+        sf_nd_nb.inter_stress_imbalance += torch.einsum(
+            'bjg,bijg,bg->i',
+            snormal,  # (batch_in, ndim, sngi)
+            PK1_s - PK1,  # (batch_in, ndim, ndim, sngi)
+            sdetwei,  # (batch_in, sngi)
+        )
 
     return r0
 

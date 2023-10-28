@@ -329,10 +329,10 @@ class STVK:
         batch_in = C.shape[0]
         ngi = C.shape[1]
         E = self._calc_E(C)
-        trE = torch.einsum('bgii,ij->bgij',
-                           E,
-                           torch.eye(self.ndim, device=self.dev, dtype=torch.float64))
-        S = 2 * self.mu * E + self.lam * trE
+        trE = torch.einsum('bgii->bg', E)
+        S = 2 * self.mu * E + self.lam * torch.einsum(
+            'bg,ij->bgij',
+            trE, torch.eye(self.ndim, device=self.dev, dtype=torch.float64))
         # output shape is (batch_in, ngi, ndim, ndim)
         return S
 

@@ -990,7 +990,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
             for inod in range(bci.shape[0]):
                 if not bci[inod]:  # this is not a boundary node
                     continue
-                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
                 x = x_inod[0]
                 y = x_inod[1]
                 if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary

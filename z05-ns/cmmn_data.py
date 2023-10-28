@@ -50,6 +50,7 @@ class SfNdNb:
         self.u_ave = None  # volume-averaged velocity (nele, ndim)
         self.isES = False  # edge-stabilisation or not
         self.u_m = None  # mesh velocity (nele, u_nloc, ndim)
+        self.inter_stress_imbalance = None  # interface stress imbalance (nele, sngi)
 
         self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
 

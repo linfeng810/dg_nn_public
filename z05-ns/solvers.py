@@ -180,6 +180,7 @@ def gmres_mg_solver(x_i, x_rhs,
     h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
     r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
     r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+    r0_dict = volume_mf_st.slicing_x_i(r0)
 
     x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
 
@@ -266,7 +267,10 @@ def gmres_mg_solver(x_i, x_rhs,
         )
         # r0 = r0.view(-1)
         r0l2 = volume_mf_st.get_r0_l2_norm(r0)
-        print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
+        print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm= all, vel, pre, disp', r0l2.cpu().numpy(),
+              torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
+              torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
+              torch.linalg.norm(r0_dict['disp']).cpu().numpy())
     return x_i, sf_nd_nb.its
 
 

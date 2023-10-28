@@ -82,12 +82,12 @@ disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=
                             get_pndg_ndglbno=True)  # displacement func space
 sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
-material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
-                                ndim, dev, config.mu_s, config.lam_s)
+# material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
+#                                 ndim, dev, config.mu_s, config.lam_s)
 # material = materials.LinearElastic(sf_nd_nb.disp_func_space.element.nloc,
 #                                    ndim, dev, config.mu_s, config.lam_s)
-# material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
-#                           ndim, dev, config.mu_s, config.lam_s)
+material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
+                          ndim, dev, config.mu_s, config.lam_s)
 sf_nd_nb.set_data(material=material)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
@@ -526,19 +526,19 @@ if config.solver=='iterative':
                 # get rhs and non-linear residual
                 r0 *= 0
                 x_rhs *= 0
-                print('before getting rhs and r0, lets check x_i_k and x_i')
-                print('norm x_i_k vel pre disp',
-                      torch.linalg.norm(x_i_k_dict['vel']).cpu().numpy(),
-                      torch.linalg.norm(x_i_k_dict['pre']).cpu().numpy(),
-                      torch.linalg.norm(x_i_k_dict['disp']).cpu().numpy())
-                print('norm x_i vel pre disp',
-                      torch.linalg.norm(x_i_dict['vel']).cpu().numpy(),
-                      torch.linalg.norm(x_i_dict['pre']).cpu().numpy(),
-                      torch.linalg.norm(x_i_dict['disp']).cpu().numpy())
-                print('difference between x_k and x_i',
-                      torch.linalg.norm(x_i_k_dict['vel'] - x_i_dict['vel']).cpu().numpy(),
-                      torch.linalg.norm(x_i_k_dict['pre'] - x_i_dict['pre']).cpu().numpy(),
-                      torch.linalg.norm(x_i_k_dict['disp'] - x_i_dict['disp']).cpu().numpy())
+                # print('before getting rhs and r0, lets check x_i_k and x_i')
+                # print('norm x_i_k vel pre disp',
+                #       torch.linalg.norm(x_i_k_dict['vel']).cpu().numpy(),
+                #       torch.linalg.norm(x_i_k_dict['pre']).cpu().numpy(),
+                #       torch.linalg.norm(x_i_k_dict['disp']).cpu().numpy())
+                # print('norm x_i vel pre disp',
+                #       torch.linalg.norm(x_i_dict['vel']).cpu().numpy(),
+                #       torch.linalg.norm(x_i_dict['pre']).cpu().numpy(),
+                #       torch.linalg.norm(x_i_dict['disp']).cpu().numpy())
+                # print('difference between x_k and x_i',
+                #       torch.linalg.norm(x_i_k_dict['vel'] - x_i_dict['vel']).cpu().numpy(),
+                #       torch.linalg.norm(x_i_k_dict['pre'] - x_i_dict['pre']).cpu().numpy(),
+                #       torch.linalg.norm(x_i_k_dict['disp'] - x_i_dict['disp']).cpu().numpy())
                 # get rhs for fluid
                 x_rhs = volume_mf_st.get_rhs(
                     x_rhs=x_rhs, u_bc=u_bc, f=f,
@@ -549,7 +549,7 @@ if config.solver=='iterative':
                     d_n=d_n_dt,  # previous *timesteps* displacement x BDF coeff.
                 )
                 # get rhs and non-linear residual for solid
-                print('r0_dict pointer', r0_dict['all'].data_ptr())
+                # print('r0_dict pointer', r0_dict['all'].data_ptr())
                 x_rhs, r0_dict = volume_mf_he.get_rhs(
                     rhs_in=x_rhs,  # right-hand side
                     u=x_i_k_dict['disp'],  # displacement at current non-linear step
@@ -560,16 +560,17 @@ if config.solver=='iterative':
                     x_k_dict=x_i_k_dict,
                     r0_dict=r0_dict,
                 )
-                print('r0_dict pointer', r0_dict['all'].data_ptr())
-                print('before adding fluid residual, non-linear residual is ', torch.linalg.norm(r0_dict['vel']),
-                      torch.linalg.norm(r0_dict['pre']),
-                      torch.linalg.norm(r0_dict['disp']))
+                # print('r0_dict pointer', r0_dict['all'].data_ptr())
+                print('before adding fluid residual, non-linear residual is ', torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
+                      torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
+                      torch.linalg.norm(r0_dict['disp']).cpu().numpy())
+                print('traction force imbalance on interface is: ', sf_nd_nb.inter_stress_imbalance.cpu().numpy())
                 # we're solving for correction for displacement in solid
                 # so we set starting value to 0
                 x_i_dict['disp'][nele_f:nele_f + nele_s, ...] *= 0
                 # get fluid subdomain non-linear residual
                 # print('is x_i and x_k the same? ', torch.linalg.norm(x_i_dict['vel'] - x_i_k_dict['vel']))
-                print('mesh velocity norm... ', torch.linalg.norm(sf_nd_nb.u_m.view(-1)))
+                print('mesh velocity norm... ', torch.linalg.norm(sf_nd_nb.u_m.view(-1)).cpu().numpy())
                 r0 = volume_mf_st.get_residual_only(
                     r0, x_i, x_rhs,
                     include_adv=config.include_adv,
@@ -580,13 +581,13 @@ if config.solver=='iterative':
                 print('r0_dict pointer', r0_dict['all'].data_ptr())
                 nr0l2 = volume_mf_st.get_r0_l2_norm(r0)
                 print('nits = ', sf_nd_nb.nits, 'non-linear residual = ', nr0l2.cpu().numpy(),
-                      'vel, pre, disp', torch.linalg.norm(r0_dict['vel']),
-                      torch.linalg.norm(r0_dict['pre']),
-                      torch.linalg.norm(r0_dict['disp']))
+                      'vel, pre, disp', torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
+                      torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
+                      torch.linalg.norm(r0_dict['disp']).cpu().numpy())
                 x_rhs_dict = volume_mf_st.slicing_x_i(x_rhs)
-                print('rhs norm: vel, pre, disp', torch.linalg.norm(x_rhs_dict['vel']),
-                      torch.linalg.norm(x_rhs_dict['pre']),
-                      torch.linalg.norm(x_rhs_dict['disp']))
+                print('rhs norm: vel, pre, disp', torch.linalg.norm(x_rhs_dict['vel']).cpu().numpy(),
+                      torch.linalg.norm(x_rhs_dict['pre']).cpu().numpy(),
+                      torch.linalg.norm(x_rhs_dict['disp']).cpu().numpy())
                 if nr0l2 < config.n_tol:
                     # non-linear iteration converged
                     break
