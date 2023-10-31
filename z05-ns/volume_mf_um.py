@@ -814,7 +814,7 @@ def _gmres_mg_solver(
     total_nonods = nele * u_nloc
     real_nonods = nele_f * u_nloc
 
-    m = config.gmres_m
+    m = 80  # config.gmres_m  # TODO: maybe we can use smaller number for this
     v_m = torch.zeros(m + 1, real_nonods * ndim, device=dev, dtype=torch.float64)
     v_m_j = torch.zeros(total_nonods * ndim, device=dev, dtype=torch.float64)
     h_m = torch.zeros(m + 1, m, device=dev, dtype=torch.float64)
@@ -827,7 +827,7 @@ def _gmres_mg_solver(
     e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)
     e_1[0] += 1
 
-    while r0l2 > tol and sf_nd_nb.its < config.gmres_its:
+    while r0l2 > tol and sf_nd_nb.its < 80:  # config.gmres_its:  # TODO: maybe we can use smaller number for this
         h_m *= 0
         v_m *= 0
         r0 *= 0
