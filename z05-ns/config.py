@@ -50,6 +50,7 @@ filename = 'z31-cube-mesh/cube_only_diri_solid.msh'
 # # filename = 'z35-fsi/test_mesh_displacement/square_circle.msh'
 filename = 'z35-fsi/z01-turek/turek.msh'
 # filename = 'z35-fsi/z02-etienne/etienne.msh'
+# filename = 'z35-fsi/z03-seeweed/seeweed.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -57,7 +58,7 @@ if args.filename is not None:
 mesh = meshio.read(filename)  # mesh object
 isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
-use_fict_dt_in_vel_precond = False
+use_fict_dt_in_vel_precond = True
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
 sf_nd_nb.fict_dt = 0.0025  # coefficient multiply to mass matrix add to vel blk precond
 print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
@@ -132,6 +133,7 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
 n_its_max = 5
 n_tol = 1.e-6
 relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
+sf_nd_nb.relax_coeff = relax_coeff
 
 ####################
 # material property
@@ -143,9 +145,9 @@ problem = 'turek'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 
 # or 'fsi-test' = test fluid-structure boundary
 # or 'turek' = turek benchmark FSI-2
 # or 'fsi-poiseuille' = fsi poiseuille flow
-# E = 2.5
-# nu = 0.25  # or 0.49, or 0.4999
-# lam = E*nu/(1.+nu)/(1.-2.*nu)
+# E = 500
+# nu = 0.  # or 0.49, or 0.4999
+# lam_s = E*nu/(1.+nu)/(1.-2.*nu)
 # mu_s = E/2.0/(1.+nu)
 lam_s = 8e6
 mu_s = 2e6

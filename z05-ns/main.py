@@ -620,7 +620,7 @@ if config.solver=='iterative':
                     # )
                     x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=max(min(1.e-1 * nr0l2, 1.e-1), 1.e-11),  # config.tol,
+                        tol=max(min(1.e-3 * nr0l2, 1.e-3), 1.e-11),  # config.tol,
                         include_adv=config.include_adv,
                         x_k=x_i_k,
                         u_bc=u_bc
@@ -648,18 +648,24 @@ if config.solver=='iterative':
                 # before update displacement, let's first update time derivative of displacement (vel & acceleration)
                 # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
                 # d^2 d / dt^2 used in solid subdomain)
-                d_n_dt += sf_nd_nb.bdfscm.gamma * x_i_dict['disp'].view(d_n_dt.shape) * config.relax_coeff
-                d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * x_i_dict['disp'].view(d_n_dt2.shape) * config.relax_coeff
+                # if sf_nd_nb.nits < 3:
+                #     sf_nd_nb.relax_coeff = 0  # freeze structure in the first 2 non-linear iterations
+                # else:
+                #     sf_nd_nb.relax_coeff = config.relax_coeff
+                d_n_dt += sf_nd_nb.bdfscm.gamma * x_i_dict['disp'].view(d_n_dt.shape) * sf_nd_nb.relax_coeff
+                d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * x_i_dict['disp'].view(d_n_dt2.shape) * sf_nd_nb.relax_coeff
                 # update displacement (since we're solving the increment of displacement)
-                x_i_k_dict['disp'][nele_f:nele, ...] += x_i_dict['disp'][nele_f:nele, ...] * config.relax_coeff
+                x_i_k_dict['disp'][nele_f:nele, ...] += x_i_dict['disp'][nele_f:nele, ...] * sf_nd_nb.relax_coeff
                 x_i_dict['disp'][nele_f:nele, ...] *= 0
                 x_i_dict['disp'][nele_f:nele, ...] += x_i_k_dict['disp'][nele_f:nele, ...]
                 # update nonlinear velocity
-                x_i_k_dict['vel'] *= 0
-                x_i_k_dict['vel'] += x_i_dict['vel']  # non-linear velocity is updated here
+                # x_i_k_dict['vel'] *= 0
+                # x_i_k_dict['vel'] += x_i_dict['vel']  # non-linear velocity is updated here
+                x_i_k_dict['vel'] += (x_i_dict['vel'] - x_i_k_dict['vel']) * sf_nd_nb.relax_coeff
                 # update pressure
-                x_i_k_dict['pre'] *= 0
-                x_i_k_dict['pre'] += x_i_dict['pre']  # we need pressure to update fluid stress for solid subdomain
+                # x_i_k_dict['pre'] *= 0
+                # x_i_k_dict['pre'] += x_i_dict['pre']  # we need pressure to update fluid stress for solid subdomain
+                x_i_k_dict['pre'] += (x_i_dict['pre'] - x_i_k_dict['pre']) * sf_nd_nb.relax_coeff
 
                 if sf_nd_nb.nits % 1 == 0:  # move mesh every n non-linear steps
                     pass
@@ -687,11 +693,11 @@ if config.solver=='iterative':
                     sf_nd_nb.pre_func_space.x_ref_in *= 0
                     sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
 
-                    # # since we have changed x_i_dict['disp'], we need to update d_n_dt and d_n_dt2 and x_i_k
-                    # d_n_dt += sf_nd_nb.bdfscm.gamma * (x_i_dict['disp']
-                    #                                    - x_i_k_dict['disp']).view(d_n_dt.shape) * config.relax_coeff
-                    # d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * (x_i_dict['disp']
-                    #                                       - x_i_k_dict['disp']).view(d_n_dt2.shape) * config.relax_coeff
+                    # since we have changed x_i_dict['disp'], we need to update d_n_dt and d_n_dt2 and x_i_k
+                    d_n_dt += sf_nd_nb.bdfscm.gamma * (x_i_dict['disp']
+                                                       - x_i_k_dict['disp']).view(d_n_dt.shape) * sf_nd_nb.relax_coeff
+                    d_n_dt2 += sf_nd_nb.bdfscm.beta[0] * (x_i_dict['disp']
+                                                          - x_i_k_dict['disp']).view(d_n_dt2.shape) * sf_nd_nb.relax_coeff
                     x_i_k_dict['disp'] *= 0
                     x_i_k_dict['disp'] += x_i_dict['disp']
 
