@@ -51,6 +51,9 @@ class SfNdNb:
         self.isES = False  # edge-stabilisation or not
         self.u_m = None  # mesh velocity (nele, u_nloc, ndim)
         self.inter_stress_imbalance = None  # interface stress imbalance (nele, sngi)
+        self.relax_coeff = 1.  # relaxation coefficient for nonlinear iteration in structure subdomain
+        self.inter_stress_laststep = None  # interface stress from last step (nele, ndim, ndim, sngi)
+        self.inter_stress_thisstep = None  # interface stress from this step (nele, ndim, ndim, sngi)
 
         self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
 

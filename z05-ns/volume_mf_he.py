@@ -726,6 +726,7 @@ def get_rhs(rhs_in, u, u_bc, f, u_n=0,
         if is_get_nonlin_res:
             # we already get interface contribution to r0 in _s_rhs_one_batch
             # now we add rhs to r0 (non-linear residual)
+            # r0_dict['disp'][idx_in, ...] *= 0
             r0_dict['disp'][idx_in, ...] += rhs['disp'][idx_in, ...]
             print('after adding rhs[disp], norm of r0', torch.linalg.norm(r0_dict['all']))
 
@@ -838,15 +839,28 @@ def _s_rhs_one_batch(
                     nb_gi_aln)
     if is_get_nonlin_res:
         sf_nd_nb.inter_stress_imbalance = torch.zeros(ndim, device=dev, dtype=torch.float64)
+        if sf_nd_nb.inter_stress_laststep is None:
+            sf_nd_nb.inter_stress_laststep = torch.zeros(f_itf.shape[0], ndim, ndim, sf_nd_nb.vel_func_space.element.sngi,
+                                                         device=dev, dtype=torch.float64)  # interface stress on face qdpnts
+        if sf_nd_nb.inter_stress_thisstep is None:
+            sf_nd_nb.inter_stress_thisstep = torch.zeros(f_itf.shape[0], ndim, ndim, sf_nd_nb.vel_func_space.element.sngi,
+                                                         device=dev, dtype=torch.float64)  # interface stress on face qdpnts
         for iface in range(nface):
             for nb_gi_aln in range(nface - 1):
                 idx_iface = (f_itf == iface) & (alnmt[F_itf] == nb_gi_aln)
                 if idx_iface.sum() > 0:
-                    r0 = _s_rhs_f_itf(r0, rhs, f_itf[idx_iface], E_F_itf[idx_iface],
+                    r0, rhs = _s_rhs_f_itf(r0, rhs, f_itf[idx_iface], E_F_itf[idx_iface],
                                       f_itf_nb[idx_iface], E_F_itf_nb[idx_iface],
                                       x_k_dict,
-                                      nb_gi_aln)
+                                      nb_gi_aln,
+                                      idx_iface)
             # r0['disp'][E_F_i[idx_iface], ...] += rhs['disp'][E_F_i[idx_iface], ...]
+        # get interface stress difference between two non-linear iteration
+        print('interface stress difference (fluid): ',
+              torch.linalg.norm(sf_nd_nb.inter_stress_thisstep - sf_nd_nb.inter_stress_laststep))
+        sf_nd_nb.inter_stress_laststep *= 0
+        sf_nd_nb.inter_stress_laststep += sf_nd_nb.inter_stress_thisstep
+        sf_nd_nb.inter_stress_thisstep *= 0
 
     # boundary term
     # if ndim == 3:  # in 3D one element might have multiple boundary faces
@@ -1132,7 +1146,8 @@ def _s_rhs_f_itf(
         r0, rhs, f_itf, E_F_itf,
         f_itf_nb, E_F_itf_nb,
         x_k_dict,
-        nb_gi_aln
+        nb_gi_aln,
+        idx_iface
 ):
     """
     given rhs of solid subdomain, subtracting interface contribution
@@ -1147,7 +1162,7 @@ def _s_rhs_f_itf(
     # now compute interface contribution and add to r0['disp']
     batch_in = f_itf.shape[0]
     if batch_in < 1:  # nothing to do here.
-        return r0
+        return r0, rhs
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
 
     # shape function
@@ -1221,8 +1236,10 @@ def _s_rhs_f_itf(
             PK1_s - PK1,  # (batch_in, ndim, ndim, sngi)
             sdetwei,  # (batch_in, sngi)
         )
+    if sf_nd_nb.inter_stress_thisstep is not None:
+        sf_nd_nb.inter_stress_thisstep[idx_iface, :] += PK1
 
-    return r0
+    return r0, rhs
 
 
 def get_RAR_and_sfc_data_Sp(
