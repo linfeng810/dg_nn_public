@@ -330,7 +330,7 @@ def _s_res_one_batch(
                         x_k, x_i,
                         diagA, bdiagA, batch_start_idx,
                         nb_gi_aln)
-            if include_itf:
+            if False:  # going to make interface stress from fluid EXPLICIT
                 idx_iface = f_itf == iface & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
                 r_in = _s_res_fitf(
                     r_in, x_k, x_i,
@@ -837,8 +837,8 @@ def _s_rhs_one_batch(
                     f_inb[idx_iface], E_F_inb[idx_iface],
                     u,
                     nb_gi_aln)
+    sf_nd_nb.inter_stress_imbalance = torch.zeros(ndim, device=dev, dtype=torch.float64)
     if is_get_nonlin_res:
-        sf_nd_nb.inter_stress_imbalance = torch.zeros(ndim, device=dev, dtype=torch.float64)
         if sf_nd_nb.inter_stress_laststep is None:
             sf_nd_nb.inter_stress_laststep = torch.zeros(f_itf.shape[0], ndim, ndim, sf_nd_nb.vel_func_space.element.sngi,
                                                          device=dev, dtype=torch.float64)  # interface stress on face qdpnts
@@ -873,7 +873,8 @@ def _s_rhs_one_batch(
             # neumann bc
             idx_iface = f_b_n == iface
             if idx_iface.sum() > 0:
-                rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3])
+                rhs = _s_rhs_fb_neumann(rhs, f_b_n[idx_iface], E_F_b_n[idx_iface], u_bc[3],
+                                        x_k_dict)
             # r0['disp'][E_F_b_n[idx_iface], ...] += rhs['disp'][E_F_b_n[idx_iface], ...]
     else:  # in 2D we requrie in the mesh, each element can have at most 1 boundary face
         raise Exception('2D hyper-elasticity is not implemented yet...')
@@ -1105,7 +1106,8 @@ def _s_rhs_fb(rhs, f_b, E_F_b, u, u_bc):
 
 def _s_rhs_fb_neumann(
         rhs, f_b, E_F_b,
-        u_bc
+        u_bc,
+        x_k_dict,
 ):
     """
     put neumann boundary to solid subdomain rhs
@@ -1139,6 +1141,21 @@ def _s_rhs_fb_neumann(
         sdetwei,  # (batch_in, sngi)
         u_bc_th,  # (batch_in, u_nloc, ndim)
     )
+    #
+    # # torch.save(PK1, 'PK1_'+str(sf_nd_nb.nits)+'.pt')
+    # if sf_nd_nb.inter_stress_imbalance is not None:
+    #     d_s_th = x_k_dict['disp'][E_F_b, ...]
+    #     # get inter_stress_imbalance
+    #     PK1_s = sf_nd_nb.material.calc_P(nx=snx, u=d_s_th, batch_in=batch_in)
+    #     # [v_i n_j] {P_ij}
+    #     sf_nd_nb.inter_stress_imbalance += torch.einsum(
+    #         'big,bg->i',
+    #         torch.einsum('bjg,bijg->big', snormal,  # (batch_in, ndim, sngi)
+    #                      PK1_s)   # (batch_in, ndim, ndim, sngi)
+    #         - torch.einsum('bni,bng->big', u_bc_th,
+    #                        sn),
+    #         sdetwei,  # (batch_in, sngi)
+    #     )
     return rhs
 
 
@@ -1218,7 +1235,14 @@ def _s_rhs_f_itf(
     # PK1 stress tensor on face quadrature
     PK1 = torch.einsum('bg,bijg,bgIj->biIg', detF, sigma, invF)
     # interface term
-    r0['disp'][E_F_itf, ...] += torch.einsum(
+    # r0['disp'][E_F_itf, ...] += torch.einsum(
+    #     'bijg,bmg,bjg,bg->bmi',
+    #     PK1,  # (batch_in, ndim, ndim, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     snormal,  # (batch_in, ndim, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    # )
+    rhs['disp'][E_F_itf, ...] += torch.einsum(
         'bijg,bmg,bjg,bg->bmi',
         PK1,  # (batch_in, ndim, ndim, sngi)
         sn,  # (batch_in, nloc, sngi)

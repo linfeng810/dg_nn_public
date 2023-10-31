@@ -57,6 +57,8 @@ def solve_for_mesh_disp(
         else:
             raise NotImplementedError
         return x_i
+    if torch.linalg.norm(x_i) < 1e-8:
+        return x_i
     x_i = _solve_diffusion(x_i)
     # x_i = _project_to_make_continuous(x_i)
     # x_i = _make_0_bc_strongly_enforced(x_i)

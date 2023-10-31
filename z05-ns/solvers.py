@@ -202,7 +202,7 @@ def gmres_mg_solver(x_i, x_rhs,
             r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
         )
         # apply left preconditioner
-        if sf_nd_nb.nits % 2 == 0:
+        if sf_nd_nb.nits % 1 == 0:
             r0 = preconditioner.fsi_precond_all(r0, x_k, u_bc)
         else:
             r0 = preconditioner.fsi_precond_all2(r0, x_k, u_bc)
@@ -236,7 +236,7 @@ def gmres_mg_solver(x_i, x_rhs,
             )
             w *= -1.  # providing rhs=0, b-Ax is -Ax
             # apply preconditioner
-            if sf_nd_nb.nits % 2 == 0:
+            if sf_nd_nb.nits % 1 == 0:
                 w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
             else:
                 w = preconditioner.fsi_precond_all2(x_i=w, x_k=x_k, u_bc=u_bc)

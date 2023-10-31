@@ -159,10 +159,11 @@ def bc_f(ndim, bc, u, x_all, prob: str):
     return u, f, fNorm
 
 
-def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
+def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
     nloc = sf_nd_nb.vel_func_space.element.nloc
     nonods = sf_nd_nb.vel_func_space.nonods
     u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
+    f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
     if prob == 'stokes':
         if ndim == 2:
             # apply boundary conditions (4 Dirichlet bcs)
@@ -654,8 +655,220 @@ def vel_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'fsi-test' and ndim == 3:
+        t = torch.tensor(t, device=dev, dtype=torch.float64)
+        for ibc in range(len(bc_node_list)):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                # t = 0
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                # u[inod//u_nloc, inod%u_nloc, :] = 0.
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
+                u_bc[ibc][inod // nloc, inod % nloc, 2] = ibc+1
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        # t = 0
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+
+        # sin pressure
+        # unsymmetric stress formulation
+        f[:, 0] = - torch.exp(z - t)*torch.cos(x + y) - torch.exp(x - t)*torch.sin(y + z)
+        f[:, 1] = - torch.exp(x - t)*torch.cos(y + z) - torch.exp(y - t)*torch.sin(x + z)
+        f[:, 2] = - torch.exp(y - t)*torch.cos(x + z) - torch.exp(z - t)*torch.sin(x + y)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'fsi-test' and ndim == 2:
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        for ibc in range(len(bc_node_list)):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'fsi-poiseuille' and ndim == 2:
+        # poiseuille flow but with a flexible wall with thickness 0.25
+        # steady problem
+        for ibc in range(1):  # fluid dirichlet bc
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                        y - y**2  # -y^2 + y
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+                else:  # this is wall, do nothing
+                    pass
+        # neumann bc are all zero
+        # solid diri bc is also zero
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'turek' and ndim == 2:
+        # turek benchmark
+        # 3 kinds of BC: fluid diri; fluid neu; solid diri
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                        1.5 * 2 * 4 * y * (0.41 - y) / 0.41**2
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+                else:  # this is wall, do nothing
+                    pass
+            if t < 2.0:
+                u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
+        # neumann bc are all zero
+        # solid diri bc is also zero
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'seeweed' and ndim == 2:
+        # seeweed in channel flow
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                        1.5 * 1 * 4 * y * (0.5 - y) / 0.5**2
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+                else:  # this is wall, do nothing
+                    pass
+            if t < 2.0:
+                u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
+        # neumann bc are all zero
+        # solid diri bc is also zero
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'hyper-elastic' and ndim == 3:
+        # analytical solution from Abbas 2018
+        alpha = 0.1
+        gamma = 0.1
+        lam = config.lam_s
+        mu = config.mu_s
+        for ibc in range(2, 3):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
+                g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
+                h = 0  # 0
+
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                                                    (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+        f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        f[:, 1] = 0.
+        f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'he_test' and ndim == 3:
+        # uni-axial strentch test
+        for ibc in range(3, 4):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                if torch.abs(x-1) < 1e-8:  # x = 1 plane to apply force
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = 1.
+                    # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+                    #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+                    # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        # f[:, 1] = 0.
+        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'he_test_translation' and ndim == 3:
+        # "rigid-body" translation test
+        for ibc in range(2, 3):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+
+                u_bc[ibc][inod // nloc, inod % nloc, 0] = np.sin(np.pi / 2 * t)
+                u_bc[ibc][inod // nloc, inod % nloc, 1] = np.sin(np.pi / 2 * t)
+                u_bc[ibc][inod // nloc, inod % nloc, 2] = np.sin(np.pi / 2 * t)
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        z = torch.tensor(x_all[:, 2], device=dev)
+        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        # f[:, 1] = 0.
+        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'he_test' and ndim == 2:
+        # uni-axial strentch test
+        # for ibc in range(3, 4):
+        #     bci = bc_node_list[ibc]
+        #     for inod in range(bci.shape[0]):
+        #         if not bci[inod]:  # this is not a boundary node
+        #             continue
+        #         x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+        #         x = x_inod[0]
+        #         y = x_inod[1]
+        #         if torch.abs(y - 1) < 1e-8:  # y = 1 plane to apply force
+        #             u_bc[ibc][inod // nloc, inod % nloc, 1] = 0.  # -1000. * (1 + 0.001 * y) * (1 + 0.001 * x)
+        #         if torch.abs(x - 1) < 1e-8:  # x = 1 plane to apply force
+        #             u_bc[ibc][inod // nloc, inod % nloc, 1] = 0.  # -1000. * (1 + 0.001 * y) * (1 + 0.001 * x)
+        #         if torch.abs(x) < 1e-8:  # x = 0 plane
+        #             u_bc[ibc][inod // nloc, inod % nloc, 1] = 0.  # 1000. * (1 + 0.001 * y) * (1 + 0.001 * x)
+        #             # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
+        #             #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
+        #             # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
+        x = torch.tensor(x_all[:, 0], device=dev)
+        y = torch.tensor(x_all[:, 1], device=dev)
+        f[:, 0] = 9.81
+        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
+        # f[:, 1] = 0.
+        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
-        raise Exception('the problem '+prob+' is not defined in bc_f.py')
+        raise Exception('the problem ' + prob + ' is not defined in fsi_bc_f')
     return u_bc, f, fNorm
 
 
@@ -910,235 +1123,6 @@ def ana_soln(problem, t=None):
     else:
         raise Exception('problem analytical solution not defined for '+problem)
     return u_ana
-
-
-def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
-    nloc = sf_nd_nb.vel_func_space.element.nloc
-    nonods = sf_nd_nb.vel_func_space.nonods
-    u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
-    if prob == 'fsi-test' and ndim == 3:
-        t = torch.tensor(t, device=dev, dtype=torch.float64)
-        for ibc in range(len(bc_node_list)):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                # t = 0
-                x = x_inod[0]
-                y = x_inod[1]
-                z = x_inod[2]
-                # u[inod//u_nloc, inod%u_nloc, :] = 0.
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
-                u_bc[ibc][inod // nloc, inod % nloc, 2] = ibc+1
-
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-        # t = 0
-        x = torch.tensor(x_all[:, 0], device=dev)
-        y = torch.tensor(x_all[:, 1], device=dev)
-        z = torch.tensor(x_all[:, 2], device=dev)
-
-        # sin pressure
-        # unsymmetric stress formulation
-        f[:, 0] = - torch.exp(z - t)*torch.cos(x + y) - torch.exp(x - t)*torch.sin(y + z)
-        f[:, 1] = - torch.exp(x - t)*torch.cos(y + z) - torch.exp(y - t)*torch.sin(x + z)
-        f[:, 2] = - torch.exp(y - t)*torch.cos(x + z) - torch.exp(z - t)*torch.sin(x + y)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'fsi-test' and ndim == 2:
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
-        for ibc in range(len(bc_node_list)):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
-
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'fsi-poiseuille' and ndim == 2:
-        # poiseuille flow but with a flexible wall with thickness 0.25
-        # steady problem
-        for ibc in range(1):  # fluid dirichlet bc
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
-                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
-                        y - y**2  # -y^2 + y
-                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
-                else:  # this is wall, do nothing
-                    pass
-        # neumann bc are all zero
-        # solid diri bc is also zero
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'turek' and ndim == 2:
-        # turek benchmark
-        # 3 kinds of BC: fluid diri; fluid neu; solid diri
-        for ibc in range(1):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
-                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
-                        1.5 * 2 * 4 * y * (0.41 - y) / 0.41**2
-                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
-                else:  # this is wall, do nothing
-                    pass
-            if t < 2.0:
-                u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
-        # neumann bc are all zero
-        # solid diri bc is also zero
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'seeweed' and ndim == 2:
-        # seeweed in channel flow
-        for ibc in range(1):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
-                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
-                        1.5 * 1 * 4 * y * (0.5 - y) / 0.5**2
-                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
-                else:  # this is wall, do nothing
-                    pass
-            if t < 2.0:
-                u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
-        # neumann bc are all zero
-        # solid diri bc is also zero
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    else:
-        raise Exception('the problem '+prob+' is not defined in bc_f.py')
-    return u_bc, f, fNorm
-
-
-def he_bc_f(ndim, bc_node_list, x_all, prob: str, t=None):
-    """
-    define boundary conditions and body force for hyper-elastic problems
-    """
-    nloc = sf_nd_nb.disp_func_space.element.nloc
-    nonods = sf_nd_nb.disp_func_space.nonods
-    u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
-    f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
-    if prob == 'hyper-elastic' and ndim == 3:
-        # analytical solution from Abbas 2018
-        alpha = 0.1
-        gamma = 0.1
-        lam = config.lam_s
-        mu = config.mu_s
-        for ibc in range(2, 3):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                z = x_inod[2]
-                theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)
-                g = gamma * torch.sin(torch.pi * x_inod[0])  # gamma sin(pi X)
-                h = 0  # 0
-
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = (1. / lam + alpha) * x_inod[0] + theta
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
-                                                    (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
-                u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
-        x = torch.tensor(x_all[:, 0], device=dev)
-        y = torch.tensor(x_all[:, 1], device=dev)
-        z = torch.tensor(x_all[:, 2], device=dev)
-        f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
-        f[:, 1] = 0.
-        f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'he_test' and ndim == 3:
-        # uni-axial strentch test
-        for ibc in range(3, 4):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                z = x_inod[2]
-                if torch.abs(x-1) < 1e-8:  # x = 1 plane to apply force
-                    u_bc[ibc][inod // nloc, inod % nloc, 0] = 1.
-                    # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
-                    #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
-                    # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
-        x = torch.tensor(x_all[:, 0], device=dev)
-        y = torch.tensor(x_all[:, 1], device=dev)
-        z = torch.tensor(x_all[:, 2], device=dev)
-        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
-        # f[:, 1] = 0.
-        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'he_test_translation' and ndim == 3:
-        # "rigid-body" translation test
-        for ibc in range(2, 3):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                z = x_inod[2]
-
-                u_bc[ibc][inod // nloc, inod % nloc, 0] = np.sin(np.pi / 2 * t)
-                u_bc[ibc][inod // nloc, inod % nloc, 1] = np.sin(np.pi / 2 * t)
-                u_bc[ibc][inod // nloc, inod % nloc, 2] = np.sin(np.pi / 2 * t)
-        x = torch.tensor(x_all[:, 0], device=dev)
-        y = torch.tensor(x_all[:, 1], device=dev)
-        z = torch.tensor(x_all[:, 2], device=dev)
-        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
-        # f[:, 1] = 0.
-        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    elif prob == 'he_test' and ndim == 2:
-        # uni-axial strentch test
-        for ibc in range(3, 4):
-            bci = bc_node_list[ibc]
-            for inod in range(bci.shape[0]):
-                if not bci[inod]:  # this is not a boundary node
-                    continue
-                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-                x = x_inod[0]
-                y = x_inod[1]
-                if torch.abs(y-1) < 1e-8:  # x = 1 plane to apply force
-                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 1.
-                    # u_bc[ibc][inod // nloc, inod % nloc, 1] = -(1. / lam + (alpha + gamma + alpha * gamma) /
-                    #                                             (1 + alpha + gamma + alpha * gamma)) * x_inod[1]
-                    # u_bc[ibc][inod // nloc, inod % nloc, 2] = (1. / lam + alpha) * x_inod[2] + g + h
-        x = torch.tensor(x_all[:, 0], device=dev)
-        y = torch.tensor(x_all[:, 1], device=dev)
-        # f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
-        # f[:, 1] = 0.
-        # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
-        fNorm = torch.linalg.norm(f.view(-1), dim=0)
-    else:
-        raise Exception('the problem ' + prob + ' is not defined in he_bc_f')
-    return u_bc, f, fNorm
 
 
 def he_ana_sln(prob, t=None):
