@@ -178,3 +178,150 @@ def fsi_precond_all(x_i, x_k, u_bc):
         include_adv=True
     )
     return x_i
+
+
+def fsi_precond_all2(x_i, x_k, u_bc):
+    """
+    this is the whole preconditioner for fsi system.
+    original system is:
+    [  F     G    I_uS  ] [ u ]
+    [  D     0    I_pS  ] [ p ]
+    [ I_Su  I_Sp    S   ] [ d ]
+    the preconditioner is:
+                            (-1)
+    [ P_F    G      0  ]          [ x_i vel  ]
+    [  0    P_p     0  ]          [ x_i pre  ]
+    [ I_Su  I_Sp    S  ]          [ x_i disp ]
+
+    here u_bc pass in is the full list of u_bc.
+    we'll figure out which u_bc to use...
+    """
+    x_temp = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+    x_temp_dict = volume_mf_st.slicing_x_i(x_temp)
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_k_dict = volume_mf_st.slicing_x_i(x_k)
+
+    # first apply pressure schur complement preconditioner P_p
+    if nele_f > 0:  # has fluid element
+        volume_mf_st.pre_precond_all(
+            x_p=x_i_dict['pre'][0:nele_f, ...],
+            include_adv=True,
+            u_n=x_k_dict['vel'][0:nele_f, ...] - sf_nd_nb.u_m[0:nele_f, ...],
+            u_bc=u_bc[0][0:nele_f, ...],  # vel diri bc
+        )
+
+        # apply velocity preconditioner P_F (note that G is also applied in this function)
+        x_i = volume_mf_st.vel_precond_all(
+            x_i=x_i,
+            x_k=x_k,
+            u_bc=u_bc[0],
+            include_adv=True
+        )
+
+    # apply bottom left 1x2 block (I_Su and I_Sp)
+    if nele_s < 1:  # no solid element
+        return x_i
+    x_temp *= 0
+    x_temp_dict['disp'] += x_i_dict['disp']
+    x_temp = volume_mf_he.get_residual_only(
+        r0=x_temp,
+        x_k=x_k,
+        x_i=x_i,
+        x_rhs=0,
+        include_s_blk=False,
+        include_itf=True,
+    )
+    # move x_temp to x_i
+    x_i_dict['disp'] *= 0
+    x_i_dict['disp'] += x_temp_dict['disp']
+    x_temp *= 0
+
+    # then apply P_S
+    x_temp = disp_precond_all(x_i=x_temp, x_rhs=x_i, x_k=x_k)
+    # move x_temp to x_i
+    x_i_dict['disp'] *= 0
+    x_i_dict['disp'] += x_temp_dict['disp']
+    return x_i
+
+
+def fluid_only_precond(x_i, x_k, u_bc):
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_k_dict = volume_mf_st.slicing_x_i(x_k)
+    volume_mf_st.pre_precond_all(
+            x_p=x_i_dict['pre'][0:nele_f, ...],
+            include_adv=True,
+            u_n=x_k_dict['vel'][0:nele_f, ...] - sf_nd_nb.u_m[0:nele_f, ...],
+            u_bc=u_bc[0][0:nele_f, ...],  # vel diri bc
+        )
+
+    # apply velocity preconditioner P_F (note that G is also applied in this function)
+    x_i = volume_mf_st.vel_precond_all(
+        x_i=x_i,
+        x_k=x_k,
+        u_bc=u_bc[0],
+        include_adv=True
+    )
+    return x_i
+
+
+def solid_only_precond(x_i, x_k):
+    x_temp = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+    x_temp_dict = volume_mf_st.slicing_x_i(x_temp)
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_k_dict = volume_mf_st.slicing_x_i(x_k)
+
+    x_temp = disp_precond_all(x_i=x_temp, x_rhs=x_i, x_k=x_k)
+    # move x_temp to x_i
+    x_i_dict['disp'] *= 0
+    x_i_dict['disp'] += x_temp_dict['disp']
+    return x_i
+
+
+def apply_I_SF(x_i, x_k):
+    x_temp = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+    x_temp_dict = volume_mf_st.slicing_x_i(x_temp)
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_k_dict = volume_mf_st.slicing_x_i(x_k)
+
+    x_temp *= 0
+    x_temp_dict['disp'] += x_i_dict['disp']
+    x_temp = volume_mf_he.get_residual_only(
+        r0=x_temp,
+        x_k=x_k,
+        x_i=x_i,
+        x_rhs=0,
+        include_s_blk=False,
+        include_itf=True,
+    )
+    # move x_temp to x_i
+    x_i_dict['disp'] *= 0
+    x_i_dict['disp'] += x_temp_dict['disp']
+    return x_i
+
+
+def apply_I_FS(x_i, x_k, u_bc):
+    x_temp = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+    x_temp_dict = volume_mf_st.slicing_x_i(x_temp)
+    x_i_dict = volume_mf_st.slicing_x_i(x_i)
+    x_k_dict = volume_mf_st.slicing_x_i(x_k)
+
+    # apply top right 2x1 block (I_uS and I_pS)
+    x_temp *= 0
+    x_temp_dict['vel'] += x_i_dict['vel']
+    x_temp_dict['pre'] += x_i_dict['pre']
+    x_temp = volume_mf_st.get_residual_only(
+        r0=x_temp,
+        x_i=x_i,
+        x_rhs=0,
+        include_adv=False,
+        a00=False, a01=False, a10=False, a11=False,
+        include_itf=True,
+        x_k=x_k,
+        u_bc=u_bc[0]
+    )
+    # move x_temp to x_i
+    x_i_dict['vel'] *= 0
+    x_i_dict['pre'] *= 0
+    x_i_dict['vel'] += x_temp_dict['vel']
+    x_i_dict['pre'] += x_temp_dict['pre']
+    return x_i

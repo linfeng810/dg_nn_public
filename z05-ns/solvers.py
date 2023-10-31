@@ -202,7 +202,10 @@ def gmres_mg_solver(x_i, x_rhs,
             r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
         )
         # apply left preconditioner
-        r0 = preconditioner.fsi_precond_all(r0, x_k, u_bc)
+        if sf_nd_nb.nits % 2 == 0:
+            r0 = preconditioner.fsi_precond_all(r0, x_k, u_bc)
+        else:
+            r0 = preconditioner.fsi_precond_all2(r0, x_k, u_bc)
 
         r0_real = get_res_vec_from_dict(x_i=r0, x_res=r0_real)
         beta = torch.linalg.norm(r0_real)
@@ -233,7 +236,10 @@ def gmres_mg_solver(x_i, x_rhs,
             )
             w *= -1.  # providing rhs=0, b-Ax is -Ax
             # apply preconditioner
-            w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
+            if sf_nd_nb.nits % 2 == 0:
+                w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
+            else:
+                w = preconditioner.fsi_precond_all2(x_i=w, x_k=x_k, u_bc=u_bc)
             w_real *= 0
             w_real = get_res_vec_from_dict(x_i=w, x_res=w_real)
             for i in range(0, j+1):
@@ -272,6 +278,245 @@ def gmres_mg_solver(x_i, x_rhs,
               torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
               torch.linalg.norm(r0_dict['disp']).cpu().numpy())
     return x_i, sf_nd_nb.its
+
+
+def partitioned_solver(x_i, x_rhs,
+                       tol,
+                       include_adv=False,
+                       x_k=None, u_bc=None):
+    """
+    use mg left preconditioned gmres as a solver
+    """
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    p_nonods = sf_nd_nb.pre_func_space.nonods
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    real_no_dofs = nele_f * u_nloc * ndim + nele_f * p_nloc + nele_s * u_nloc * ndim
+    total_no_dofs = nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim
+
+    m = config.gmres_m
+    v_m = torch.zeros(m+1, real_no_dofs, device=dev, dtype=torch.float64)  # V_m
+    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # full length v vector
+    h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
+    r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+    r0_dict = volume_mf_st.slicing_x_i(r0)
+
+    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+
+    r0l2 = 1.
+    sf_nd_nb.its = 0
+    e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
+    e_1[0] += 1
+    while r0l2 > tol and sf_nd_nb.its < config.gmres_its * sf_nd_nb.nits:
+        h_m *= 0
+        v_m *= 0
+        r0 *= 0
+        # get residual
+        r0 = volume_mf_st.get_residual_only(
+            r0, x_i, x_rhs,
+            include_adv=include_adv,
+            x_k=x_k,
+            u_bc=u_bc[0])
+        r0 = volume_mf_he.get_residual_only(
+            r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
+        )
+        # apply left preconditioner
+        if sf_nd_nb.nits % 2 == 0:
+            r0 = preconditioner.fsi_precond_all(r0, x_k, u_bc)
+        else:
+            r0 = preconditioner.fsi_precond_all2(r0, x_k, u_bc)
+
+        r0_real = get_res_vec_from_dict(x_i=r0, x_res=r0_real)
+        beta = torch.linalg.norm(r0_real)
+        # beta = torch.linalg.norm(r0)
+        v_m[0, :] += r0_real / beta
+        w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
+        w_real = r0_real
+        w_dict = volume_mf_st.slicing_x_i(w)
+        for j in tqdm(range(0, m), disable=config.disabletqdm):
+            v_m_j_full_length *= 0
+            v_m_j_full_length = get_dict_from_res_vec(x_res=v_m[j, :], x_i=v_m_j_full_length)
+            w *= 0
+            # w = A * v_m[j]
+            w = volume_mf_st.get_residual_only(
+                r0=w,
+                x_i=v_m_j_full_length,
+                x_rhs=0,
+                include_adv=include_adv,
+                x_k=x_k,
+                u_bc=u_bc[0])
+            w = volume_mf_he.get_residual_only(
+                r0=w,
+                x_k=x_k,
+                x_i=v_m_j_full_length,
+                x_rhs=0,
+                include_s_blk=True,
+                include_itf=True,
+            )
+            w *= -1.  # providing rhs=0, b-Ax is -Ax
+            # apply preconditioner
+            if sf_nd_nb.nits % 2 == 0:
+                w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
+            else:
+                w = preconditioner.fsi_precond_all2(x_i=w, x_k=x_k, u_bc=u_bc)
+            w_real *= 0
+            w_real = get_res_vec_from_dict(x_i=w, x_res=w_real)
+            for i in range(0, j+1):
+                h_m[i, j] = torch.linalg.vecdot(w_real, v_m[i, :])
+                w_real -= h_m[i, j] * v_m[i, :]
+
+            h_m[j+1, j] = torch.linalg.norm(w_real)
+            v_m[j+1, :] += w_real / h_m[j+1, j]
+            sf_nd_nb.its += 1
+        # solve least-square problem
+        q, r = torch.linalg.qr(h_m, mode='complete')  # h_m: (m+1)xm, q: (m+1)x(m+1), r: (m+1)xm
+        e_1[0] = 0
+        e_1[0] += beta
+        y_m = torch.linalg.solve(r[0:m, 0:m], q[0:m+1, 0:m].T @ e_1)  # y_m: m
+        # update c_i and get residual
+        dx_i = torch.einsum('ji,j->i', v_m[0:m, :], y_m)
+        x_dummy *= 0
+        x_dummy = get_dict_from_res_vec(x_i=x_dummy, x_res=dx_i)
+        x_i += x_dummy
+
+        # r0l2 = torch.linalg.norm(q[:, m:m+1].T @ e_1)
+        r0 *= 0
+        # get residual
+        r0 = volume_mf_st.get_residual_only(
+            r0, x_i, x_rhs,
+            include_adv=include_adv,
+            x_k=x_k,
+            u_bc=u_bc[0])
+        r0 = volume_mf_he.get_residual_only(
+            r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
+        )
+        # r0 = r0.view(-1)
+        r0l2 = volume_mf_st.get_r0_l2_norm(r0)
+        print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm= all, vel, pre, disp', r0l2.cpu().numpy(),
+              torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
+              torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
+              torch.linalg.norm(r0_dict['disp']).cpu().numpy())
+    return x_i, sf_nd_nb.its
+
+
+def fluid_gmres_mg_solver(x_i, x_rhs,
+                          tol,
+                          x_k, u_bc):
+    """
+    solve fluid subdomain only
+    this is part of the partitioned solver
+    """
+    u_nonods = sf_nd_nb.vel_func_space.nonods
+    p_nonods = sf_nd_nb.pre_func_space.nonods
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    p_nloc = sf_nd_nb.pre_func_space.element.nloc
+    real_no_dofs = nele_f * u_nloc * ndim + nele_f * p_nloc
+    total_no_dofs = nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim
+
+    m = config.gmres_m
+    v_m = torch.zeros(m + 1, real_no_dofs, device=dev, dtype=torch.float64)  # V_m
+    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # full length v vector
+    h_m = torch.zeros(m + 1, m, device=dev, dtype=torch.float64)  # \bar H_m
+    r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+    r0_dict = volume_mf_st.slicing_x_i(r0)
+
+    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+
+    r0l2 = 1.
+    sf_nd_nb.its = 0
+    e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
+    e_1[0] += 1
+
+    while r0l2 > tol and sf_nd_nb.its < config.gmres_its * sf_nd_nb.nits:
+        h_m *= 0
+        v_m *= 0
+        r0 *= 0
+        # get residual
+        r0 = volume_mf_st.get_residual_only(
+            r0, x_i, x_rhs,
+            include_adv=True,
+            x_k=x_k,
+            u_bc=u_bc[0])
+        # apply left preconditioner
+        ...
+
+        r0_real = get_res_vec_from_dict(x_i=r0, x_res=r0_real)
+        beta = torch.linalg.norm(r0_real)
+        # beta = torch.linalg.norm(r0)
+        v_m[0, :] += r0_real / beta
+        w = r0  # this should place w in the same memory as r0 so that we don't take two nonods memory space
+        w_real = r0_real
+        w_dict = volume_mf_st.slicing_x_i(w)
+        for j in tqdm(range(0, m), disable=config.disabletqdm):
+            v_m_j_full_length *= 0
+            v_m_j_full_length = get_dict_from_res_vec(x_res=v_m[j, :], x_i=v_m_j_full_length)
+            w *= 0
+            # w = A * v_m[j]
+            w = volume_mf_st.get_residual_only(
+                r0=w,
+                x_i=v_m_j_full_length,
+                x_rhs=0,
+                include_adv=True,
+                x_k=x_k,
+                u_bc=u_bc[0])
+            w = volume_mf_he.get_residual_only(
+                r0=w,
+                x_k=x_k,
+                x_i=v_m_j_full_length,
+                x_rhs=0,
+                include_s_blk=True,
+                include_itf=True,
+            )
+            w *= -1.  # providing rhs=0, b-Ax is -Ax
+            # apply preconditioner
+            if sf_nd_nb.nits % 2 == 0:
+                w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
+            else:
+                w = preconditioner.fsi_precond_all2(x_i=w, x_k=x_k, u_bc=u_bc)
+            w_real *= 0
+            w_real = get_res_vec_from_dict(x_i=w, x_res=w_real)
+            for i in range(0, j+1):
+                h_m[i, j] = torch.linalg.vecdot(w_real, v_m[i, :])
+                w_real -= h_m[i, j] * v_m[i, :]
+
+            h_m[j+1, j] = torch.linalg.norm(w_real)
+            v_m[j+1, :] += w_real / h_m[j+1, j]
+            sf_nd_nb.its += 1
+        # solve least-square problem
+        q, r = torch.linalg.qr(h_m, mode='complete')  # h_m: (m+1)xm, q: (m+1)x(m+1), r: (m+1)xm
+        e_1[0] = 0
+        e_1[0] += beta
+        y_m = torch.linalg.solve(r[0:m, 0:m], q[0:m+1, 0:m].T @ e_1)  # y_m: m
+        # update c_i and get residual
+        dx_i = torch.einsum('ji,j->i', v_m[0:m, :], y_m)
+        x_dummy *= 0
+        x_dummy = get_dict_from_res_vec(x_i=x_dummy, x_res=dx_i)
+        x_i += x_dummy
+
+        # r0l2 = torch.linalg.norm(q[:, m:m+1].T @ e_1)
+        r0 *= 0
+        # get residual
+        r0 = volume_mf_st.get_residual_only(
+            r0, x_i, x_rhs,
+            include_adv=True,
+            x_k=x_k,
+            u_bc=u_bc[0])
+        r0 = volume_mf_he.get_residual_only(
+            r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
+        )
+        # r0 = r0.view(-1)
+        r0l2 = volume_mf_st.get_r0_l2_norm(r0)
+        print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm= all, vel, pre, disp', r0l2.cpu().numpy(),
+              torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
+              torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
+              torch.linalg.norm(r0_dict['disp']).cpu().numpy())
+    return x_i
+
+
+def solid_gmres_mg_solver():
+    ...
 
 
 # def right_gmres_mg_solver(
@@ -441,7 +686,7 @@ def remove_nullspace(r, n):
     return r
 
 
-def get_res_vec_from_dict(x_i, x_res):
+def get_res_vec_from_dict(x_i, x_res, fsi=0):
     """
     get residual vector from a vector of length total_no_dofs.
 
@@ -452,6 +697,12 @@ def get_res_vec_from_dict(x_i, x_res):
     output:
 
     x_res: a tensor of length (nele_f * u_nloc * ndim + nele_f * p_nloc + nele_s * u_nloc * ndim)
+
+    flag:
+
+    fsi == 0 -- both fluid and solid subdomain
+    fsi == 1 -- fluid subdomain only
+    fsi == 2 -- solid subdomain only
     """
     x_res *= 0
     x_in_shape = x_res.shape
@@ -461,18 +712,26 @@ def get_res_vec_from_dict(x_i, x_res):
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 
-    x_res[0:nele_f * u_nloc * ndim] += x_i_dict['vel'][0:nele_f, ...].view(-1)
-    x_res[nele_f * u_nloc * ndim:
-          nele_f * u_nloc * ndim + nele_f * p_nloc] += \
-        x_i_dict['pre'][0:nele_f, ...].view(-1)
-    x_res[nele_f * (u_nloc * ndim + p_nloc):
-          nele_f * (u_nloc * ndim + p_nloc) + nele_s * u_nloc * ndim] += \
-        x_i_dict['disp'][nele_f:nele, ...].view(-1)
-
+    if fsi == 0:
+        x_res[0:nele_f * u_nloc * ndim] += x_i_dict['vel'][0:nele_f, ...].view(-1)
+        x_res[nele_f * u_nloc * ndim:
+              nele_f * u_nloc * ndim + nele_f * p_nloc] += \
+            x_i_dict['pre'][0:nele_f, ...].view(-1)
+        x_res[nele_f * (u_nloc * ndim + p_nloc):
+              nele_f * (u_nloc * ndim + p_nloc) + nele_s * u_nloc * ndim] += \
+            x_i_dict['disp'][nele_f:nele, ...].view(-1)
+    elif fsi == 1:
+        x_res[0:nele_f * u_nloc * ndim] += x_i_dict['vel'][0:nele_f, ...].view(-1)
+        x_res[nele_f * u_nloc * ndim:
+              nele_f * u_nloc * ndim + nele_f * p_nloc] += \
+            x_i_dict['pre'][0:nele_f, ...].view(-1)
+    elif fsi == 2:
+        x_res[0:nele_s * u_nloc * ndim] += \
+            x_i_dict['disp'][nele_f:nele, ...].view(-1)
     return x_res.view(x_in_shape)
 
 
-def get_dict_from_res_vec(x_res, x_i):
+def get_dict_from_res_vec(x_res, x_i, fsi=0):
     """
     create a vector of length total_no_dofs from a residual vector of length real_no_dofs
 
@@ -481,6 +740,11 @@ def get_dict_from_res_vec(x_res, x_i):
 
     output:
     x_i_dict: store x_res in correspoding positions and leave other positions zero
+
+    flag:
+    fsi = 0 -- both fluid and solid subdomain
+    fsi = 1 -- fluid subdomain only
+    fsi = 2 -- solid subdomain only
     """
     x_res = x_res.view(-1)
     x_i *= 0
@@ -489,11 +753,18 @@ def get_dict_from_res_vec(x_res, x_i):
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 
-    x_i_dict['vel'][0:nele_f, ...] += x_res[0:nele_f * u_nloc * ndim].view(nele_f, u_nloc, ndim)
-    x_i_dict['pre'][0:nele_f, ...] += x_res[nele_f * u_nloc * ndim:
-                                            nele_f * u_nloc * ndim + nele_f * p_nloc].view(nele_f, p_nloc)
-    x_i_dict['disp'][nele_f:nele, ...] += x_res[nele_f * (u_nloc * ndim + p_nloc):
-                                                nele_f * (u_nloc * ndim + p_nloc)
-                                                + nele_s * u_nloc * ndim].view(nele_s, u_nloc, ndim)
+    if fsi == 1:
+        x_i_dict['vel'][0:nele_f, ...] += x_res[0:nele_f * u_nloc * ndim].view(nele_f, u_nloc, ndim)
+        x_i_dict['pre'][0:nele_f, ...] += x_res[nele_f * u_nloc * ndim:
+                                                nele_f * u_nloc * ndim + nele_f * p_nloc].view(nele_f, p_nloc)
+    elif fsi == 2:
+        x_i_dict['disp'][nele_f:nele, ...] += x_res.view(nele_s, u_nloc, ndim)
+    else:
+        x_i_dict['vel'][0:nele_f, ...] += x_res[0:nele_f * u_nloc * ndim].view(nele_f, u_nloc, ndim)
+        x_i_dict['pre'][0:nele_f, ...] += x_res[nele_f * u_nloc * ndim:
+                                                nele_f * u_nloc * ndim + nele_f * p_nloc].view(nele_f, p_nloc)
+        x_i_dict['disp'][nele_f:nele, ...] += x_res[nele_f * (u_nloc * ndim + p_nloc):
+                                                    nele_f * (u_nloc * ndim + p_nloc)
+                                                    + nele_s * u_nloc * ndim].view(nele_s, u_nloc, ndim)
 
     return x_i.view(-1)
