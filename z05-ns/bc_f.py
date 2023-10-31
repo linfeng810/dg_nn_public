@@ -1005,6 +1005,28 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
         # solid diri bc is also zero
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'seeweed' and ndim == 2:
+        # seeweed in channel flow
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-8:  # this is x=0 inlet boundary
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = \
+                        1.5 * 1 * 4 * y * (0.5 - y) / 0.5**2
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
+                else:  # this is wall, do nothing
+                    pass
+            if t < 2.0:
+                u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
+        # neumann bc are all zero
+        # solid diri bc is also zero
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
         raise Exception('the problem '+prob+' is not defined in bc_f.py')
     return u_bc, f, fNorm
