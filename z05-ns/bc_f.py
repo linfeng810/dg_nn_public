@@ -617,6 +617,23 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'nozzle' and ndim == 3:
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                if torch.abs(z + 0.11114916161319763) < 1e-6:
+                    u_bc[0][inod // nloc, inod % nloc, 2] = 1
+                # u_bc[0][inod // nloc, inod % nloc, 2] = ibc + 1
+
+        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'fpc' and ndim == 2:  # flow-past cylinder
         if t is None:
             raise ValueError('should provide time when getting bc condition for flow-past cylinder problem.')
