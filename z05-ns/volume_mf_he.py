@@ -330,7 +330,7 @@ def _s_res_one_batch(
                         x_k, x_i,
                         diagA, bdiagA, batch_start_idx,
                         nb_gi_aln)
-            if False:  # going to make interface stress from fluid EXPLICIT
+            if include_itf:  # if False, going to make interface stress from fluid EXPLICIT
                 idx_iface = f_itf == iface & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
                 r_in = _s_res_fitf(
                     r_in, x_k, x_i,
@@ -1235,20 +1235,20 @@ def _s_rhs_f_itf(
     # PK1 stress tensor on face quadrature
     PK1 = torch.einsum('bg,bijg,bgIj->biIg', detF, sigma, invF)
     # interface term
-    # r0['disp'][E_F_itf, ...] += torch.einsum(
-    #     'bijg,bmg,bjg,bg->bmi',
-    #     PK1,  # (batch_in, ndim, ndim, sngi)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim, sngi)
-    #     sdetwei,  # (batch_in, sngi)
-    # )
-    rhs['disp'][E_F_itf, ...] += torch.einsum(
+    r0['disp'][E_F_itf, ...] += torch.einsum(
         'bijg,bmg,bjg,bg->bmi',
         PK1,  # (batch_in, ndim, ndim, sngi)
         sn,  # (batch_in, nloc, sngi)
         snormal,  # (batch_in, ndim, sngi)
         sdetwei,  # (batch_in, sngi)
     )
+    # rhs['disp'][E_F_itf, ...] += torch.einsum(
+    #     'bijg,bmg,bjg,bg->bmi',
+    #     PK1,  # (batch_in, ndim, ndim, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     snormal,  # (batch_in, ndim, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    # )
     # torch.save(PK1, 'PK1_'+str(sf_nd_nb.nits)+'.pt')
     if sf_nd_nb.inter_stress_imbalance is not None:
         # get inter_stress_imbalance
