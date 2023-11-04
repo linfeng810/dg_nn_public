@@ -10,42 +10,53 @@ def init_2d(mesh, nele, nonods, nloc, nface):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
-    cg_ndglno = np.zeros((nele, 3), dtype=np.int64)
-    cg_ndglno += mesh.cells_dict['triangle']
+    x_nloc = int((config.ele_p + 1) * (config.ele_p + 2) / 2)
+    ele_key = config.ele_key_2d[config.ele_p - 1]
+    cg_ndglno = np.zeros((nele, x_nloc), dtype=np.int64)
+    cg_ndglno += mesh.cells_dict[ele_key]
 
     # check and make sure triangle vertices are ordered anti-clockwisely
+    if config.ele_p == 3:
+        new_order = [0, 2, 1, 8, 7, 6, 5, 4, 3, 9]  # this only works for cubic!
+    else:
+        raise Exception('ele_p %d is not accepted in mesh init' % config.ele_p)
     for ele in range(nele):
         # vertex nodes global index
-        idx = cg_ndglno[ele]  # cells[0][1][ele]
-        # vertex nodes coordinate 
-        x_loc=[]
-        for id in idx:
+        idx = cg_ndglno[ele]
+        # vertex nodes coordinate
+        x_loc = []
+        for id in range(3):
             x_loc.append(mesh.points[id])
         x_loc = np.asarray(x_loc)
-        x_loc[:,-1]=1.
+        x_loc[:, -1] = 1.
         det = np.linalg.det(x_loc)
-        if det<0:
+        if det < 0:
             # print(mesh.cells[0][1][ele])
-            cg_ndglno[ele] = [idx[0], idx[2], idx[1]]
+            cg_ndglno[ele] = cg_ndglno[ele][new_order]
             # print(mesh.cells[0][1][ele])
             # print('clockise')
 
     # create faces
-    faces=[]
+    faces = []
     for ele in range(nele):
         element = cg_ndglno[ele]
         for iloc in range(3):
-            faces.append([element[iloc],element[(iloc+1)%3]])
+            faces.append([element[iloc], element[(iloc+1) % 3]])
 
     # sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
     # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele,finele,colele,_ = getfinele(
-        nele,nloc=3,snloc=2,nonods=mesh.points.shape[0],
-        ndglno=cg_ndglno.reshape((nele*3))+1,mx_nface_p1=4,mxnele=5*nele)
-    finele=finele-1 
-    colele=colele-1
+        nele,
+        nloc=x_nloc,
+        snloc=config.ele_p + 1,
+        nonods=mesh.points.shape[0],
+        ndglno=cg_ndglno.reshape((-1))+1,
+        mx_nface_p1=4,
+        mxnele=5*nele)
+    finele = finele - 1
+    colele = colele - 1
     # pytorch is very strict about the index order of cola
     # let's do a sorting
     for row in range(finele.shape[0]-1):
@@ -105,101 +116,101 @@ def init_2d(mesh, nele, nonods, nloc, nface):
     nbele = nbf // nface
 
     if nloc == 10:
-        # generate cubic nodes from element vertices
-        x_all = []
-        for ele in range(nele):
-            # vertex nodes global index
-            idx = cg_ndglno[ele]
-            # vertex nodes coordinate
-            x_loc=[]
-            for id in idx:
-                x_loc.append(mesh.points[id])
-            # print(x_loc)
-            # ! a reference cubic element looks like this:
-            # !  y
-            # !  |
-            # !  2
-            # !  | \
-            # !  6  5
-            # !  |   \
-            # !  7 10 4
-            # !  |     \
-            # !  3-8-9--1--x
-            # nodes 1-3
-            x_all.append([x_loc[0][0], x_loc[0][1]])
-            x_all.append([x_loc[1][0], x_loc[1][1]])
-            x_all.append([x_loc[2][0], x_loc[2][1]])
-            # nodes 4,5
-            x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
-            x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
-            # nodes 6,7
-            x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
-            x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
-            # nodes 8,9
-            x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
-            x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
-            # node 10
-            x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
+    #     # generate cubic nodes from element vertices
+    #     x_all = []
+    #     for ele in range(nele):
+    #         # vertex nodes global index
+    #         idx = cg_ndglno[ele]
+    #         # vertex nodes coordinate
+    #         x_loc=[]
+    #         for id in idx:
+    #             x_loc.append(mesh.points[id])
+    #         # print(x_loc)
+    #         # ! a reference cubic element looks like this:
+    #         # !  y
+    #         # !  |
+    #         # !  2
+    #         # !  | \
+    #         # !  6  5
+    #         # !  |   \
+    #         # !  7 10 4
+    #         # !  |     \
+    #         # !  3-8-9--1--x
+    #         # nodes 1-3
+    #         x_all.append([x_loc[0][0], x_loc[0][1]])
+    #         x_all.append([x_loc[1][0], x_loc[1][1]])
+    #         x_all.append([x_loc[2][0], x_loc[2][1]])
+    #         # nodes 4,5
+    #         x_all.append([x_loc[0][0]*2./3.+x_loc[1][0]*1./3., x_loc[0][1]*2./3.+x_loc[1][1]*1./3.])
+    #         x_all.append([x_loc[0][0]*1./3.+x_loc[1][0]*2./3., x_loc[0][1]*1./3.+x_loc[1][1]*2./3.])
+    #         # nodes 6,7
+    #         x_all.append([x_loc[1][0]*2./3.+x_loc[2][0]*1./3., x_loc[1][1]*2./3.+x_loc[2][1]*1./3.])
+    #         x_all.append([x_loc[1][0]*1./3.+x_loc[2][0]*2./3., x_loc[1][1]*1./3.+x_loc[2][1]*2./3.])
+    #         # nodes 8,9
+    #         x_all.append([x_loc[2][0]*2./3.+x_loc[0][0]*1./3., x_loc[2][1]*2./3.+x_loc[0][1]*1./3.])
+    #         x_all.append([x_loc[2][0]*1./3.+x_loc[0][0]*2./3., x_loc[2][1]*1./3.+x_loc[0][1]*2./3.])
+    #         # node 10
+    #         x_all.append([(x_loc[0][0]+x_loc[1][0]+x_loc[2][0])/3.,(x_loc[0][1]+x_loc[1][1]+x_loc[2][1])/3.])
         ref_node_order = [1, 2, 0, 5, 6, 7, 8, 3, 4, 9]
     elif nloc == 6:  # quadratic element
-        x_all = []
-        for ele in range(nele):
-            # vertex nodes global index
-            idx = cg_ndglno[ele]
-            # vertex nodes coordinate
-            x_loc = []
-            for id in idx:
-                x_loc.append(mesh.points[id])
-            # reference quadratic triangle
-            # !  y
-            # !  |
-            # !  2
-            # !  | \
-            # !  |  \
-            # !  5   4
-            # !  |    \
-            # !  |     \
-            # !  3--6---1--x
-            # nodes 1-3
-            x_all.append([x_loc[0][0], x_loc[0][1]])
-            x_all.append([x_loc[1][0], x_loc[1][1]])
-            x_all.append([x_loc[2][0], x_loc[2][1]])
-            # node 4-6
-            x_all.append([x_loc[0][0] * 0.5 + x_loc[1][0] * 0.5, x_loc[0][1] * 0.5 + x_loc[1][1] * 0.5])
-            x_all.append([x_loc[1][0] * 0.5 + x_loc[2][0] * 0.5, x_loc[1][1] * 0.5 + x_loc[2][1] * 0.5])
-            x_all.append([x_loc[2][0] * 0.5 + x_loc[0][0] * 0.5, x_loc[2][1] * 0.5 + x_loc[0][1] * 0.5])
+    #     x_all = []
+    #     for ele in range(nele):
+    #         # vertex nodes global index
+    #         idx = cg_ndglno[ele]
+    #         # vertex nodes coordinate
+    #         x_loc = []
+    #         for id in idx:
+    #             x_loc.append(mesh.points[id])
+    #         # reference quadratic triangle
+    #         # !  y
+    #         # !  |
+    #         # !  2
+    #         # !  | \
+    #         # !  |  \
+    #         # !  5   4
+    #         # !  |    \
+    #         # !  |     \
+    #         # !  3--6---1--x
+    #         # nodes 1-3
+    #         x_all.append([x_loc[0][0], x_loc[0][1]])
+    #         x_all.append([x_loc[1][0], x_loc[1][1]])
+    #         x_all.append([x_loc[2][0], x_loc[2][1]])
+    #         # node 4-6
+    #         x_all.append([x_loc[0][0] * 0.5 + x_loc[1][0] * 0.5, x_loc[0][1] * 0.5 + x_loc[1][1] * 0.5])
+    #         x_all.append([x_loc[1][0] * 0.5 + x_loc[2][0] * 0.5, x_loc[1][1] * 0.5 + x_loc[2][1] * 0.5])
+    #         x_all.append([x_loc[2][0] * 0.5 + x_loc[0][0] * 0.5, x_loc[2][1] * 0.5 + x_loc[0][1] * 0.5])
         ref_node_order = [1, 2, 0, 4, 5, 3]
     elif nloc == 3:  # linear element
-        x_all = []
-        for ele in range(nele):
-            # vertex nodes global index
-            idx = cg_ndglno[ele]
-            # vertex nodes coordinate
-            x_loc=[]
-            for id in idx:
-                x_loc.append(mesh.points[id])
-            # print(x_loc)
-            # ! a reference linear element looks like this:
-            # !  y
-            # !  |
-            # !  2
-            # !  | \
-            # !  |  \
-            # !  |   \
-            # !  |    \
-            # !  |     \
-            # !  3------1--x
-            # nodes 1-3
-            x_all.append([x_loc[0][0], x_loc[0][1]])
-            x_all.append([x_loc[1][0], x_loc[1][1]])
-            x_all.append([x_loc[2][0], x_loc[2][1]])
+    #     x_all = []
+    #     for ele in range(nele):
+    #         # vertex nodes global index
+    #         idx = cg_ndglno[ele]
+    #         # vertex nodes coordinate
+    #         x_loc=[]
+    #         for id in idx:
+    #             x_loc.append(mesh.points[id])
+    #         # print(x_loc)
+    #         # ! a reference linear element looks like this:
+    #         # !  y
+    #         # !  |
+    #         # !  2
+    #         # !  | \
+    #         # !  |  \
+    #         # !  |   \
+    #         # !  |    \
+    #         # !  |     \
+    #         # !  3------1--x
+    #         # nodes 1-3
+    #         x_all.append([x_loc[0][0], x_loc[0][1]])
+    #         x_all.append([x_loc[1][0], x_loc[1][1]])
+    #         x_all.append([x_loc[2][0], x_loc[2][1]])
         ref_node_order = [1, 2, 0]
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
     np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
     # sf_nd_nb.set_data(cg_nonods=cg_nonods)
-    x_all = np.asarray(x_all, dtype=np.float64)
+    x_all = mesh.points[cg_ndglno.reshape(-1)][:, :2]
     # print('x_all shape: ', x_all.shape)
 
     # find boundary nodes and mark boundary faces
@@ -237,7 +248,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
             [1 / 2, 0, 1 / 2],
         ], device=config.dev, dtype=torch.float64)
 
-    cg_ndglno = cg_ndglno.reshape((nele * 3))
+    cg_ndglno = cg_ndglno.reshape((nele * x_nloc))
 
     return x_all, nbf, nbele, alnmt, glb_bcface_type, \
         finele, colele, ncolele, \
@@ -249,19 +260,32 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
-    cg_ndglno = np.zeros((nele, 4), dtype=np.int64)
-    cg_ndglno += mesh.cells_dict['tetra']
+    x_nloc = int((config.ele_p + 1) * (config.ele_p + 2) * (config.ele_p + 3) / 6)
+    ele_key = config.ele_key_3d[config.ele_p - 1]
+    cg_ndglno = np.zeros((nele, x_nloc), dtype=np.int64)
+    cg_ndglno += mesh.cells_dict[ele_key]
 
     # check and make sure tetrahedron are ordered left-handed
+    # new_order = [3, 1, 2, 0,  # corner nodes
+    #              11, 10, 15, 14, 6, 7,  # edge nodes
+    #              12, 13, 5, 4, 8, 9,  # edge nodes
+    #              16, 19, 17, 18,  # face nodes
+    #              ]  # center node
+    new_order = np.arange(0, 20)
+    new_order = [3,	1,	2,	0,
+                 12,	13,	14,	15,
+                 6,	7,	10,	11,
+                 5,	4,	8,	9,
+                 16,	19,	18,	17]
     for ele in range(nele):
         idx = cg_ndglno[ele]
-        x_loc = mesh.points[idx]
+        x_loc = mesh.points[idx[0:4]]
         det = np.linalg.det(x_loc[1:4, :] - x_loc[0, :])
         if det > 0:  # it's right-handed, flip two nodes to flip hand.
             # TODO: change back!!!!
             # mesh.cells[-1].data[ele] = [idx[0], idx[2], idx[1], idx[3]]
             # temporarily change order
-            cg_ndglno[ele, :] = np.array([idx[3], idx[1], idx[2], idx[0]])
+            cg_ndglno[ele] = cg_ndglno[ele][new_order]
         # else:
         #     raise Warning('ele %d is not right-handed. I didnt flip two nodes. \n '
         #                   'Boundary nodes might not been correctly found.\n' % ele)
@@ -300,12 +324,17 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     #         cg_ndglno[ele * 4 + iloc] = mesh.cells[0][1][ele][iloc]
 
     # sf_nd_nb.set_data(cg_ndglno=cg_ndglno)
-    np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
+    # np.savetxt('cg_ndglno.txt', cg_ndglno, delimiter=',')
     starttime = time.time()
     # element connectivity matrix
     ncolele, finele, colele, _ = getfinele(
-        nele, nloc=4, snloc=3, nonods=mesh.points.shape[0],
-        ndglno=cg_ndglno.reshape((nele*4)) + 1, mx_nface_p1=5, mxnele=6 * nele)
+        nele,
+        nloc=x_nloc,
+        snloc=int((config.ele_p + 1) * (config.ele_p + 2) / 2),
+        nonods=mesh.points.shape[0],
+        ndglno=cg_ndglno.reshape((-1)) + 1,
+        mx_nface_p1=5,
+        mxnele=6 * nele)
     finele = finele - 1
     colele = colele - 1
     # pytorch is very strict about the index order of cola
@@ -372,202 +401,202 @@ def init_3d(mesh, nele, nonods, nloc, nface):
 
     if nloc == 20:
         # generate cubic nodes from element vertices
-        x_all = []
+        # x_all = []
         ref_node_order = [
             2, 3, 0, 1, 14,
             15, 11, 10, 4, 5,
             9, 8, 13, 12, 6,
             7, 16, 19, 17, 18,
         ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
-        # sf_nd_nb.set_data(ref_node_order=ref_node_order)
-        for ele in range(nele):
-            # vertex nodes global index
-            idx = cg_ndglno[ele]
-            # vertex nodes coordinate
-            x_loc = []
-            for id in idx:
-                x_loc.append(mesh.points[id])
-            # print(x_loc)
-            # ! a reference cubic element looks like this:
-            # Tetrahedron:
-            #                    z
-            #                  .
-            #                ,/
-            #               /
-            #            2
-            #          ,/|`\
-            #        14  |  `9
-            #      ,/    '.   `\
-            #    15       5     `8
-            #  ,/         |       `\
-            # 3-----13----'.--12----1 --> y
-            #  `\.         |      ,/
-            #     11.      4    ,7
-            #        `10   '. ,6
-            #           `\. |/
-            #              `0
-            #                 `\.
-            #                    ` x
-            # face central nodes:
-            # 16 - on face 2-1-3
-            # 17 - on face 0-1-2
-            # 18 - on face 0-2-3
-            # 19 - on face 1-0-3
-            # corner  0, 1, 2, 3
-            x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
-            x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
-            x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
-            x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
-            # edge nodes 4, 5 (on edge 0-2)
-            x_all.append([x_loc[0][0] * 2. / 3. + x_loc[2][0] * 1. / 3.,
-                          x_loc[0][1] * 2. / 3. + x_loc[2][1] * 1. / 3.,
-                          x_loc[0][2] * 2. / 3. + x_loc[2][2] * 1. / 3.])
-            x_all.append([x_loc[0][0] * 1. / 3. + x_loc[2][0] * 2. / 3.,
-                          x_loc[0][1] * 1. / 3. + x_loc[2][1] * 2. / 3.,
-                          x_loc[0][2] * 1. / 3. + x_loc[2][2] * 2. / 3.])
-            # edge nodes 6, 7 (on edge 0-1)
-            x_all.append([x_loc[0][0] * 2. / 3. + x_loc[1][0] * 1. / 3.,
-                          x_loc[0][1] * 2. / 3. + x_loc[1][1] * 1. / 3.,
-                          x_loc[0][2] * 2. / 3. + x_loc[1][2] * 1. / 3.])
-            x_all.append([x_loc[0][0] * 1. / 3. + x_loc[1][0] * 2. / 3.,
-                          x_loc[0][1] * 1. / 3. + x_loc[1][1] * 2. / 3.,
-                          x_loc[0][2] * 1. / 3. + x_loc[1][2] * 2. / 3.])
-            # edge nodes 8, 9 (on edge 1-2)
-            x_all.append([x_loc[1][0] * 2. / 3. + x_loc[2][0] * 1. / 3.,
-                          x_loc[1][1] * 2. / 3. + x_loc[2][1] * 1. / 3.,
-                          x_loc[1][2] * 2. / 3. + x_loc[2][2] * 1. / 3.])
-            x_all.append([x_loc[1][0] * 1. / 3. + x_loc[2][0] * 2. / 3.,
-                          x_loc[1][1] * 1. / 3. + x_loc[2][1] * 2. / 3.,
-                          x_loc[1][2] * 1. / 3. + x_loc[2][2] * 2. / 3.])
-            # edge nodes 10, 11 (on edge 0-3)
-            x_all.append([x_loc[0][0] * 2. / 3. + x_loc[3][0] * 1. / 3.,
-                          x_loc[0][1] * 2. / 3. + x_loc[3][1] * 1. / 3.,
-                          x_loc[0][2] * 2. / 3. + x_loc[3][2] * 1. / 3.])
-            x_all.append([x_loc[0][0] * 1. / 3. + x_loc[3][0] * 2. / 3.,
-                          x_loc[0][1] * 1. / 3. + x_loc[3][1] * 2. / 3.,
-                          x_loc[0][2] * 1. / 3. + x_loc[3][2] * 2. / 3.])
-            # edge nodes 12, 13 (on edge 1-3)
-            x_all.append([x_loc[1][0] * 2. / 3. + x_loc[3][0] * 1. / 3.,
-                          x_loc[1][1] * 2. / 3. + x_loc[3][1] * 1. / 3.,
-                          x_loc[1][2] * 2. / 3. + x_loc[3][2] * 1. / 3.])
-            x_all.append([x_loc[1][0] * 1. / 3. + x_loc[3][0] * 2. / 3.,
-                          x_loc[1][1] * 1. / 3. + x_loc[3][1] * 2. / 3.,
-                          x_loc[1][2] * 1. / 3. + x_loc[3][2] * 2. / 3.])
-            # edge nodes 14, 15 (on edge 2-3)
-            x_all.append([x_loc[2][0] * 2. / 3. + x_loc[3][0] * 1. / 3.,
-                          x_loc[2][1] * 2. / 3. + x_loc[3][1] * 1. / 3.,
-                          x_loc[2][2] * 2. / 3. + x_loc[3][2] * 1. / 3.])
-            x_all.append([x_loc[2][0] * 1. / 3. + x_loc[3][0] * 2. / 3.,
-                          x_loc[2][1] * 1. / 3. + x_loc[3][1] * 2. / 3.,
-                          x_loc[2][2] * 1. / 3. + x_loc[3][2] * 2. / 3.])
-            # face node 16 - on face 213
-            x_all.append(
-                [(x_loc[2][0] + x_loc[1][0] + x_loc[3][0]) / 3.,
-                 (x_loc[2][1] + x_loc[1][1] + x_loc[3][1]) / 3.,
-                 (x_loc[2][2] + x_loc[1][2] + x_loc[3][2]) / 3.])
-            # face node 17 - on face 012
-            x_all.append(
-                [(x_loc[0][0] + x_loc[1][0] + x_loc[2][0]) / 3.,
-                 (x_loc[0][1] + x_loc[1][1] + x_loc[2][1]) / 3.,
-                 (x_loc[0][2] + x_loc[1][2] + x_loc[2][2]) / 3.])
-            # face node 18 - on face 023
-            x_all.append(
-                [(x_loc[0][0] + x_loc[2][0] + x_loc[3][0]) / 3.,
-                 (x_loc[0][1] + x_loc[2][1] + x_loc[3][1]) / 3.,
-                 (x_loc[0][2] + x_loc[2][2] + x_loc[3][2]) / 3.])
-            # face node 19 - on face 103
-            x_all.append(
-                [(x_loc[1][0] + x_loc[0][0] + x_loc[3][0]) / 3.,
-                 (x_loc[1][1] + x_loc[0][1] + x_loc[3][1]) / 3.,
-                 (x_loc[1][2] + x_loc[0][2] + x_loc[3][2]) / 3.])
+        # # sf_nd_nb.set_data(ref_node_order=ref_node_order)
+        # for ele in range(nele):
+        #     # vertex nodes global index
+        #     idx = cg_ndglno[ele]
+        #     # vertex nodes coordinate
+        #     x_loc = []
+        #     for id in idx:
+        #         x_loc.append(mesh.points[id])
+        #     # print(x_loc)
+        #     # ! a reference cubic element looks like this:
+        #     # Tetrahedron:
+        #     #                    z
+        #     #                  .
+        #     #                ,/
+        #     #               /
+        #     #            2
+        #     #          ,/|`\
+        #     #        14  |  `9
+        #     #      ,/    '.   `\
+        #     #    15       5     `8
+        #     #  ,/         |       `\
+        #     # 3-----13----'.--12----1 --> y
+        #     #  `\.         |      ,/
+        #     #     11.      4    ,7
+        #     #        `10   '. ,6
+        #     #           `\. |/
+        #     #              `0
+        #     #                 `\.
+        #     #                    ` x
+        #     # face central nodes:
+        #     # 16 - on face 2-1-3
+        #     # 17 - on face 0-1-2
+        #     # 18 - on face 0-2-3
+        #     # 19 - on face 1-0-3
+        #     # corner  0, 1, 2, 3
+        #     x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
+        #     x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
+        #     x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
+        #     x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
+        #     # edge nodes 4, 5 (on edge 0-2)
+        #     x_all.append([x_loc[0][0] * 2. / 3. + x_loc[2][0] * 1. / 3.,
+        #                   x_loc[0][1] * 2. / 3. + x_loc[2][1] * 1. / 3.,
+        #                   x_loc[0][2] * 2. / 3. + x_loc[2][2] * 1. / 3.])
+        #     x_all.append([x_loc[0][0] * 1. / 3. + x_loc[2][0] * 2. / 3.,
+        #                   x_loc[0][1] * 1. / 3. + x_loc[2][1] * 2. / 3.,
+        #                   x_loc[0][2] * 1. / 3. + x_loc[2][2] * 2. / 3.])
+        #     # edge nodes 6, 7 (on edge 0-1)
+        #     x_all.append([x_loc[0][0] * 2. / 3. + x_loc[1][0] * 1. / 3.,
+        #                   x_loc[0][1] * 2. / 3. + x_loc[1][1] * 1. / 3.,
+        #                   x_loc[0][2] * 2. / 3. + x_loc[1][2] * 1. / 3.])
+        #     x_all.append([x_loc[0][0] * 1. / 3. + x_loc[1][0] * 2. / 3.,
+        #                   x_loc[0][1] * 1. / 3. + x_loc[1][1] * 2. / 3.,
+        #                   x_loc[0][2] * 1. / 3. + x_loc[1][2] * 2. / 3.])
+        #     # edge nodes 8, 9 (on edge 1-2)
+        #     x_all.append([x_loc[1][0] * 2. / 3. + x_loc[2][0] * 1. / 3.,
+        #                   x_loc[1][1] * 2. / 3. + x_loc[2][1] * 1. / 3.,
+        #                   x_loc[1][2] * 2. / 3. + x_loc[2][2] * 1. / 3.])
+        #     x_all.append([x_loc[1][0] * 1. / 3. + x_loc[2][0] * 2. / 3.,
+        #                   x_loc[1][1] * 1. / 3. + x_loc[2][1] * 2. / 3.,
+        #                   x_loc[1][2] * 1. / 3. + x_loc[2][2] * 2. / 3.])
+        #     # edge nodes 10, 11 (on edge 0-3)
+        #     x_all.append([x_loc[0][0] * 2. / 3. + x_loc[3][0] * 1. / 3.,
+        #                   x_loc[0][1] * 2. / 3. + x_loc[3][1] * 1. / 3.,
+        #                   x_loc[0][2] * 2. / 3. + x_loc[3][2] * 1. / 3.])
+        #     x_all.append([x_loc[0][0] * 1. / 3. + x_loc[3][0] * 2. / 3.,
+        #                   x_loc[0][1] * 1. / 3. + x_loc[3][1] * 2. / 3.,
+        #                   x_loc[0][2] * 1. / 3. + x_loc[3][2] * 2. / 3.])
+        #     # edge nodes 12, 13 (on edge 1-3)
+        #     x_all.append([x_loc[1][0] * 2. / 3. + x_loc[3][0] * 1. / 3.,
+        #                   x_loc[1][1] * 2. / 3. + x_loc[3][1] * 1. / 3.,
+        #                   x_loc[1][2] * 2. / 3. + x_loc[3][2] * 1. / 3.])
+        #     x_all.append([x_loc[1][0] * 1. / 3. + x_loc[3][0] * 2. / 3.,
+        #                   x_loc[1][1] * 1. / 3. + x_loc[3][1] * 2. / 3.,
+        #                   x_loc[1][2] * 1. / 3. + x_loc[3][2] * 2. / 3.])
+        #     # edge nodes 14, 15 (on edge 2-3)
+        #     x_all.append([x_loc[2][0] * 2. / 3. + x_loc[3][0] * 1. / 3.,
+        #                   x_loc[2][1] * 2. / 3. + x_loc[3][1] * 1. / 3.,
+        #                   x_loc[2][2] * 2. / 3. + x_loc[3][2] * 1. / 3.])
+        #     x_all.append([x_loc[2][0] * 1. / 3. + x_loc[3][0] * 2. / 3.,
+        #                   x_loc[2][1] * 1. / 3. + x_loc[3][1] * 2. / 3.,
+        #                   x_loc[2][2] * 1. / 3. + x_loc[3][2] * 2. / 3.])
+        #     # face node 16 - on face 213
+        #     x_all.append(
+        #         [(x_loc[2][0] + x_loc[1][0] + x_loc[3][0]) / 3.,
+        #          (x_loc[2][1] + x_loc[1][1] + x_loc[3][1]) / 3.,
+        #          (x_loc[2][2] + x_loc[1][2] + x_loc[3][2]) / 3.])
+        #     # face node 17 - on face 012
+        #     x_all.append(
+        #         [(x_loc[0][0] + x_loc[1][0] + x_loc[2][0]) / 3.,
+        #          (x_loc[0][1] + x_loc[1][1] + x_loc[2][1]) / 3.,
+        #          (x_loc[0][2] + x_loc[1][2] + x_loc[2][2]) / 3.])
+        #     # face node 18 - on face 023
+        #     x_all.append(
+        #         [(x_loc[0][0] + x_loc[2][0] + x_loc[3][0]) / 3.,
+        #          (x_loc[0][1] + x_loc[2][1] + x_loc[3][1]) / 3.,
+        #          (x_loc[0][2] + x_loc[2][2] + x_loc[3][2]) / 3.])
+        #     # face node 19 - on face 103
+        #     x_all.append(
+        #         [(x_loc[1][0] + x_loc[0][0] + x_loc[3][0]) / 3.,
+        #          (x_loc[1][1] + x_loc[0][1] + x_loc[3][1]) / 3.,
+        #          (x_loc[1][2] + x_loc[0][2] + x_loc[3][2]) / 3.])
     elif nloc == 10:  # quadratic element
-        x_all = []
+        # x_all = []
         ref_node_order = [
             2, 3, 0, 1, 9,
             7, 5, 4, 8, 6,
         ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
-        # sf_nd_nb.set_data(ref_node_order=ref_node_order)
-        for ele in range(nele):
-            # vertex nodes global index
-            idx = cg_ndglno[ele]
-            # vertex nodes coordinate
-            x_loc = []
-            for id in idx:
-                x_loc.append(mesh.points[id])
-            # print(x_loc)
-            # ! a reference quadratic element looks like this:
-            # Tetrahedron:
-            #                    z
-            #                  .
-            #                ,/
-            #               /
-            #            2
-            #          ,/|`\
-            #        ,/  |  `\
-            #      ,9    '.   `4
-            #    ,/       5     `\
-            #  ,/         |       `\
-            # 3--------8--'.--------1---y
-            #  `\.         |      ,/
-            #     `\.      |    ,6
-            #        `7.   '. ,/
-            #           `\. |/
-            #              `0
-            #                 `\.
-            #                    ` x
-            # corner  0, 1, 2, 3
-            x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
-            x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
-            x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
-            x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
-            # edge node 4 on edge 1-2
-            x_all.append([x_loc[1][0] * 1. / 2. + x_loc[2][0] * 1. / 2.,
-                          x_loc[1][1] * 1. / 2. + x_loc[2][1] * 1. / 2.,
-                          x_loc[1][2] * 1. / 2. + x_loc[2][2] * 1. / 2.])
-            # edge node 5 on edge 0-2
-            x_all.append([x_loc[0][0] * 1. / 2. + x_loc[2][0] * 1. / 2.,
-                          x_loc[0][1] * 1. / 2. + x_loc[2][1] * 1. / 2.,
-                          x_loc[0][2] * 1. / 2. + x_loc[2][2] * 1. / 2.])
-            # edge node 6 on edge 0-1
-            x_all.append([x_loc[0][0] * 1. / 2. + x_loc[1][0] * 1. / 2.,
-                          x_loc[0][1] * 1. / 2. + x_loc[1][1] * 1. / 2.,
-                          x_loc[0][2] * 1. / 2. + x_loc[1][2] * 1. / 2.])
-            # edge node 7 on edge 0-3
-            x_all.append([x_loc[0][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
-                          x_loc[0][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
-                          x_loc[0][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
-            # edge node 8 on edge 1-3
-            x_all.append([x_loc[1][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
-                          x_loc[1][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
-                          x_loc[1][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
-            # edge node 9 on edge 2-3
-            x_all.append([x_loc[2][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
-                          x_loc[2][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
-                          x_loc[2][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
+        # # sf_nd_nb.set_data(ref_node_order=ref_node_order)
+        # for ele in range(nele):
+        #     # vertex nodes global index
+        #     idx = cg_ndglno[ele]
+        #     # vertex nodes coordinate
+        #     x_loc = []
+        #     for id in idx:
+        #         x_loc.append(mesh.points[id])
+        #     # print(x_loc)
+        #     # ! a reference quadratic element looks like this:
+        #     # Tetrahedron:
+        #     #                    z
+        #     #                  .
+        #     #                ,/
+        #     #               /
+        #     #            2
+        #     #          ,/|`\
+        #     #        ,/  |  `\
+        #     #      ,9    '.   `4
+        #     #    ,/       5     `\
+        #     #  ,/         |       `\
+        #     # 3--------8--'.--------1---y
+        #     #  `\.         |      ,/
+        #     #     `\.      |    ,6
+        #     #        `7.   '. ,/
+        #     #           `\. |/
+        #     #              `0
+        #     #                 `\.
+        #     #                    ` x
+        #     # corner  0, 1, 2, 3
+        #     x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
+        #     x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
+        #     x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
+        #     x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
+        #     # edge node 4 on edge 1-2
+        #     x_all.append([x_loc[1][0] * 1. / 2. + x_loc[2][0] * 1. / 2.,
+        #                   x_loc[1][1] * 1. / 2. + x_loc[2][1] * 1. / 2.,
+        #                   x_loc[1][2] * 1. / 2. + x_loc[2][2] * 1. / 2.])
+        #     # edge node 5 on edge 0-2
+        #     x_all.append([x_loc[0][0] * 1. / 2. + x_loc[2][0] * 1. / 2.,
+        #                   x_loc[0][1] * 1. / 2. + x_loc[2][1] * 1. / 2.,
+        #                   x_loc[0][2] * 1. / 2. + x_loc[2][2] * 1. / 2.])
+        #     # edge node 6 on edge 0-1
+        #     x_all.append([x_loc[0][0] * 1. / 2. + x_loc[1][0] * 1. / 2.,
+        #                   x_loc[0][1] * 1. / 2. + x_loc[1][1] * 1. / 2.,
+        #                   x_loc[0][2] * 1. / 2. + x_loc[1][2] * 1. / 2.])
+        #     # edge node 7 on edge 0-3
+        #     x_all.append([x_loc[0][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
+        #                   x_loc[0][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
+        #                   x_loc[0][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
+        #     # edge node 8 on edge 1-3
+        #     x_all.append([x_loc[1][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
+        #                   x_loc[1][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
+        #                   x_loc[1][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
+        #     # edge node 9 on edge 2-3
+        #     x_all.append([x_loc[2][0] * 1. / 2. + x_loc[3][0] * 1. / 2.,
+        #                   x_loc[2][1] * 1. / 2. + x_loc[3][1] * 1. / 2.,
+        #                   x_loc[2][2] * 1. / 2. + x_loc[3][2] * 1. / 2.])
     elif nloc == 4:  # linear element
-        x_all = []
+        # x_all = []
         ref_node_order = [
             2, 3, 0, 1,
         ]  # node order in vtk tetrahedron. will use this in outputing to vtk.
-        # sf_nd_nb.set_data(ref_node_order=ref_node_order)
-        for ele in range(nele):
-            # vertex nodes global index
-            idx = cg_ndglno[ele]
-            # vertex nodes coordinate
-            x_loc = []
-            for id in idx:
-                x_loc.append(mesh.points[id])
-                # corner  0, 1, 2, 3
-            x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
-            x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
-            x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
-            x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
+        # # sf_nd_nb.set_data(ref_node_order=ref_node_order)
+        # for ele in range(nele):
+        #     # vertex nodes global index
+        #     idx = cg_ndglno[ele]
+        #     # vertex nodes coordinate
+        #     x_loc = []
+        #     for id in idx:
+        #         x_loc.append(mesh.points[id])
+        #         # corner  0, 1, 2, 3
+        #     x_all.append([x_loc[0][0], x_loc[0][1], x_loc[0][2]])
+        #     x_all.append([x_loc[1][0], x_loc[1][1], x_loc[1][2]])
+        #     x_all.append([x_loc[2][0], x_loc[2][1], x_loc[2][2]])
+        #     x_all.append([x_loc[3][0], x_loc[3][1], x_loc[3][2]])
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
     np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
     # sf_nd_nb.set_data(cg_nonods=cg_nonods)
-    x_all = np.asarray(x_all, dtype=np.float64)
+    x_all = mesh.points[cg_ndglno.reshape((-1))]
     # print('x_all shape: ', x_all.shape)
 
     # mark boundary nodes and boundary face types
@@ -620,7 +649,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
             [0, 0, 1 / 2, 1 / 2],
         ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise prolongation operator
 
-    cg_ndglno = cg_ndglno.reshape((nele * 4))
+    cg_ndglno = cg_ndglno.reshape((nele * x_nloc))
 
     return x_all, nbf, nbele, alnmt, glb_bcface_type, \
         finele, colele, ncolele, \
@@ -685,9 +714,9 @@ def get_bc_node(mesh, faces, alnmt, nloc, x_all=0):
     bc_face_list = np.where(alnmt < 0)[0]
     glb_bcface_type = np.ones(nele*nface, dtype=np.int64) * -1
     if config.ndim == 2:
-        face_ele_key = 'line'
+        face_ele_key = config.ele_key_1d[config.ele_p - 1]
     else:
-        face_ele_key = 'triangle'
+        face_ele_key = config.ele_key_2d[config.ele_p - 1]
     sttime = time.time()
     print('start getting bc nodes... ')
     for ent_id in range(no_labels-1):
@@ -736,9 +765,9 @@ def get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all=0):
     face_iloc_list = face_iloc_array(config.ndim, nloc)
 
     if config.ndim == 2:
-        face_ele_key = 'line'
+        face_ele_key = config.ele_key_1d[config.ele_p - 1]
     else:
-        face_ele_key = 'triangle'
+        face_ele_key = config.ele_key_2d[config.ele_p - 1]
 
     entity_labels = [key for key in mesh.cell_sets_dict]
     no_labels = 0  # number of bc labels
@@ -759,7 +788,7 @@ def get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all=0):
         ent_lab = entity_labels[ent_id]
         # print('ent_id, ent_lab', ent_id, ent_lab)
         for fele in mesh.cell_sets_dict[ent_lab][face_ele_key]:
-            bc_face_nodes = mesh.cells_dict[face_ele_key][fele]
+            bc_face_nodes = mesh.cells_dict[face_ele_key][fele][0:config.ndim]
             for glb_iface in bc_face_list:
                 if found[glb_iface]:
                     continue

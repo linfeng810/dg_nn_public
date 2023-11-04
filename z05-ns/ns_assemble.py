@@ -579,20 +579,15 @@ def assemble_adv(u_n_in, u_bc_in, indices, values):
     return rhs, indices, values
 
 
-def get_ave_pressure(pre):
+def get_ave_pressure(pre, pre_func):
     """
     input: pressure field
     output: its average
     """
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
-    p_nloc = sf_nd_nb.pre_func_space.element.nloc
-    ndim = config.ndim
+    p_nloc = pre_func.element.nloc
     nele = config.nele
-    p_nonods = nele * p_nloc
-    n = sf_nd_nb.vel_func_space.element.n.cpu().numpy()
-    q = sf_nd_nb.pre_func_space.element.n.cpu().numpy()
-    sn = sf_nd_nb.vel_func_space.element.sn.cpu().numpy()
-    sq = sf_nd_nb.pre_func_space.element.sn.cpu().numpy()
+    q = pre_func.element.n.cpu().numpy()
     _, detwei = get_det_nlx(
         nlx=sf_nd_nb.vel_func_space.element.nlx,
         x_loc=sf_nd_nb.vel_func_space.x_ref_in,

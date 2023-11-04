@@ -498,6 +498,9 @@ if config.solver=='iterative':
             #     prob=config.problem,
             #     t=t
             # )
+            x_i_dict['vel'] += u_bc[0]
+            # save bc condition to vtk
+            fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
             # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
             if config.isGradDivStab or sf_nd_nb.isES:
                 u_ave = petrov_galerkin.get_ave_vel(x_all_previous[0]['vel'])
@@ -564,7 +567,7 @@ if config.solver=='iterative':
                 print('before adding fluid residual, non-linear residual is ', torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
                       torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
                       torch.linalg.norm(r0_dict['disp']).cpu().numpy())
-                print('traction force imbalance on interface is: ', sf_nd_nb.inter_stress_imbalance.cpu().numpy())
+                print('traction force imbalance on interface is: ', sf_nd_nb.inter_stress_imbalance)
                 # we're solving for correction for displacement in solid
                 # so we set starting value to 0
                 x_i_dict['disp'][nele_f:nele_f + nele_s, ...] *= 0
@@ -632,18 +635,18 @@ if config.solver=='iterative':
                 else:
                     raise Exception('choose a valid solver...')
 
-                # let's get non-linear residual here
-                # define the residual as the l2 norm of difference between two iterations
-                r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
-                r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
-                r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
-                r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
-                                                x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
-                                                x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
-                print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
-                print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
+                # # let's get non-linear residual here
+                # # define the residual as the l2 norm of difference between two iterations
+                # r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                # r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                # r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                # r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                #                                 x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                # r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                #                                 x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                # r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                # print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
+                # print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
 
                 # before update displacement, let's first update time derivative of displacement (vel & acceleration)
                 # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
@@ -758,19 +761,13 @@ if config.solver=='iterative':
             fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime, u_m)
 
             # # get l2 error
-            # x_ana = bc_f.ana_soln(config.problem, t=t)
-            # x_ana[0:u_nonods*ndim] += torch.tensor(
-            #     u_all[itime - 1, :, :, :],
-            #     device=dev, dtype=torch.float64).view(-1)
-            # x_ana[u_nonods * ndim: u_nonods*ndim + p_nonods] += torch.tensor(
-            #     p_all[itime - 1, ...],
-            #     device=dev, dtype=torch.float64).view(-1)
-            # if config.hasNullSpace:
+            # x_ana = bc_f.ana_soln(config.problem, t=0)
+            # if True:  # config.hasNullSpace:
             #     # remove average from pressure
-            #     p_ave = ns_assemble.get_ave_pressure(x_i_dict['pre'].cpu().numpy())
-            #     x_i[u_nonods * ndim:u_nonods * ndim + p_nonods] -= p_ave
-            #     p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + p_nonods]
-            #     p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy())
+            #     p_ave = ns_assemble.get_ave_pressure(x_i_dict['pre'].cpu().numpy(), sf_nd_nb.pre_func_space)
+            #     x_i_dict['pre'] -= p_ave
+            #     p_ana = x_ana[u_nonods * ndim:u_nonods * ndim + u_nonods]
+            #     p_ana_ave = ns_assemble.get_ave_pressure(p_ana.cpu().numpy(), sf_nd_nb.vel_func_space)
             #     p_ana -= p_ana_ave
             # u_l2, p_l2, u_linf, p_linf = volume_mf_st.get_l2_error(x_i, x_ana)
             # print('after solving, compare to previous timestep, l2 error is: \n',

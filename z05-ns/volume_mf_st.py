@@ -1394,10 +1394,11 @@ def _s_rhs_one_batch(
                 d_n
             )  # rhs terms from interface
             # neumann bc
-            rhs = _s_rhs_fb_neumann(
-                rhs,
-                f_b_n[idx_iface_n], E_F_b_n[idx_iface_n],
-                u_bc[1])
+            if idx_iface_n.sum() > 0:
+                rhs = _s_rhs_fb_neumann(
+                    rhs,
+                    f_b_n[idx_iface_n], E_F_b_n[idx_iface_n],
+                    u_bc[1])
     else:
         raise Exception('2D stokes not implemented!')
 
@@ -1837,8 +1838,21 @@ def get_l2_error(x_i_in, x_ana):
         x_i = torch.tensor(x_i_in, device=dev, dtype=torch.float64)
     else:
         x_i = x_i_in
-    u_i, p_i = slicing_x_i(x_i)
-    u_ana, p_ana = slicing_x_i(x_ana)
+    u_i, p_i = slicing_x_i(x_i)['vel'], slicing_x_i(x_i)['pre']
+    # first project pressure to velocity space
+    prolongator = sf_nd_nb.pre_func_space.get_pndg_prolongator(
+        p=sf_nd_nb.pre_func_space.element.ele_order,
+        gi_order=sf_nd_nb.pre_func_space.element.gi_order,
+        ndim=sf_nd_nb.pre_func_space.element.ndim,
+        dev=config.dev,
+    )
+    p_i = torch.einsum(
+        'mn,bn->bm', prolongator, p_i
+    )
+    u_nonods = sf_nd_nb.vel_func_space.element.nloc * nele
+    p_nonods = sf_nd_nb.pre_func_space.element.nloc * nele
+    u_ana, p_ana = (x_ana[0:u_nonods*ndim].view(nele, -1, ndim),
+                    x_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, -1))
     n = sf_nd_nb.vel_func_space.element.n
     q = sf_nd_nb.pre_func_space.element.n
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -1859,8 +1873,8 @@ def get_l2_error(x_i_in, x_ana):
     )
     u_l2 = torch.sum(torch.sum(torch.sum(u_l2)))
     u_l2 = torch.sqrt(u_l2).cpu().numpy()
-    p_i_gi = torch.einsum('ng,bn->bng', q, p_i)
-    p_ana_gi = torch.einsum('ng,bn->bng', q, p_ana)
+    p_i_gi = torch.einsum('ng,bn->bng', n, p_i)
+    p_ana_gi = torch.einsum('ng,bn->bng', n, p_ana)
     p_l2 = torch.einsum(
         'bng,bg->bn',
         (p_i_gi - p_ana_gi)**2,

@@ -1,9 +1,10 @@
 import torch
 
+import config
 import sparsity
 from mesh_init import init_2d, init_3d
 from shape_function import SHATRInew
-# import config
+import config
 
 
 # dev = config.dev
@@ -99,7 +100,7 @@ class FuncSpace(object):
         self.ndim = self.element.ndim
         self.p1cg_nloc = self.ndim + 1
         if self.ndim == 2:
-            self.nele = mesh.cell_data_dict['gmsh:geometrical']['triangle'].shape[0]
+            self.nele = mesh.cell_data_dict['gmsh:geometrical'][config.ele_key_2d[config.ele_p - 1]].shape[0]
             self.nonods = element.nloc * self.nele
             self.p1dg_nonods = self.p1cg_nloc * self.nele
             self.x_all, \
@@ -110,29 +111,31 @@ class FuncSpace(object):
                 init_2d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim + 1)
             self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
             # if not iso-paramatric, we store geometry DOFs in x_ref_in
+            # Now we're only store geometry DOFs in x_ref_in AND x_all
+
             if not_iso_parametric:
                 self.x_element = x_element
-                self.x_x_all, \
-                    self.x_nbf, self.x_nbele, self.x_alnmt, self.x_glb_bcface_type, \
-                    self.x_fina, self.x_cola, self.x_ncola, \
-                    self.x_bc_node_list, self.x_cg_ndglno, self.x_cg_nonods, \
-                    self.x_ref_node_order, self.x_prolongator_from_p1dg = \
-                    init_2d(self.mesh, self.nele, self.nonods, self.x_element.nloc, nface=self.ndim + 1)
-                # converse to torch.tensor
-                self.x_ref_in = torch.tensor(
-                    self.x_x_all.reshape((self.nele, self.x_element.nloc, self.x_element.ndim)
-                                         ).transpose((0, 2, 1)),
-                    device=dev, dtype=torch.float64
-                )
+                # self.x_x_all, \
+                #     self.x_nbf, self.x_nbele, self.x_alnmt, self.x_glb_bcface_type, \
+                #     self.x_fina, self.x_cola, self.x_ncola, \
+                #     self.x_bc_node_list, self.x_cg_ndglno, self.x_cg_nonods, \
+                #     self.x_ref_node_order, self.x_prolongator_from_p1dg = \
+                #     init_2d(self.mesh, self.nele, self.nonods, self.x_element.nloc, nface=self.ndim + 1)
+                # # converse to torch.tensor
+                # self.x_ref_in = torch.tensor(
+                #     self.x_x_all.reshape((self.nele, self.x_element.nloc, self.x_element.ndim)
+                #                          ).transpose((0, 2, 1)),
+                #     device=dev, dtype=torch.float64
+                # )
             else:
                 self.x_element = element
-                # converse to torch.tensor
-                self.x_ref_in = torch.tensor(
-                    self.x_all.reshape((self.nele, self.element.nloc, self.element.ndim)).transpose((0, 2, 1)),
-                    device=dev, dtype=torch.float64
-                )
+            # converse to torch.tensor
+            self.x_ref_in = torch.tensor(
+                self.x_all.reshape((self.nele, -1, self.element.ndim)).transpose((0, 2, 1)),
+                device=dev, dtype=torch.float64
+            )
         elif self.ndim == 3:
-            self.nele = mesh.cell_data_dict['gmsh:geometrical']['tetra'].shape[0]
+            self.nele = mesh.cell_data_dict['gmsh:geometrical'][config.ele_key_3d[config.ele_p - 1]].shape[0]
             self.nonods = element.nloc * self.nele
             self.p1dg_nonods = self.p1cg_nloc * self.nele
             self.x_all, \
@@ -143,27 +146,28 @@ class FuncSpace(object):
                 init_3d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim+1)
             self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
             # if not iso-paramatric, we store geometry DOFs in x_ref_in
+            # NOW we're only store geometry x_ref_in and
             if not_iso_parametric:
                 self.x_element = x_element
-                self.x_x_all, \
-                    self.x_nbf, self.x_nbele, self.x_alnmt, self.x_glb_bcface_type, \
-                    self.x_fina, self.x_cola, self.x_ncola, \
-                    self.x_bc_node_list, self.x_cg_ndglno, self.x_cg_nonods, \
-                    self.x_ref_node_order, self.x_prolongator_from_p1dg = \
-                    init_3d(self.mesh, self.nele, self.nonods, self.x_element.nloc, nface=self.ndim + 1)
-                # converse to torch.tensor
-                self.x_ref_in = torch.tensor(
-                    self.x_x_all.reshape((self.nele, self.x_element.nloc, self.x_element.ndim)
-                                         ).transpose((0, 2, 1)),
-                    device=dev, dtype=torch.float64
-                )
+                # self.x_x_all, \
+                #     self.x_nbf, self.x_nbele, self.x_alnmt, self.x_glb_bcface_type, \
+                #     self.x_fina, self.x_cola, self.x_ncola, \
+                #     self.x_bc_node_list, self.x_cg_ndglno, self.x_cg_nonods, \
+                #     self.x_ref_node_order, self.x_prolongator_from_p1dg = \
+                #     init_3d(self.mesh, self.nele, self.nonods, self.x_element.nloc, nface=self.ndim + 1)
+                # # converse to torch.tensor
+                # self.x_ref_in = torch.tensor(
+                #     self.x_x_all.reshape((self.nele, self.x_element.nloc, self.x_element.ndim)
+                #                          ).transpose((0, 2, 1)),
+                #     device=dev, dtype=torch.float64
+                # )
             else:
                 self.x_element = element
-                # converse to torch.tensor
-                self.x_ref_in = torch.tensor(
-                    self.x_all.reshape((self.nele, self.element.nloc, self.element.ndim)).transpose((0, 2, 1)),
-                    device=dev, dtype=torch.float64
-                )
+            # converse to torch.tensor
+            self.x_ref_in = torch.tensor(
+                self.x_all.reshape((self.nele, -1, self.element.ndim)).transpose((0, 2, 1)),
+                device=dev, dtype=torch.float64
+            )
         self.nbele = torch.tensor(self.nbele, device=dev)
         self.nbf = torch.tensor(self.nbf, device=dev)
         self.alnmt = torch.tensor(self.alnmt, device=dev)
@@ -222,7 +226,9 @@ class FuncSpace(object):
 
         if the space is iso-parametric, just copy x_ref_in to x_all.
         """
-        if self.not_iso_parametric:
+        # since we're always store geometry DOFs in x_ref_in and x_all,
+        # we don't need to project for non-iso-gemetric spaces.
+        if False:  # self.not_iso_parametric:
             x_all_new = torch.einsum(
                 'mn,bin->bmi',
                 self.restrictor_1order,

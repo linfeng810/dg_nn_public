@@ -27,7 +27,7 @@ if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
 tend = 6  # end time
-isTransient = True  # decide if we are doing transient simulation
+isTransient = False  # decide if we are doing transient simulation
 if not isTransient:
     dt = 1e8  # if not transient, set dt to a large value
 isAdvExp = False  # treat advection term explicitly
@@ -51,6 +51,10 @@ filename = 'z31-cube-mesh/cube_only_diri_solid.msh'
 filename = 'z35-fsi/z01-turek/turek.msh'
 # filename = 'z35-fsi/z02-etienne/etienne.msh'
 # filename = 'z35-fsi/z03-seeweed/seeweed.msh'
+filename = 'z32-square-mesh/square_3rd_order_dirineu_r4.msh'
+filename = 'z31-cube-mesh/cube_ho_poi_r3.msh'
+filename = 'z23-nozzle/nozzle_ho_fine.msh'
+# filename = 'z23-nozzle/fake_nozzle.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -58,7 +62,7 @@ if args.filename is not None:
 mesh = meshio.read(filename)  # mesh object
 isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
-use_fict_dt_in_vel_precond = True
+use_fict_dt_in_vel_precond = False
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
 sf_nd_nb.fict_dt = 0.0025  # coefficient multiply to mass matrix add to vel blk precond
 print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
@@ -67,17 +71,26 @@ print('use fictitious timestep in velocity block preconditioner? (to make it dia
 sf_nd_nb.isTransient = isTransient
 sf_nd_nb.dt = dt
 
+ele_p = 3  # velocity element order (2 or higher)
+ele_p_pressure = ele_p - 1  # pressure element order
+print('element order: ', ele_p)
+
+ele_key_3d = ['tetra', 'tetra10', 'tetra20', 'tetra35', 'tetra56']
+ele_key_2d = ['triangle', 'triangle6', 'triangle10']
+ele_key_1d = ['line', 'line3', 'line4', 'line5', 'line6', 'line7', 'line8', 'line9', 'line10', 'line11', 'line12',]
+
 # mesh info
 # Check the dimension of the mesh
-if 'tetra' in mesh.cells_dict:
+if ele_key_3d[ele_p - 1] in mesh.cells_dict:
     ndim = 3  # It's a 3D mesh (contains tetrahedra)
-    vol_ele_name = 'tetra'
-elif 'triangle' in mesh.cells_dict:
+    vol_ele_name = ele_key_3d[ele_p - 1]
+elif ele_key_2d[ele_p - 1] in mesh.cells_dict:
     ndim = 2  # It's a 2D mesh (contains triangles)
-    vol_ele_name = 'triangle'
+    vol_ele_name = ele_key_2d[ele_p - 1]
 else:
     # Handle other cases or raise an error if necessary
-    raise ValueError("Unknown or unsupported mesh dimension")
+    raise ValueError("Unknown or unsupported mesh dimension. If high-order element is used, please provide \n"
+                     "high-order mesh as well.")
 
 if not isFSI:
     # nele = mesh.cell_data['gmsh:geometrical'][-1].shape[0]  # number of elements
@@ -92,9 +105,6 @@ else:
     # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
     # nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
     nele = nele_f + nele_s
-ele_p = 3  # velocity element order (2 or higher)
-ele_p_pressure = ele_p - 1  # pressure element order
-print('element order: ', ele_p)
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
@@ -130,15 +140,15 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
 
 # non-linear iteration parameters
-n_its_max = 5
-n_tol = 1.e-6
+n_its_max = 10
+n_tol = 1.e-8
 relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
 sf_nd_nb.relax_coeff = relax_coeff
 
 ####################
 # material property
 ####################
-problem = 'turek'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'nozzle'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -159,7 +169,7 @@ print('Lame coefficient: lamda, mu', lam_s, mu_s)
 # lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
 # print('lam_s, mu_s', lam_s, mu_s)
-rho_f = 1.e3
+rho_f = 1.
 if isFSI:
     rho_s = 1.e3  # solid density at initial configuration
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
@@ -185,7 +195,7 @@ if True:
     _Re = int(1 / mu_f)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
-    include_adv = True  # if Navier-Stokes, include advection term.
+    include_adv = False  # if Navier-Stokes, include advection term.
     if isAdvExp:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu_f, _Re, hasNullSpace, is_pressure_stablise)

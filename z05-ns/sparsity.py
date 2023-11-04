@@ -25,7 +25,7 @@ def get_subdomain_sparsity(cg_ndglno, nele_f, nele_s, cg_nonods):
     # fluid
     fluid_spar = Sparsity(name='fluid')
 
-    cg_ndglno_f = cg_ndglno.reshape((nele, ndim+1))[0:nele_f, :].reshape((nele_f * (ndim+1)))
+    cg_ndglno_f = cg_ndglno.reshape((nele, -1))[0:nele_f, 0:ndim + 1].reshape((nele_f * (ndim+1)))
     cg_node_order_f = np.unique(cg_ndglno_f)
     idx_dict_f = {old: new for new, old in enumerate(cg_node_order_f)}
     cg_nonods_f = cg_node_order_f.shape[0]
@@ -57,7 +57,7 @@ def get_subdomain_sparsity(cg_ndglno, nele_f, nele_s, cg_nonods):
     # solid
     solid_spar = Sparsity(name='solid')
 
-    cg_ndglno_s = cg_ndglno.reshape((nele, ndim + 1))[nele_f:nele, :].reshape((nele_s * (ndim + 1)))
+    cg_ndglno_s = cg_ndglno.reshape((nele, -1))[nele_f:nele, 0:ndim + 1].reshape((nele_s * (ndim + 1)))
     cg_node_order_s = np.unique(cg_ndglno_s)
     idx_dict_s = {old: new for new, old in enumerate(cg_node_order_s)}
     cg_nonods_s = cg_node_order_s.shape[0]

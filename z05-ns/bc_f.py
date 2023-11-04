@@ -899,8 +899,9 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods*ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             # u[inod//u_nloc, inod%u_nloc, :] = 0.
@@ -911,9 +912,9 @@ def ana_soln(problem, t=None):
             u[inod // u_nloc, inod % u_nloc, 2] = torch.sin(x_inod[0]) ** 2 * \
                                                   (x_inod[2] * torch.cos(x_inod[0])
                                                    + x_inod[1] * torch.sin(x_inod[0]))
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
-            p[inod // p_nloc, inod % p_nloc] = torch.sin(x_inod[0])  # - 1. + np.cos(1.)
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+            p[inod // u_nloc, inod % u_nloc] = torch.sin(x_inod[0])  # - 1. + np.cos(1.)
 
         # # poiseuille flow
         # for inod in range(u_nonods):
@@ -932,24 +933,26 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             # u[inod//u_nloc, inod%u_nloc, :] = 0.
             u[inod // u_nloc, inod % u_nloc, 0] = 1 - x_inod[1]**2
             u[inod // u_nloc, inod % u_nloc, 1] = 0
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
-            p[inod // p_nloc, inod % p_nloc] = -2 * x_inod[0] + 2
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+            p[inod // u_nloc, inod % u_nloc] = -2 * x_inod[0] + 2
     elif problem == 'poiseuille' and ndim == 3:
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
         p_nloc = sf_nd_nb.pre_func_space.element.nloc
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods * ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods * ndim:u_nonods * ndim + u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
         t = torch.tensor(0, device=dev, dtype=torch.float64)
         for inod in range(u_nonods):
@@ -961,12 +964,12 @@ def ana_soln(problem, t=None):
             u[inod // u_nloc, inod % u_nloc, 0] = 1 - x_inod[1] ** 2
             u[inod // u_nloc, inod % u_nloc, 1] = 0
             u[inod // u_nloc, inod % u_nloc, 2] = 0
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
             y = x_inod[1]
             z = x_inod[2]
-            p[inod // p_nloc, inod % p_nloc] = -2*x+2
+            p[inod // u_nloc, inod % u_nloc] = -2*x+2
     elif problem == 'poiseuille' and ndim == 2:
         # poiseuille flow
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -974,16 +977,17 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods * ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods * ndim:u_nonods * ndim + u_nonods].view(nele, u_nloc))
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             # u[inod//u_nloc, inod%u_nloc, :] = 0.
             u[inod // u_nloc, inod % u_nloc, 0] = x_inod[1] - x_inod[1] ** 2  # -y^2 + y
             u[inod // u_nloc, inod % u_nloc, 1] = 0
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
-            p[inod // p_nloc, inod % p_nloc] = -2 * x_inod[0] + 2 - 1  # -1 to make ave = 0
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
+            p[inod // u_nloc, inod % u_nloc] = -2 * x_inod[0] + 2 - 1  # -1 to make ave = 0
     elif problem == 'ns' and ndim == 3:
         # Beltrami flow
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -991,8 +995,9 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
         t = torch.tensor(0, device=dev, dtype=torch.float64)
         for inod in range(u_nonods):
@@ -1007,12 +1012,12 @@ def ana_soln(problem, t=None):
                                                    - torch.exp(y - t)*torch.sin(x + z))
             u[inod // u_nloc, inod % u_nloc, 2] = (- torch.exp(y - t)*torch.cos(x + z)
                                                    - torch.exp(z - t)*torch.sin(x + y))
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
             y = x_inod[1]
             z = x_inod[2]
-            p[inod // p_nloc, inod % p_nloc] = -torch.exp(-2*t)*(torch.exp(2*x)/2 + torch.exp(2*y)/2 + torch.exp(2*z)/2
+            p[inod // u_nloc, inod % u_nloc] = -torch.exp(-2*t)*(torch.exp(2*x)/2 + torch.exp(2*y)/2 + torch.exp(2*z)/2
                                                                  + torch.exp(x + y)*torch.cos(y + z)*torch.sin(x + z)
                                                                  + torch.exp(x + z)*torch.cos(x + y)*torch.sin(y + z)
                                                                  + torch.exp(y + z)*torch.cos(x + z)*torch.sin(x + y))
@@ -1024,8 +1029,9 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
         Re = torch.tensor(1./config.mu_f, device=dev, dtype=torch.float64)
         for inod in range(u_nonods):
@@ -1035,12 +1041,12 @@ def ana_soln(problem, t=None):
 
             u[inod // u_nloc, inod % u_nloc, 0] = (x**2*y*(y**2 - 2)*(x - 2)**2)/4
             u[inod // u_nloc, inod % u_nloc, 1] = -(x*y**2*(y**2 - 4)*(x**2 - 3*x + 2))/4
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
             y = x_inod[1]
 
-            p[inod // p_nloc, inod % p_nloc] = \
+            p[inod // u_nloc, inod % u_nloc] = \
                 1408 / 33075 - (x * y * (
                             30 * x * (y ** 2 - 2) - 10 * x ** 2 * y ** 2 + 15 * x ** 3 - 3 * x ** 4 - 20 * y ** 2 + 40)) / (
                             5 * Re) - (x ** 4 * y ** 2 * (x - 2) ** 4 * (y ** 4 - 2 * y ** 2 + 8)) / 128 - 8 / (5 * Re)
@@ -1051,8 +1057,9 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
         Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
         for inod in range(u_nonods):
@@ -1066,12 +1073,12 @@ def ana_soln(problem, t=None):
                     (Re / 2 - torch.sqrt(Re ** 2 / 4 + 4 * np.pi ** 2)) / (2 * np.pi) * torch.exp(
                           (Re / 2 - torch.sqrt(Re ** 2 / 4 + 4 * np.pi ** 2)) * x) \
                       * torch.sin(2 * np.pi * y)
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
             y = x_inod[1]
             lamb = Re / 2 - torch.sqrt(Re ** 2 / 4 + 4 * np.pi ** 2)
-            p[inod // p_nloc, inod % p_nloc] = - torch.exp(2 * lamb * x)/2
+            p[inod // u_nloc, inod % u_nloc] = - torch.exp(2 * lamb * x)/2
     elif problem == 'ldc' or problem == 'bfs' or problem == 'fpc' and ndim == 2:
         print("====WARNING====:no analytical soln exists for %s problem..." % problem)
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -1079,7 +1086,7 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
     elif problem == 'tgv' and ndim == 2:
         # taylor green vortex
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -1087,8 +1094,9 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana, isFSI=False)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         if t is None:
             raise ValueError('should provide t when using taylor-green vortex analytical soln')
         Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
@@ -1101,11 +1109,11 @@ def ana_soln(problem, t=None):
                 -torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * x) * torch.sin(torch.pi * y)
             u[inod // u_nloc, inod % u_nloc, 1] = \
                 torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * torch.sin(torch.pi * x)
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
             y = x_inod[1]
-            p[inod // p_nloc, inod % p_nloc] = \
+            p[inod // u_nloc, inod % u_nloc] = \
                 -torch.exp(-(4 * torch.pi ** 2 * t) / Re) * (torch.cos(2 * torch.pi * x) / 4 + torch.cos(
                     2 * torch.pi * y) / 4)
     elif problem == 'tgv10' and ndim == 2:
@@ -1115,8 +1123,9 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
-        u, p = slicing_x_i(u_ana)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
+                u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         if t is None:
             raise ValueError('should provide t when using taylor-green vortex analytical soln')
         Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
@@ -1130,11 +1139,11 @@ def ana_soln(problem, t=None):
                 -torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * x) * torch.sin(torch.pi * y) * u_m
             u[inod // u_nloc, inod % u_nloc, 1] = \
                 torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * torch.sin(torch.pi * x) * u_m
-        for inod in range(p_nonods):
-            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // p_nloc, :, inod % p_nloc]
+        for inod in range(u_nonods):
+            x_inod = sf_nd_nb.pre_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
             y = x_inod[1]
-            p[inod // p_nloc, inod % p_nloc] = \
+            p[inod // u_nloc, inod % u_nloc] = \
                 -torch.exp(-(4 * torch.pi ** 2 * t) / Re) * (torch.cos(2 * torch.pi * x) / 4 + torch.cos(
                     2 * torch.pi * y) / 4) * u_m**2
     else:
