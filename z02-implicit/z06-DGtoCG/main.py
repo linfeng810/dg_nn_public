@@ -51,7 +51,7 @@ vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=d
 print('quadrature degree: ', quad_degree)
 
 if True:  # scale mesh
-    mesh_init.scale_mesh(mesh=config.mesh, origin=np.zeros(3), scale=np.asarray([1, 1, 4]))
+    mesh_init.scale_mesh(mesh=config.mesh, origin=np.zeros(3), scale=np.asarray([1, 1, 1]))
 
 vel_func_space = FuncSpace(vel_ele, name="Velocity", mesh=config.mesh, dev=dev)
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
@@ -64,6 +64,17 @@ fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_nonods
 )
 sf_nd_nb.set_data(sparse_f=fluid_spar, sparse_s=solid_spar)
+
+if False:  # output CG1 nodes and space-filling curve index
+    cg_ndglno_f = sf_nd_nb.vel_func_space.cg_ndglno.reshape((nele, -1))[0:nele_f, 0:ndim + 1].reshape(
+        (nele_f * (ndim + 1)))
+    cg_node_order_f = np.unique(cg_ndglno_f)
+    sfc_numbering = np.load(config.filename[:-4] + fluid_spar.name + '_sfc.npy')
+    sfc_data_out = np.concatenate((config.mesh.points[cg_node_order_f],
+                                   sfc_numbering),
+                                  axis=1)
+    np.savetxt(config.filename + '_sfc_data_out.txt', sfc_data_out, delimiter=',')
+    exit()
 
 print('nele=', nele)
 
