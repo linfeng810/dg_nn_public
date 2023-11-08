@@ -661,10 +661,10 @@ def _get_RAR_and_sfc_data_Um():
         whichc, ncolor,
         fina, cola, ncola,
     )
-    from scipy.sparse import bsr_matrix
+    from scipy.sparse import csr_matrix
 
     if not config.is_sfc:
-        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
+        RAR = csr_matrix((RARvalues.cpu().numpy(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
         sf_nd_nb.set_data(RARmat_Um=RAR.tocsr())
 
