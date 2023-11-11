@@ -331,7 +331,7 @@ def _s_res_one_batch(
                         diagA, bdiagA, batch_start_idx,
                         nb_gi_aln)
             if include_itf:  # if False, going to make interface stress from fluid EXPLICIT
-                idx_iface = f_itf == iface & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
+                idx_iface = (f_itf == iface) & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
                 r_in = _s_res_fitf(
                     r_in, x_k, x_i,
                     f_itf[idx_iface], E_F_itf[idx_iface],

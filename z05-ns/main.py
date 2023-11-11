@@ -623,7 +623,7 @@ if config.solver=='iterative':
                     # )
                     x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=max(min(1.e-3 * nr0l2, 1.e-3), 1.e-11),  # config.tol,
+                        tol=max(min(1.e-1 * nr0l2, 1.e-1), 1.e-11),  # config.tol,
                         include_adv=config.include_adv,
                         x_k=x_i_k,
                         u_bc=u_bc
@@ -635,18 +635,18 @@ if config.solver=='iterative':
                 else:
                     raise Exception('choose a valid solver...')
 
-                # # let's get non-linear residual here
-                # # define the residual as the l2 norm of difference between two iterations
-                # r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
-                # r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
-                # r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
-                # r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
-                #                                 x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                # r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
-                #                                 x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                # r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
-                # print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
-                # print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
+                # let's get non-linear residual here
+                # define the residual as the l2 norm of difference between two iterations
+                r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                                                x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                                                x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
+                print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
 
                 # before update displacement, let's first update time derivative of displacement (vel & acceleration)
                 # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
