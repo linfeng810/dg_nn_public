@@ -4,6 +4,7 @@ or mesh displacement"""
 import torch
 import numpy as np
 import scipy as sp
+import pyamg
 import config
 from config import sf_nd_nb
 import multigrid_linearelastic as mg
@@ -666,18 +667,23 @@ def _get_RAR_and_sfc_data_Um():
     if not config.is_sfc:
         RAR = csr_matrix((RARvalues.cpu().numpy(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
-        sf_nd_nb.set_data(RARmat_Um=RAR.tocsr())
-
-    # RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
-    # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-    space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        mg.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_f)
-    sf_nd_nb.sfc_data_Um.set_data(
-        space_filling_curve_numbering=space_filling_curve_numbering,
-        variables_sfc=variables_sfc,
-        nlevel=nlevel,
-        nodes_per_level=nodes_per_level
-    )
+        if not config.is_amg:  # directly solve on P1CG
+            sf_nd_nb.set_data(RARmat_Um=RAR.tocsr())
+        else:  # use pyamg to smooth on P1CG, setup AMG here
+            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+            RAR_ml = pyamg.smoothed_aggregation_solver(RAR.tocsr())
+            sf_nd_nb.set_data(RARmat_Um=RAR_ml)
+    else:
+        # RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
+        # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+        space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+            mg.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_f)
+        sf_nd_nb.sfc_data_Um.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
 
     return 0
 
@@ -860,12 +866,21 @@ def _um_left_precond(x_i, x_rhs):
         raise NotImplementedError('pmg not implemented!')
 
     if not config.is_sfc:  # two-grid method
-        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
-        e_direct = sp.sparse.linalg.spsolve(
-            sf_nd_nb.RARmat_Um,
-            r1.contiguous().view(-1).cpu().numpy())
-        e_direct = np.reshape(e_direct, (cg_nonods))
-        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+        if not config.is_amg:  # directly solve on P1CG
+            e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+            e_direct = sp.sparse.linalg.spsolve(
+                sf_nd_nb.RARmat_Um,
+                r1.contiguous().view(-1).cpu().numpy())
+            e_direct = np.reshape(e_direct, (cg_nonods))
+            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+        else:  # use pyamg to smooth on P1CG
+            e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+            e_direct = sf_nd_nb.RARmat_Um.solve(
+                r1.contiguous().view(-1).cpu().numpy(),
+                maxiter=1,
+                tol=1e-10)
+            # e_direct = np.reshape(e_direct, (cg_nonods))
+            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
     else:  # multi-grid method
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data_Um.space_filling_curve_numbering)

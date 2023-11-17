@@ -936,6 +936,17 @@ def diff_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     u_bc[0][inod // nloc, inod % nloc] = 1
 
         # neumann bc is 0
+    elif prob == 'diff-test' and ndim == 2:
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-6:
+                    u_bc[0][inod // nloc, inod % nloc] = 1
     else:
         raise Exception('the problem ', prob, ' is not defined in bc_f.py')
     fNorm = torch.linalg.norm(f.view(-1), dim=0)

@@ -91,6 +91,7 @@ else:
     # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
     # nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
     nele = nele_f + nele_s
+    print('nele, nele_f, nele_s', nele, nele_f, nele_s, 'ndim', ndim)
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-5  # convergence tolerance for linear solver (e.g. MG)
@@ -112,10 +113,12 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_amg = True  # whether using AMG as smoother
 print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,
-      'with SFC?', is_sfc)
+      'with SFC?', is_sfc,
+      'with pyAMG', is_amg)
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
@@ -225,4 +228,4 @@ print('No of batch: ', no_batch)
 case_name = '_' + problem + 'Re' + str(_Re) + '_p' + str(ele_p) + 'p' + str(ele_p_pressure) + \
             '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
 # case_name = '_bfsRe109_p3p2_20230828-190846'
-print('case name is: ' + case_name)
+print('case name is: ' + filename + case_name)
