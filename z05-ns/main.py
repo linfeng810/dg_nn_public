@@ -607,6 +607,13 @@ if config.solver=='iterative':
                 volume_mf_st.get_RAR_and_sfc_data_Fp(x_i_k, u_bc)
                 volume_mf_he.get_RAR_and_sfc_data_Sp(x_i_k)
                 # print('9. time elapsed, ', time.time() - starttime)
+                if False:  # test solid preconditioner
+                    import test_sfc_mg
+                    print('going to test mg solver for structure block S')
+                    test_sfc_mg.solve_with_precond(x_i,
+                                                   torch.ones_like(x_i, device=dev, dtype=torch.float64),
+                                                   x_i_k)
+                    exit()
 
                 # dp_i *= 0  # solve for delta p_i and u_i
                 if config.linear_solver == 'gmres-mg':

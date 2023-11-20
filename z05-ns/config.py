@@ -2,6 +2,7 @@
 import meshio
 import numpy as np
 import torch
+import pyamg
 import sys
 import cmmn_data
 import time
@@ -56,6 +57,8 @@ filename = 'z31-cube-mesh/cube_ho_poi_r3.msh'
 filename = 'z23-nozzle/nozzle_ho_fine.msh'
 # filename = 'z23-nozzle/fake_nozzle.msh'
 filename = 'z35-fsi/z05-2d-tube/tube_full.msh'
+# filename = 'z35-fsi/z04-turek-ho/turek.msh'
+# filename = 'z35-fsi/z05-2d-tube/z01-plate/plate.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -127,15 +130,35 @@ everywhere smooth_start_level is used."""
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
+# multi-grid options for various blocks to approximate inverse
+# old options
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
-is_amg = False  # whether using algebraic multigrid (AMG) as smoother
+# is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+# is_amg = True  # whether using algebraic multigrid (AMG) as smoother
 # if both is_sfc and is_amg are false, then direct solve on P1CG is used.
-print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
-      'with PMG?', is_pmg,
-      'with SFC?', is_sfc,
-      'with pyAMG', is_amg)
+# print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
+#       'with PMG?', is_pmg,
+#       'with SFC?', is_sfc,
+#       'with pyAMG', is_amg)
 print('jacobi block solver is: ', blk_solver)
+# new options:
+# 1 -- direct inverse on P1CG
+# 2 -- use SFC-mg as smoother on P1CG
+# 3 -- use pyAMG as smoother on P1CG
+mg_opt_F = 1  # velocity block
+mg_opt_Lp = 1  # velocity Laplacian block
+mg_opt_S = 1  # structure displacement block
+mg_opt_Um = 1  # mesh displacement
+pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.air_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.ruge_stuben_solver
+print('===MG on P1CG parameters===')
+print('this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its))
+print('1 -- direct inverse on P1CG, '
+      '2 -- use SFC-mg as smoother on P1CG, '
+      '3 -- use pyAMG as smoother on P1CG:')
+print('velocity block: ', mg_opt_F, 'Laplacian block: ', mg_opt_Lp, 'structure displacement block: ', mg_opt_S,
+      'mesh displacement block: ', mg_opt_Um)
 
 # gmres parameters
 gmres_m = 80  # restart

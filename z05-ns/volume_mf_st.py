@@ -9,7 +9,6 @@ import torch
 from torch import Tensor
 import scipy as sp
 import numpy as np
-import pyamg
 from types import NoneType
 from tqdm import tqdm
 import config
@@ -1972,22 +1971,22 @@ def vel_precond_invK_mg(x_i, x_rhs, include_adv, x_k=None, u_bc=None):
         raise NotImplemented('PMG not implemented!')
 
     # smooth/solve on P1CG grid
-    if not config.is_sfc:  # two-grid method
-        if not config.is_amg:  # direct solve on P1CG
-            e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
-            e_direct = sp.sparse.linalg.spsolve(
-                sf_nd_nb.RARmat_F,
-                r1.contiguous().view(-1).cpu().numpy()
-            )
-            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods, ndim)
-        else:  # AMG on P1CG
-            e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
-            e_direct = sf_nd_nb.RARmat_F.solve(
-                r1.contiguous().view(-1).cpu().numpy(),
-                maxiter=1,
-                tol=1e-10)
-            e_direct = np.reshape(e_direct, (cg_nonods, ndim))
-            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+    if config.mg_opt_F == 1:  # two-grid method
+        # direct solve on P1CG
+        e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+        e_direct = sp.sparse.linalg.spsolve(
+            sf_nd_nb.RARmat_F,
+            r1.contiguous().view(-1).cpu().numpy()
+        )
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods, ndim)
+    elif config.mg_opt_F == 3:  # AMG on P1CG
+        e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+        e_direct = sf_nd_nb.RARmat_F.solve(
+            r1.contiguous().view(-1).cpu().numpy(),
+            maxiter=1,
+            tol=1e-10)
+        e_direct = np.reshape(e_direct, (cg_nonods, ndim))
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
     else:  # multi-grid on space-filling curve generated grids
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data_F.space_filling_curve_numbering)
@@ -2317,15 +2316,16 @@ def get_RAR_and_sfc_data_Fp(
         sf_nd_nb.dt = config.dt
     from scipy.sparse import bsr_matrix
 
-    if not config.is_sfc:
+    if config.mg_opt_F == 1:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
                          shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
-        if not config.is_amg:  # direct solve on P1CG
-            sf_nd_nb.set_data(RARmat_F=RAR.tocsr())
-        else:  # use pyAMG to smooth on P1CG
-            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
-            RAR_ml = pyamg.smoothed_aggregation_solver(RAR.tocsr())
-            sf_nd_nb.set_data(RARmat_F=RAR_ml)
+        sf_nd_nb.set_data(RARmat_F=RAR.tocsr())
+    elif config.mg_opt_F == 3:  # use pyAMG to smooth on P1CG
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina),
+                         shape=((ndim) * cg_nonods, (ndim) * cg_nonods))
+        # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+        RAR_ml = config.pyAMGsmoother(RAR.tocsr())
+        sf_nd_nb.set_data(RARmat_F=RAR_ml)
     else:
         # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
         RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)

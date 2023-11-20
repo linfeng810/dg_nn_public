@@ -16,7 +16,7 @@ dev = config.dev
 ndim = config.ndim
 
 
-def disp_precond_all(x_i, x_rhs, x_k):
+def disp_precond_all(x_i, x_rhs, x_k, isReturnResidual=False):
     """
     given initial vector and right hand side,
     do one MG cycle,
@@ -59,15 +59,14 @@ def disp_precond_all(x_i, x_rhs, x_k):
         # ilevel = config.ele_p - 1
         # for idim in range(ndim):
         #     r1[:, idim] += torch.mv(sf_nd_nb.I_cf, r_p[ilevel][:, idim])
-    if not config.is_sfc:  # two-grid method
-        if not config.is_amg:
-            e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
-            e_direct = sp.sparse.linalg.spsolve(
-                sf_nd_nb.RARmat_S,
-                r1.contiguous().view(-1).cpu().numpy())
-            e_direct = np.reshape(e_direct, (cg_nonods, ndim))
-            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-        else:  # amg method
+    if config.mg_opt_S == 1:  # two-grid method
+        e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+        e_direct = sp.sparse.linalg.spsolve(
+            sf_nd_nb.RARmat_S,
+            r1.contiguous().view(-1).cpu().numpy())
+        e_direct = np.reshape(e_direct, (cg_nonods, ndim))
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+    elif config.mg_opt_S == 3:  # amg method
             e_i = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
             e_direct = sf_nd_nb.RARmat_S.solve(
                 r1.contiguous().view(-1).cpu().numpy(),
@@ -118,7 +117,9 @@ def disp_precond_all(x_i, x_rhs, x_k):
             r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=False
         )
     # r0l2 = torch.linalg.norm(r0.view(-1), dim=0) / r0_init  # fNorm
-
+    if isReturnResidual:
+        r0l2 = torch.linalg.norm(r0_dict['disp'][nele_f:nele, ...].view(-1))
+        return x_i, r0l2
     return x_i
 
 

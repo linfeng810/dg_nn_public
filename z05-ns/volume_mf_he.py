@@ -4,12 +4,10 @@
 all integrations for hyper-elastic
 matric-free implementation
 """
-
-
+import scipy.linalg
 import torch
 from torch import Tensor
 import numpy as np
-import pyamg
 from tqdm import tqdm
 import config
 import volume_mf_st
@@ -1294,14 +1292,29 @@ def get_RAR_and_sfc_data_Sp(
     )
     from scipy.sparse import bsr_matrix
 
-    if not config.is_sfc:
+    if config.mg_opt_S == 1:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
-        if not config.is_amg:
-            sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
-        else:
-            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
-            RAR_ml = pyamg.smoothed_aggregation_solver(RAR.tocsr())
-            sf_nd_nb.set_data(RARmat_S=RAR_ml)
+        sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
+    elif config.mg_opt_S == 3:
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
+        # compute near null space
+        # null_space = scipy.linalg.null_space(RAR.todense())
+        print('eigen values:')
+        eigenvar = scipy.linalg.eigvals(RAR.todense())
+        eigenvar_real = eigenvar.real
+        eigenvar_real = np.sort(eigenvar_real)
+        print('smallest: ', eigenvar_real[0:10])
+        print('largest: ', eigenvar_real[-10:-1])
+        # find the eigen vectors corresponding to the smallest eigen values
+        eigv, lfeignvec, rteignvec = scipy.linalg.eig(RAR.todense(), left=True, right=True)
+        sort_idx = np.argsort(eigv.real)
+        # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+        # RAR_ml = config.pyAMGsmoother(RAR.tocsr())  # , B=null_space)
+        ndim_nullspace = 7
+        RAR_ml = config.pyAMGsmoother(RAR.tocsr(),
+                                      B=rteignvec[:, sort_idx[0:ndim_nullspace]],  # left eig vec corr. to 10 min eigvar
+                                      BH=lfeignvec[:, sort_idx[0:ndim_nullspace]])  # right eig vec corr. to ...
+        sf_nd_nb.set_data(RARmat_S=RAR_ml)
     else:
         # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
         RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
