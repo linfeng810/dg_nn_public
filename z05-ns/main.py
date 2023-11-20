@@ -19,7 +19,7 @@ import output
 import petrov_galerkin
 import shape_function
 import sparsity
-import volume_mf_st, volume_mf_um, volume_mf_he, volume_mf_um_on_fix_mesh
+import volume_mf_st, volume_mf_um, volume_mf_he, volume_mf_um_on_fix_mesh, volume_mf_um_le
 from function_space import FuncSpace, Element
 import solvers
 from config import sf_nd_nb
@@ -88,7 +88,11 @@ sf_nd_nb.set_data(disp_func_space=disp_func_space)
 #                                    ndim, dev, config.mu_s, config.lam_s)
 material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
                           ndim, dev, config.mu_s, config.lam_s)
+mesh_material = materials.LinearElastic(
+    sf_nd_nb.disp_func_space.element.nloc,
+    ndim, dev, mu=0.3846, lam=0.5769)  # E=1, nu=0.3
 sf_nd_nb.set_data(material=material)
+sf_nd_nb.set_data(mesh_material=mesh_material)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_ndglno,
@@ -112,8 +116,9 @@ if False:  # test mesh displacement
         x_i_dict['disp'][nele_f:nele, ...] += (
             torch.ones(nele_s, disp_func_space.element.nloc, ndim, device=dev, dtype=torch.float64,)
                                               ) * 0.01
-        x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+        # x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
         # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+        x_i_dict['disp'] = volume_mf_um_le.solve_for_mesh_disp(x_i_dict['disp'])
 
         # move velocity mesh
         sf_nd_nb.vel_func_space.x_ref_in *= 0
@@ -376,8 +381,9 @@ if config.solver=='iterative':
             # x_all_previous[0]['pre'] += ana_sln[u_nonods*ndim:].view(nele, -1)
 
         elif config.initialCondition == 3:
-            x_all_previous[0]['all'] *= 0
-            x_all_previous[0]['all'] += torch.load(config.initDataFile)
+            for tt in range(config.time_order + 1):
+                x_all_previous[tt]['all'] *= 0
+                x_all_previous[tt]['all'] += torch.load(config.initDataFile[tt])
 
         p_ana_ave = 0
         if config.hasNullSpace:
@@ -390,8 +396,27 @@ if config.solver=='iterative':
         # u_all[0, :, :, :] = x_i_list[0].cpu().numpy()
         # p_all[0, ...] = x_i_list[1].cpu().numpy()
 
+        if config.initialCondition == 3:
+            # move velocity mesh
+            sf_nd_nb.vel_func_space.x_ref_in *= 0
+            sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                                                + x_i_dict['disp'].permute(0, 2, 1)
+
+            sf_nd_nb.pre_func_space.x_ref_in *= 0
+            sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
+
+            u_m *= 0  # (use BDF scheme)
+            u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
+            for ii in range(0, sf_nd_nb.bdfscm.order):
+                u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii] / dt
+            sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+
         # save initial condition to vtk
-        fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
+        sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+        sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
+        fsi_output.output_fsi_vtu(x_i, sf_nd_nb.vel_func_space,
+                                  sf_nd_nb.pre_func_space,
+                                  sf_nd_nb.disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
 
         t = tstart  # physical time (start time)
 
@@ -425,7 +450,7 @@ if config.solver=='iterative':
                 continue
 
             if sf_nd_nb.isTransient:
-                if itime <= config.time_order:
+                if itime <= config.time_order and config.initialCondition == 1:
                     if itime == 1:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=1))
                         # alpha_u_n *= 0
@@ -498,9 +523,9 @@ if config.solver=='iterative':
             #     prob=config.problem,
             #     t=t
             # )
-            x_i_dict['vel'] += u_bc[0]
-            # save bc condition to vtk
-            fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
+            if False:  # if want to save bc condition to vtk
+                x_i_dict['vel'] += u_bc[0]
+                fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
             # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
             if config.isGradDivStab or sf_nd_nb.isES:
                 u_ave = petrov_galerkin.get_ave_vel(x_all_previous[0]['vel'])
@@ -683,8 +708,9 @@ if config.solver=='iterative':
                     # I think it's more sensible to compute the mesh displacement rather than
                     # mesh velocity. We can easily get mesh velocity with BDF scheme.
                     print('going to solve for mesh displacement and move the mesh...')
-                    x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'], t)
+                    # x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'], t)
                     # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+                    x_i_dict['disp'] = volume_mf_um_le.solve_for_mesh_disp(x_i_dict['disp'], t)
                     # get mesh velocity and move mesh
                     # print('u_m address', u_m.data_ptr(), 'u_m in sf_nd_nb address', u_m.data_ptr(),
                     #       'is two the same?', torch.allclose(u_m, sf_nd_nb.u_m))
@@ -728,8 +754,9 @@ if config.solver=='iterative':
                 # I think it's more sensible to compute the mesh displacement rather than
                 # mesh velocity. We can easily get mesh velocity with BDF scheme.
                 print('going to solve for mesh displacement and move the mesh...')
-                x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+                # x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
                 # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+                x_i_dict['disp'] = volume_mf_um_le.solve_for_mesh_disp(x_i_dict['disp'])
                 # get mesh velocity and move mesh
                 u_m *= 0  # (use BDF scheme)
                 u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt

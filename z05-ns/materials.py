@@ -265,7 +265,7 @@ class LinearElastic:
         # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
         return AA
 
-    def calc_AA_ave(self, nx, u, nx_nb, ux, batch_in):
+    def calc_AA_ave(self, nx, u, nx_nb, u_nb, batch_in: int):
         """
         calculate average of A on element face, i.e. {A}.
         However, in linear elastic, A is constant everywhere,
@@ -281,7 +281,7 @@ class STVK:
         self.dev = dev
         self.mu = mu
         self.lam = lam
-        print('you are choosing Neo Hookean material, good for you.')
+        print('you are choosing STVK material, good for you.')
 
     def _calc_F(self, nlx, u, batch_in: int):
         # compute deformation gradient

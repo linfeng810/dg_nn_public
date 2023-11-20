@@ -28,7 +28,7 @@ if args.dt is not None:
     dt = args.dt
 tstart = 0.  # starting time
 tend = 6  # end time
-isTransient = False  # decide if we are doing transient simulation
+isTransient = True  # decide if we are doing transient simulation
 if not isTransient:
     dt = 1e16  # if not transient, set dt to a large value
 isAdvExp = False  # treat advection term explicitly
@@ -66,7 +66,7 @@ if args.filename is not None:
 mesh = meshio.read(filename)  # mesh object
 isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
-use_fict_dt_in_vel_precond = False
+use_fict_dt_in_vel_precond = True
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
 sf_nd_nb.fict_dt = 0.0025  # coefficient multiply to mass matrix add to vel blk precond
 print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
@@ -112,7 +112,7 @@ else:
     print('nele, nele_f, nele_s, ndim', nele, nele_f, nele_s, ndim)
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
-tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
+tol = 1.e-5  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = tol  # convergence criteria
@@ -168,8 +168,8 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
 
 # non-linear iteration parameters
-n_its_max = 10
-n_tol = 1.e-8
+n_its_max = 6
+n_tol = 1.e-5
 relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
 sf_nd_nb.relax_coeff = relax_coeff
 
@@ -197,7 +197,7 @@ print('Lame coefficient: lamda, mu', lam_s, mu_s)
 # lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
 # print('lam_s, mu_s', lam_s, mu_s)
-rho_f = 1.
+rho_f = 1.e3
 rho_s = 1.e3  # solid density at initial configuration
 print('rho_f, rho_s', rho_f, rho_s)
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
@@ -232,8 +232,11 @@ if True:
     # 2. solve steady stokes as initial condition
     # 3. to use a precalculated fields (u and p) in a file as initial condition
     if initialCondition == 3:
-        initDataFile = 'Re109_t20.00.pt'
-        print('use this data file as initial condition: ' + initDataFile)
+        initDataFile = ['z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.96.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.95.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.94.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.93.pt']
+        print('use this data file as initial condition: ' + initDataFile[0])
 
 # === all kinds of stabilisation for convection-dominant flow ===
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)

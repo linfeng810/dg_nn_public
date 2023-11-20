@@ -188,6 +188,8 @@ def gmres_mg_solver(x_i, x_rhs,
     sf_nd_nb.its = 0
     e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
     e_1[0] += 1
+
+    isUpperTriPrecond = True
     while r0l2 > tol and sf_nd_nb.its < config.gmres_its:
         h_m *= 0
         v_m *= 0
@@ -202,7 +204,7 @@ def gmres_mg_solver(x_i, x_rhs,
             r0, x_k, x_i, x_rhs, include_s_blk=True, include_itf=True,
         )
         # apply left preconditioner
-        if sf_nd_nb.nits % 1 == 0:
+        if isUpperTriPrecond:
             r0 = preconditioner.fsi_precond_all(r0, x_k, u_bc)
         else:
             r0 = preconditioner.fsi_precond_all2(r0, x_k, u_bc)
@@ -236,7 +238,7 @@ def gmres_mg_solver(x_i, x_rhs,
             )
             w *= -1.  # providing rhs=0, b-Ax is -Ax
             # apply preconditioner
-            if sf_nd_nb.nits % 1 == 0:
+            if isUpperTriPrecond:
                 w = preconditioner.fsi_precond_all(x_i=w, x_k=x_k, u_bc=u_bc)
             else:
                 w = preconditioner.fsi_precond_all2(x_i=w, x_k=x_k, u_bc=u_bc)
@@ -277,6 +279,7 @@ def gmres_mg_solver(x_i, x_rhs,
               torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
               torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
               torch.linalg.norm(r0_dict['disp']).cpu().numpy())
+        # isUpperTriPrecond = not isUpperTriPrecond
     return x_i, sf_nd_nb.its
 
 

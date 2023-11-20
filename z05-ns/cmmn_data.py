@@ -56,6 +56,7 @@ class SfNdNb:
         self.inter_stress_thisstep = None  # interface stress from this step (nele, ndim, ndim, sngi)
 
         self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
+        self.mesh_material = None  # mesh material (e.g. NeoHookean, StVenant-Kirchoff)  when not using diffusion eq
 
     def set_data(self,
                  vel_func_space=None,
@@ -77,6 +78,7 @@ class SfNdNb:
                  u_ave=None,  # volume averaged velocity (nele, ndim)
                  u_m=None,  # mesh velocity (nele, u_nloc, ndim)
                  material=None,  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
+                 mesh_material=None,  # mesh material (e.g. NeoHookean, StVenant-Kirchoff) when not using diffusion eq
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -118,6 +120,8 @@ class SfNdNb:
             self.u_m = u_m
         if material is not None:
             self.material = material
+        if mesh_material is not None:
+            self.mesh_material = mesh_material
 
 
 class SFCdata:
