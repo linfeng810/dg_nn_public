@@ -9,6 +9,7 @@ matric-free implementation
 import torch
 from torch import Tensor
 import numpy as np
+import pyamg
 from tqdm import tqdm
 import config
 import volume_mf_st
@@ -1295,18 +1296,24 @@ def get_RAR_and_sfc_data_Sp(
 
     if not config.is_sfc:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
-        sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
-    # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-    RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
-    # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-    space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        mg_le.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_s)
-    sf_nd_nb.sfc_data_S.set_data(
-        space_filling_curve_numbering=space_filling_curve_numbering,
-        variables_sfc=variables_sfc,
-        nlevel=nlevel,
-        nodes_per_level=nodes_per_level
-    )
+        if not config.is_amg:
+            sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
+        else:
+            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+            RAR_ml = pyamg.smoothed_aggregation_solver(RAR.tocsr())
+            sf_nd_nb.set_data(RARmat_S=RAR_ml)
+    else:
+        # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
+        RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
+        # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+        space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+            mg_le.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_s)
+        sf_nd_nb.sfc_data_S.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
 
 
 # def all kinds of preconditioning operations...

@@ -29,7 +29,7 @@ tstart = 0.  # starting time
 tend = 6  # end time
 isTransient = False  # decide if we are doing transient simulation
 if not isTransient:
-    dt = 1e8  # if not transient, set dt to a large value
+    dt = 1e16  # if not transient, set dt to a large value
 isAdvExp = False  # treat advection term explicitly
 if True:  # isTransient:
     time_order = 3  # time discretisation order
@@ -55,6 +55,7 @@ filename = 'z32-square-mesh/square_3rd_order_dirineu_r4.msh'
 filename = 'z31-cube-mesh/cube_ho_poi_r3.msh'
 filename = 'z23-nozzle/nozzle_ho_fine.msh'
 # filename = 'z23-nozzle/fake_nozzle.msh'
+filename = 'z35-fsi/z05-2d-tube/tube_full.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -105,6 +106,7 @@ else:
     # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
     # nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
     nele = nele_f + nele_s
+    print('nele, nele_f, nele_s, ndim', nele, nele_f, nele_s, ndim)
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
@@ -126,10 +128,13 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+is_amg = False  # whether using algebraic multigrid (AMG) as smoother
+# if both is_sfc and is_amg are false, then direct solve on P1CG is used.
 print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
       'with PMG?', is_pmg,
-      'with SFC?', is_sfc)
+      'with SFC?', is_sfc,
+      'with pyAMG', is_amg)
 print('jacobi block solver is: ', blk_solver)
 
 # gmres parameters
@@ -148,7 +153,7 @@ sf_nd_nb.relax_coeff = relax_coeff
 ####################
 # material property
 ####################
-problem = 'nozzle'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'fsi-poiseuille'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -170,8 +175,8 @@ print('Lame coefficient: lamda, mu', lam_s, mu_s)
 kdiff = 1.0
 # print('lam_s, mu_s', lam_s, mu_s)
 rho_f = 1.
-if isFSI:
-    rho_s = 1.e3  # solid density at initial configuration
+rho_s = 1.e3  # solid density at initial configuration
+print('rho_f, rho_s', rho_f, rho_s)
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
 kijkl = torch.einsum('ik,jl->ijkl', a, a)  # k tensor for double diffusion
 cijkl = lam_s * torch.einsum('ij,kl->ijkl', a, a) \
@@ -195,7 +200,7 @@ if True:
     _Re = int(1 / mu_f)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
-    include_adv = False  # if Navier-Stokes, include advection term.
+    include_adv = True  # if Navier-Stokes, include advection term.
     if isAdvExp:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu_f, _Re, hasNullSpace, is_pressure_stablise)
@@ -239,4 +244,4 @@ print('No of batch: ', no_batch)
 case_name = '_' + problem + 'Re' + str(_Re) + '_p' + str(ele_p) + 'p' + str(ele_p_pressure) + \
             '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
 # case_name = '_bfsRe109_p3p2_20230828-190846'
-print('case name is: ' + case_name)
+print('case name is: ' + filename + case_name)

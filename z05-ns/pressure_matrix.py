@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import pyamg
 from tqdm import tqdm
 import time, os.path
 from scipy.sparse import csr_matrix, linalg
@@ -845,16 +846,22 @@ def get_RAR_and_sfc_data_Lp(
     if not config.is_sfc:
         RAR = csr_matrix((RARvalues.cpu(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
-        sf_nd_nb.set_data(RARmat_Lp=RAR)
-    # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-    space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        _mg_on_P0CG_prep(fina, cola, RARvalues)
-    sf_nd_nb.sfc_data_Lp.set_data(
-        space_filling_curve_numbering=space_filling_curve_numbering,
-        variables_sfc=variables_sfc,
-        nlevel=nlevel,
-        nodes_per_level=nodes_per_level
-    )
+        if not config.is_amg:
+            sf_nd_nb.set_data(RARmat_Lp=RAR)
+        else:
+            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+            RAR_ml = pyamg.smoothed_aggregation_solver(RAR)
+            sf_nd_nb.set_data(RARmat_Lp=RAR_ml)
+    else:
+        # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+        space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+            _mg_on_P0CG_prep(fina, cola, RARvalues)
+        sf_nd_nb.sfc_data_Lp.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
 
 
 def pre_precond_Fp(x_p, u_n, u_bc):
@@ -918,12 +925,21 @@ def pre_precond_invLp(x_p, x_rhs):
 
     # smooth/solve on P1CG grid
     if not config.is_sfc:  # two-grid method
-        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
-        e_direct = linalg.spsolve(
-            sf_nd_nb.RARmat_Lp,
-            r1.contiguous().view(-1).cpu().numpy()
-        )
-        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods)
+        if not config.is_amg:  # direct solve on P1CG
+            e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+            e_direct = linalg.spsolve(
+                sf_nd_nb.RARmat_Lp,
+                r1.contiguous().view(-1).cpu().numpy()
+            )
+            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods)
+        else:  # AMG on P1CG
+            e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+            e_direct = sf_nd_nb.RARmat_Lp.solve(
+                r1.contiguous().view(-1).cpu().numpy(),
+                maxiter=1,
+                tol=1e-10)
+            # e_direct = np.reshape(e_direct, (cg_nonods))
+            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
     else:  # multi-grid on space-filling curve generated grids
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data_Lp.space_filling_curve_numbering)
