@@ -23,10 +23,10 @@ isFSI = True  # fsi problem or not
 #####################################################
 # time step settings
 #####################################################
-dt = 0.05  # timestep
+dt = 0.005  # timestep
 if args.dt is not None:
     dt = args.dt
-tstart = 0.  # starting time
+tstart = 5  # starting time
 tend = 6  # end time
 isTransient = True  # decide if we are doing transient simulation
 if not isTransient:
@@ -57,7 +57,7 @@ filename = 'z31-cube-mesh/cube_ho_poi_r3.msh'
 filename = 'z23-nozzle/nozzle_ho_fine.msh'
 # filename = 'z23-nozzle/fake_nozzle.msh'
 filename = 'z35-fsi/z05-2d-tube/tube_full.msh'
-# filename = 'z35-fsi/z04-turek-ho/turek.msh'
+filename = 'z35-fsi/z04-turek-ho/turek.msh'
 # filename = 'z35-fsi/z05-2d-tube/z01-plate/plate.msh'
 if args.filename is not None:
     filename = args.filename
@@ -145,10 +145,10 @@ print('jacobi block solver is: ', blk_solver)
 # 1 -- direct inverse on P1CG
 # 2 -- use SFC-mg as smoother on P1CG
 # 3 -- use pyAMG as smoother on P1CG
-mg_opt_F = 1  # velocity block
-mg_opt_Lp = 1  # velocity Laplacian block
+mg_opt_F = 2  # velocity block
+mg_opt_Lp = 2  # velocity Laplacian block
 mg_opt_S = 1  # structure displacement block
-mg_opt_Um = 1  # mesh displacement
+mg_opt_Um = 2  # mesh displacement
 pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
 # pyAMGsmoother = pyamg.air_solver  # pyAMG smoother
 # pyAMGsmoother = pyamg.ruge_stuben_solver
@@ -168,7 +168,7 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
     print('gmres paraters: restart=', gmres_m, 'max restart: ', gmres_its)
 
 # non-linear iteration parameters
-n_its_max = 6
+n_its_max = 10
 n_tol = 1.e-5
 relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
 sf_nd_nb.relax_coeff = relax_coeff
@@ -176,15 +176,15 @@ sf_nd_nb.relax_coeff = relax_coeff
 ####################
 # material property
 ####################
-problem = 'fsi-poiseuille'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'turek'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
 # or 'fsi-test' = test fluid-structure boundary
 # or 'turek' = turek benchmark FSI-2
 # or 'fsi-poiseuille' = fsi poiseuille flow
-# E = 500
-# nu = 0.  # or 0.49, or 0.4999
+# E = 1
+# nu = 0.49  # or 0.49, or 0.4999
 # lam_s = E*nu/(1.+nu)/(1.-2.*nu)
 # mu_s = E/2.0/(1.+nu)
 lam_s = 8e6
@@ -228,14 +228,14 @@ if True:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu_f, _Re, hasNullSpace, is_pressure_stablise)
 
-    initialCondition = 1  # 1. use zero as initial condition
+    initialCondition = 3  # 1. use zero as initial condition
     # 2. solve steady stokes as initial condition
     # 3. to use a precalculated fields (u and p) in a file as initial condition
     if initialCondition == 3:
-        initDataFile = ['z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.96.pt',
-                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.95.pt',
-                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.94.pt',
-                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231119-000432_t3.93.pt']
+        initDataFile = ['z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t5.00.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t5.00.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t4.99.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t4.99.pt',]
         print('use this data file as initial condition: ' + initDataFile[0])
 
 # === all kinds of stabilisation for convection-dominant flow ===

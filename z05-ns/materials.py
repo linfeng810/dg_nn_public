@@ -274,6 +274,103 @@ class LinearElastic:
         return self.calc_AA(nx, u, batch_in)
 
 
+class LinearElasticVarProp:
+    """linear elastic material with variable properties"""
+    def __init__(self, nloc, ndim, dev, mu, lam):
+        self.nloc = nloc
+        self.ndim = ndim
+        self.dev = dev
+        self.mu = mu  # mu on nodal points  (nele, nloc)
+        self.lam = lam  # lam on nodal points (nele, nloc)
+
+    def _calc_F(self, nlx, u, batch_in: int):
+        # compute deformation gradient
+        # here we assum nx shape is (batch_in, ndim, nloc, ngi)
+        F = torch.einsum('bni,bjng->bgij', u.view(batch_in, self.nloc, self.ndim), nlx)
+        F += torch.eye(self.ndim, device=self.dev, dtype=torch.float64)
+        # output shape is (batch_in, ngi, ndim, ndim)
+        return F
+
+    def _calc_C(self, F):
+        """
+        compute right Cauchy-Green tensor
+        C = F^T F
+        """
+        C = torch.einsum('bgik,bgij->bgkj', F, F)
+        # output shape is (batch_in, ngi, ndim, ndim)
+        return C
+
+    def _calc_CC(self, mu_gi, lam_gi):
+        """
+        compute elasticity tensor $\mathbb C$
+        $\mathbb C = \partial S / \partial C$
+                   = \lambda I_ij I_kl + \mu (I_ik I_jl + I_il I_jk)
+        """
+        I3 = torch.eye(self.ndim, device=self.dev, dtype=torch.float64)
+        CC = torch.einsum('ij,kl,bg->bijklg', I3, I3, lam_gi) \
+            * torch.einsum('ik,jl,bg->bijklg', I3, I3, mu_gi) \
+            * torch.einsum('il,jk,bg->bijklg', I3, I3, mu_gi)
+        # print(CC)
+        # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
+        return CC
+
+    def calc_P(self, nx, u, batch_in, mu_gi, lam_gi):
+        """
+        compute PK1 tensor from given displacement
+        """
+        nabla_u = torch.einsum('bjng,bni->bijg', nx, u.view(batch_in, self.nloc, self.ndim))
+        CC = self._calc_CC(mu_gi, lam_gi)
+        P = torch.einsum('bijklg,bklg->bijg', CC, nabla_u)
+        # output shape is (batch_in, ndim, ndim, ngi)
+        return P
+
+    def calc_P_ave(self, nx, u, nx_nb, u_nb, batch_in, mu_gi_th, lam_gi_th, mu_gi_nb, lam_gi_nb):
+        """
+        compute PK1 tensor from given displacement
+        """
+        nabla_u_this = torch.einsum('bjng,bni->bijg', nx, u.view(batch_in, self.nloc, self.ndim))  # this side
+        nabla_u_neib = torch.einsum('bjng,bni->bijg', nx_nb, u_nb.view(batch_in, self.nloc, self.ndim))  # other side
+        nabla_u = 0.5 * (nabla_u_this + nabla_u_neib)
+        CC_this = self._calc_CC(mu_gi_th, lam_gi_th)
+        CC_neib = self._calc_CC(mu_gi_nb, lam_gi_nb)
+        P = torch.einsum('bijklg,bklg->bijg', 0.5*(CC_this+CC_neib), nabla_u)
+        # output shape is (batch_in, ndim, ndim, ngi)
+        return P
+
+    def calc_AA(self, nx, u, batch_in, mu_gi, lam_gi):
+        """
+        compute elasticity tensor \mathbb A
+        at given intermediate state (displacement)
+        \mathbb A = \mathbb C
+        """
+
+        # although we don't need u and ele_list for linear elastic,
+        # we keep them in the inputs list for ensure same function
+        # interface for different materials.
+
+        ngi = nx.shape[-1]
+        AA = torch.zeros((batch_in,
+                          self.ndim, self.ndim,
+                          self.ndim, self.ndim,
+                          ngi),
+                         device=self.dev, dtype=torch.float64)
+        AA += self._calc_CC(mu_gi, lam_gi)
+        # output shape is (batch_in, ndim, ndim, ndim, ndim, ngi)
+        return AA
+
+    def calc_AA_ave(self, nx, u, nx_nb, u_nb, batch_in: int,
+                    mu_gi_th, lam_gi_th, mu_gi_nb, lam_gi_nb):
+        """
+        calculate average of A on element face, i.e. {A}.
+        since we have varying mu and lam across domain, we
+        need to pass in mu and lam on gi just as we pass in
+        u and u_nb.
+        """
+        AA_th = self.calc_AA(nx, u, batch_in, mu_gi_th, lam_gi_th)  # this side
+        AA_nb = self.calc_AA(nx_nb, u_nb, batch_in, mu_gi_nb, lam_gi_nb)  # other side
+        return 0.5 * AA_th + 0.5 * AA_nb
+
+
 class STVK:
     def __init__(self, nloc, ndim, dev, mu, lam):
         self.nloc = nloc

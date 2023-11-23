@@ -57,6 +57,7 @@ class SfNdNb:
 
         self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
         self.mesh_material = None  # mesh material (e.g. NeoHookean, StVenant-Kirchoff)  when not using diffusion eq
+        self.mesh_mu = None  # diffusion coefficient for mesh movement (constant for each element)
 
     def set_data(self,
                  vel_func_space=None,
@@ -79,6 +80,7 @@ class SfNdNb:
                  u_m=None,  # mesh velocity (nele, u_nloc, ndim)
                  material=None,  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
                  mesh_material=None,  # mesh material (e.g. NeoHookean, StVenant-Kirchoff) when not using diffusion eq
+                 mesh_mu=None,  # mesh diffusion coefficient (constant for each element)
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -122,6 +124,8 @@ class SfNdNb:
             self.material = material
         if mesh_material is not None:
             self.mesh_material = mesh_material
+        if mesh_mu is not None:
+            self.mesh_mu = mesh_mu
 
 
 class SFCdata:
