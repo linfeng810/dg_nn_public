@@ -95,12 +95,15 @@ def calc_RAR_mf_color(
                     I_cf,
                     mg_le.vel_pndg_to_p1dg_restrictor(ARm_dict['vel'][0:nele_f, :, idim])
                 )  # (cg_nonods, ndim)
-            for idim in range(ndim):
-                # add to value
-                for i in range(RARm.shape[0]):
-                    for count in range(fina[i], fina[i + 1]):
-                        j = cola[count]
-                        value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
+            # add to value
+            for i in range(RARm.shape[0]):
+                count = np.arange(fina[i], fina[i+1])
+                j = cola[fina[i]:fina[i+1]]
+                for idim in range(ndim):
+                    # for count in range(fina[i], fina[i + 1]):
+                    #     j = cola[count]
+                    #     value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
+                    value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
         # print('finishing (another) one color, time comsumed: ', time.time() - start_time)
     return value
 

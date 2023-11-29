@@ -41,6 +41,7 @@ starttime = time.time()
 # torch.set_printoptions(sci_mode=False)
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
+torch.autograd.set_grad_enabled(False)
 
 dev = config.dev
 nele = config.nele
@@ -73,13 +74,15 @@ print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ',
 #     [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndglno, cg_nonods] = mesh_init.init_3d()
 vel_func_space = FuncSpace(vel_ele, name="Velocity", mesh=config.mesh, dev=dev)
 pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev,
-                           not_iso_parametric=True, x_element=vel_ele)  # super-parametric pressure ele.
+                           not_iso_parametric=True, x_element=vel_ele,)
+                           # func_space_template=vel_func_space)  # super-parametric pressure ele.
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
 
 disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev,
-                            get_pndg_ndglbno=True)  # displacement func space
+                            get_pndg_ndglbno=True,
+                            func_space_template=vel_func_space)  # displacement func space
 sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
 # material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,

@@ -63,14 +63,16 @@ def relax_rigid_body_mode(A, v, nsmooth=1):
     """
     diagA = A.diagonal()
     diagA = 1./diagA
-    v_s = np.zeros_like(v)  # smoothed v
+    Dm12 = 1. / np.sqrt(np.abs(diagA))  # D^{-1/2}
+    wei = 3. / 4. * np.linalg.norm(Dm12.transpose() @ A @ Dm12, np.inf)
+    b = np.zeros_like(v)  # homogeneous right hand side
     for i in range(nsmooth):
-        v_s -= 2./3. * np.einsum('i,ib->bi', diagA, v.transpose() - A @ v_s.transpose())
+        b -= wei * np.einsum('i,ib->bi', diagA, b.transpose() - A @ v.transpose())
     # # direct inverse to get v_s
     # v_s = sp.linalg.spsolve(A, v.transpose())
-
-    v *= 0
-    v += v_s.transpose()
+    #
+    # v *= 0
+    # v += v_s.transpose()
     return v
 
 

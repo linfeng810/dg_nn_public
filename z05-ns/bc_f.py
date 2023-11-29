@@ -884,6 +884,21 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
         # f[:, 1] = 0.
         # f[:, 2] = mu * gamma * torch.pi ** 2 * torch.sin(torch.pi * x)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'ls1' and ndim == 2:
+        # channel with flexible wall (vertical, like a seeweed), from La Spina 2020 section 4.4
+        for ibc in range(0, 1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x - 0) < 1e-8:  # x = 1 fluid inlet
+                    u_bc[ibc][inod // nloc, inod % nloc, 0] = (1 - 4 * y ** 2) * 0.06067 * 956
+            if t < 10:
+                u_bc[ibc] *= (1 - np.cos(np.pi * t / 10.0)) / 2.0
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
         raise Exception('the problem ' + prob + ' is not defined in fsi_bc_f')
     return u_bc, f, fNorm

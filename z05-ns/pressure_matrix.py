@@ -554,9 +554,12 @@ def _calc_RAR_mf_color(
         RARm += torch.mv(I_cf, mg_le.pre_pndg_to_p1dg_restrictor(ARm))  # (cg_nonods)
         # add to RARvalue
         for i in range(RARm.shape[0]):
-            for count in range(fina[i], fina[i + 1]):
-                j = cola[count]
-                value[count] += RARm[i] * mask[j]
+            # for count in range(fina[i], fina[i + 1]):
+            #     j = cola[count]
+            #     value[count] += RARm[i] * mask[j]
+            count = np.arange(fina[i], fina[i+1])
+            j = cola[count]
+            value[count] += RARm[i] * mask[j]
         # print('finishing (another) one color, time comsumed: ', time.time() - start_time)
     return value
 

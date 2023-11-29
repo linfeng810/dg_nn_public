@@ -278,7 +278,8 @@ def gmres_mg_solver(x_i, x_rhs,
         print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm= all, vel, pre, disp', r0l2.cpu().numpy(),
               torch.linalg.norm(r0_dict['vel']).cpu().numpy(),
               torch.linalg.norm(r0_dict['pre']).cpu().numpy(),
-              torch.linalg.norm(r0_dict['disp']).cpu().numpy())
+              torch.linalg.norm(r0_dict['disp']).cpu().numpy(),
+              'isUpperTriPrecond', isUpperTriPrecond)
         # isUpperTriPrecond = not isUpperTriPrecond
     return x_i, sf_nd_nb.its
 
