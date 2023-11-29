@@ -19,6 +19,8 @@ dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(0)
 
 isFSI = True  # fsi problem or not
+enforce_mesh_continuity = False  # whether to enforce mesh continuity, if true, will be more stable but the non-linear
+# residual won't fall as expected.
 
 #####################################################
 # time step settings
@@ -145,9 +147,10 @@ print('jacobi block solver is: ', blk_solver)
 # 1 -- direct inverse on P1CG
 # 2 -- use SFC-mg as smoother on P1CG
 # 3 -- use pyAMG as smoother on P1CG
+# 4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.
 mg_opt_F = 2  # velocity block
 mg_opt_Lp = 2  # velocity Laplacian block
-mg_opt_S = 1  # structure displacement block
+mg_opt_S = 4  # structure displacement block
 mg_opt_Um = 2  # mesh displacement
 pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
 # pyAMGsmoother = pyamg.air_solver  # pyAMG smoother

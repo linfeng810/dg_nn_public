@@ -75,6 +75,13 @@ def disp_precond_all(x_i, x_rhs, x_k, isReturnResidual=False):
             )
             e_direct = np.reshape(e_direct, (cg_nonods, ndim))
             e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+    elif config.mg_opt_S == 4:  # amg method but using pytorch
+        e_i = sf_nd_nb.RARmat_S.solve(
+            r1.contiguous().view(-1),
+            maxiter=1,  # do one cycle
+            tol=1e-10,
+        )
+        e_i = e_i.view(cg_nonods, ndim)
     else:  # multi-grid method
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data_S.space_filling_curve_numbering)

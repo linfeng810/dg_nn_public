@@ -58,8 +58,9 @@ def solve_for_mesh_disp(
     if torch.linalg.norm(x_i) < 1e-8:
         return x_i
     x_i = _solve_diffusion(x_i)
-    x_i = _project_to_make_continuous(x_i)
-    x_i = _make_0_bc_strongly_enforced(x_i)
+    if config.enforce_mesh_continuity:
+        x_i = _project_to_make_continuous(x_i)
+        x_i = _make_0_bc_strongly_enforced(x_i)
     x_i = x_i.view(nele, -1, ndim)
     return x_i
 

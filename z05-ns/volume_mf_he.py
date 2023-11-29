@@ -10,6 +10,7 @@ from torch import Tensor
 import numpy as np
 from tqdm import tqdm
 import config
+import sa_amg
 import volume_mf_st
 from config import sf_nd_nb
 import materials
@@ -1297,23 +1298,68 @@ def get_RAR_and_sfc_data_Sp(
         sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
     elif config.mg_opt_S == 3:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
-        # compute near null space
-        # null_space = scipy.linalg.null_space(RAR.todense())
-        print('eigen values:')
-        eigenvar = scipy.linalg.eigvals(RAR.todense())
-        eigenvar_real = eigenvar.real
-        eigenvar_real = np.sort(eigenvar_real)
-        print('smallest: ', eigenvar_real[0:10])
-        print('largest: ', eigenvar_real[-10:-1])
-        # find the eigen vectors corresponding to the smallest eigen values
-        eigv, lfeignvec, rteignvec = scipy.linalg.eig(RAR.todense(), left=True, right=True)
-        sort_idx = np.argsort(eigv.real)
-        # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
-        # RAR_ml = config.pyAMGsmoother(RAR.tocsr())  # , B=null_space)
-        ndim_nullspace = 7
-        RAR_ml = config.pyAMGsmoother(RAR.tocsr(),
-                                      B=rteignvec[:, sort_idx[0:ndim_nullspace]],  # left eig vec corr. to 10 min eigvar
-                                      BH=lfeignvec[:, sort_idx[0:ndim_nullspace]])  # right eig vec corr. to ...
+        if True:  # use real eigen vectors as near null space
+            # compute near null space
+            # null_space = scipy.linalg.null_space(RAR.todense())
+            print('eigen values:')
+            eigenvar = scipy.linalg.eigvals(RAR.todense())
+            eigenvar_real = eigenvar.real
+            eigenvar_real = np.sort(eigenvar_real)
+            print('smallest: ', eigenvar_real[0:10])
+            print('largest: ', eigenvar_real[-10:-1])
+            # find the eigen vectors corresponding to the smallest eigen values
+            eigv, lfeignvec, rteignvec = scipy.linalg.eig(RAR.todense(), left=True, right=True)
+            sort_idx = np.argsort(eigv.real)
+            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+            # RAR_ml = config.pyAMGsmoother(RAR.tocsr())  # , B=null_space)
+            ndim_nullspace = 7
+            RAR_ml = config.pyAMGsmoother(RAR.tocsr(),
+                                          B=rteignvec[:, sort_idx[0:ndim_nullspace]],  # left eig vec corr. to 10 min eigvar
+                                          BH=lfeignvec[:, sort_idx[0:ndim_nullspace]],
+                                          presmoother=('jacobi', {'omega': 1.8}),
+                                          postsmoother=('jacobi', {'omega': 1.8})
+                                          )  # right eig vec corr. to ...
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, rteignvec[:, sort_idx[0:ndim_nullspace]].transpose(),
+                                       ndim=ndim, name='smoothed_rigid_body_mode.txt')
+        else:  # use rigid body modes as near null space
+            # compute rigid body modes
+            v = sa_amg.get_rigid_body_mode(sf_nd_nb.sparse_s.cg1_nodes_coor, ndim=ndim)
+            # v = sa_amg.relax_rigid_body_mode(RAR.tocsr(), v.cpu().numpy(), nsmooth=1000)
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, v,
+                                       ndim=ndim, name='smoothed_rigid_body_mode.txt')
+            RAR_ml = config.pyAMGsmoother(RAR.tocsr(), B=v.cpu().numpy().transpose())
+        sf_nd_nb.set_data(RARmat_S=RAR_ml)
+    elif config.mg_opt_S == 4:  # SA wrapped with pytorch -- will be computing on torch device.
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
+        if False:  # use real eigen vectors as near null space
+            # compute near null space
+            # null_space = scipy.linalg.null_space(RAR.todense())
+            print('eigen values:')
+            eigenvar = scipy.linalg.eigvals(RAR.todense())
+            eigenvar_real = eigenvar.real
+            eigenvar_real = np.sort(eigenvar_real)
+            print('smallest: ', eigenvar_real[0:10])
+            print('largest: ', eigenvar_real[-10:-1])
+            # find the eigen vectors corresponding to the smallest eigen values
+            eigv, lfeignvec, rteignvec = scipy.linalg.eig(RAR.todense(), left=True, right=True)
+            sort_idx = np.argsort(eigv.real)
+
+            ndim_nullspace = 7
+            RAR_ml = sa_amg.SASolver(RAR.tocsr(),
+                                     v=rteignvec[:, sort_idx[0:ndim_nullspace]],  # left eig vec corr. to 10 min eigvar
+                                     omega=config.jac_wei)
+
+            # for debug, print out eigen vectors and coordinates
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, rteignvec[:, sort_idx[0:ndim_nullspace]].transpose(),
+                                       ndim=ndim, name='eigen_vec.txt')
+        else:  # use rigid body modes as near null space
+            # compute rigid body modes
+            v = sa_amg.get_rigid_body_mode(sf_nd_nb.sparse_s.cg1_nodes_coor, ndim=ndim)
+            # v = sa_amg.relax_rigid_body_mode(RAR.tocsr(), v.cpu().numpy(), nsmooth=1000)
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, v,
+                                       ndim=ndim, name='smoothed_rigid_body_mode.txt')
+            RAR_ml = sa_amg.SASolver(RAR.tocsr(), v=v.cpu().numpy().transpose(),
+                                     omega=config.jac_wei)
         sf_nd_nb.set_data(RARmat_S=RAR_ml)
     else:
         # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
