@@ -434,6 +434,12 @@ def _s_res_one_batch(
                 diagK, bdiagK, batch_start_idx,
                 nb_gi_aln,
             )
+    # r0, diagK, bdiagK = _s_res_fi_all_face(
+    #     r0, diagK, bdiagK,
+    #     f_i, E_F_i,
+    #     f_inb, E_F_inb,
+    #     x_i,
+    # )
     # boundary faces (dirichlet)
     for iface in range(nface):
         idx_iface = f_b == iface
@@ -571,6 +577,183 @@ def _s_res_fi(
     return r0, diagK, bdiagK
 
 
+def _s_res_fi_all_face(
+        r0, diagK, bdiagK,
+        f_i, E_F_i,
+        f_inb, E_F_inb,
+        x_i,
+):
+    """internal faces"""
+    batch_in = f_i.shape[0]
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
+    # get element parameters
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    r0 = r0.view(nele, u_nloc)
+    x_i = x_i.view(nele, u_nloc)
+
+    # shape function on this side
+    snx, sdetwei, snormal = sdet_snlx(
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
+    )
+    sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    snx = snx[E_F_i, f_i, ...]  # (batch_in, ndim, nloc, sngi)
+    sdetwei = sdetwei[E_F_i, f_i, ...]  # (batch_in, sngi)
+    snormal = snormal[E_F_i, f_i, ...]  # (batch_in, ndim, sngi)
+
+    # shape function on the other side
+    snx_nb, _, snormal_nb = sdet_snlx(
+        snlx=sf_nd_nb.vel_func_space.element.snlx,
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
+        sweight=sf_nd_nb.vel_func_space.element.sweight,
+        nloc=sf_nd_nb.vel_func_space.element.nloc,
+        sngi=sf_nd_nb.vel_func_space.element.sngi,
+        sn=sf_nd_nb.vel_func_space.element.sn,
+    )
+    # get faces we want
+    sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+    snx_nb = snx_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
+    snormal_nb = snormal_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, sngi)
+    # change gaussian points order on other side
+    # ===== old ======
+    # nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
+    # snx_nb = snx_nb[..., nb_aln]
+    # snormal_nb = snormal_nb[..., nb_aln]
+    # # don't forget to change gaussian points order on sn_nb!
+    # sn_nb = sn_nb[..., nb_aln]
+    # ===== new ======
+    for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
+        idx = sf_nd_nb.vel_func_space.alnmt[E_F_i * nface + f_i] == nb_gi_aln
+        nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
+        snx_nb[idx, ...] = snx_nb[idx][..., nb_aln]
+        snormal_nb[idx, ...] = snormal_nb[idx][..., nb_aln]
+        sn_nb[idx, ...] = sn_nb[idx][..., nb_aln]
+
+    h = torch.sum(sdetwei, -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    gamma_e = config.eta_e / h
+
+    u_ith = x_i[E_F_i, ...]
+    u_inb = x_i[E_F_inb, ...]
+
+    # # K block
+    # K = torch.zeros(batch_in, u_nloc, u_nloc, device=dev, dtype=torch.float64)
+    # # this side
+    # # [v_i n_j] {du_i / dx_j}  consistent term
+    # K += torch.einsum(
+    #     'bmg,bjg,bjng,bg->bmn',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     snormal,  # (batch_in, ndim, sngi)
+    #     snx,  # (batch_in, ndim, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    # ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+    # # {dv_i / dx_j} [u_i n_j]  symmetry term
+    # K += torch.einsum(
+    #     'bjmg,bng,bjg,bg->bmn',
+    #     snx,  # (batch_in, ndim, nloc, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     snormal,  # (batch_in, ndim, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    # ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+    # # \gamma_e * [v_i][u_i]  penalty term
+    # K += torch.einsum(
+    #     'bmg,bng,bg,b->bmn',
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sn,  # (batch_in, nloc, sngi)
+    #     sdetwei,  # (batch_in, sngi)
+    #     gamma_e,  # (batch_in)
+    # )
+    # K *= config.mu_f
+
+    # assume we don't need to get block diagonal
+    # K block
+    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=torch.float64)
+    # this side
+    # [v_i n_j] {du_i / dx_j}  consistent term
+    Au += torch.einsum(
+        'bmg,bjg,bjng,bg,bn->bm',
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim, sngi)
+        snx,  # (batch_in, ndim, nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        u_ith,  # (batch_in, u_nloc)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
+    # {dv_i / dx_j} [u_i n_j]  symmetry term
+    Au += torch.einsum(
+        'bjmg,bng,bjg,bg,bn->bm',
+        snx,  # (batch_in, ndim, nloc, sngi)
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim, sngi)
+        sdetwei,  # (batch_in, sngi)
+        u_ith,  # (batch_in, u_nloc)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+    # \gamma_e * [v_i][u_i]  penalty term
+    Au += torch.einsum(
+        'bmg,bng,bg,b,bn->bm',
+        sn,  # (batch_in, nloc, sngi)
+        sn,  # (batch_in, nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        gamma_e,  # (batch_in)
+        u_ith,  # (batch_in, u_nloc)
+    )
+    Au *= config.mu_f
+
+    # update residual
+    # Au = torch.einsum('bmn,bn->bm', K, u_ith)
+    # # put diagonal into diagK and bdiagK
+    # diagS = torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
+    #                        dim1=1, dim2=2).view(batch_in, u_nloc)
+    # put them to r0, diagK and bdiagK (SCATTER)
+    for iface in range(nface):
+        idx_iface = (f_i == iface)
+        r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
+        # diagK[E_F_i[idx_iface], ...] += diagS[idx_iface, ...]
+        # bdiagK[E_F_i[idx_iface], ...] += K[idx_iface, ...]
+
+    # other side
+    Au *= 0
+    # [v_i n_j] {du_i / dx_j}  consistent term
+    Au += torch.einsum(
+        'bmg,bjg,bjng,bg,bn->bm',
+        sn,  # (batch_in, nloc, sngi)
+        snormal,  # (batch_in, ndim, sngi)
+        snx_nb,  # (batch_in, ndim, nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        u_inb,  # (batch_in, u_nloc)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+    # {dv_i / dx_j} [u_i n_j]  symmetry term
+    Au += torch.einsum(
+        'bjmg,bng,bjg,bg,bn->bm',
+        snx,  # (batch_in, ndim, nloc, sngi)
+        sn_nb,  # (batch_in, nloc, sngi)
+        snormal_nb,  # (batch_in, ndim, sngi)
+        sdetwei,  # (batch_in, sngi)
+        u_inb,  # (batch_in, u_nloc)
+    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
+    # \gamma_e * [v_i][u_i]  penalty term
+    Au += torch.einsum(
+        'bmg,bng,bg,b,bn->bm',
+        sn,  # (batch_in, nloc, sngi)
+        sn_nb,  # (batch_in, nloc, sngi)
+        sdetwei,  # (batch_in, sngi)
+        gamma_e,  # (batch_in)
+        u_inb,  # (batch_in, u_nloc)
+    ) * (-1.)  # because n2 \cdot n1 = -1
+    Au *= config.mu_f
+
+    # update residual
+    # scatter
+    for iface in range(nface):
+        idx_iface = (f_i == iface)
+        r0[E_F_inb[idx_iface], ...] -= Au[idx_iface, ...]
+    return r0, diagK, bdiagK
+
+
 def _s_res_fb(
         r0, f_b, E_F_b,
         x_i,
@@ -660,6 +843,8 @@ def _get_RAR_and_sfc_data_Um():
     RARvalues = _calc_RAR_mf_color(
         I_fc, I_cf,
         whichc, ncolor,
+        sf_nd_nb.sparse_f.spIdx_for_color,
+        sf_nd_nb.sparse_f.colIdx_for_color,
         fina, cola, ncola,
     )
     from scipy.sparse import csr_matrix
@@ -691,6 +876,7 @@ def _get_RAR_and_sfc_data_Um():
 def _calc_RAR_mf_color(
         I_fc, I_cf,
         whichc, ncolor,
+        spIdx_for_color, colIdx_for_color,
         fina, cola, ncola,
 ):
     """
@@ -735,10 +921,15 @@ def _calc_RAR_mf_color(
         )  # (cg_nonods)
 
         # add to value
-        for i in range(RARm.shape[0]):
-            for count in range(fina[i], fina[i + 1]):
-                j = cola[count]
-                value[count] += RARm[i] * mask[j]
+        # for i in range(RARm.shape[0]):
+        #     # for count in range(fina[i], fina[i + 1]):
+        #     #     j = cola[count]
+        #     #     value[count] += RARm[i] * mask[j]
+        #     count = np.arange(fina[i], fina[i+1])
+        #     j = cola[count]
+        #     value[count] += RARm[i] * mask[j]
+        value[spIdx_for_color[color - 1]] += \
+            RARm[colIdx_for_color[color - 1]]
         # print('finishing (another) one color, time comsumed: ', time.time() - start_time)
     return value
 

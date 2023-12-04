@@ -40,7 +40,8 @@ solver = 'iterative'  # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename = 'z23-nozzle/nozzle_ho_r1.msh'  # directory to mesh file (gmsh)
+filename = 'z23-nozzle/nozzle.msh'  # directory to mesh file (gmsh)
+# filename = 'z21-cube-mesh/cube_ho_poi.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:

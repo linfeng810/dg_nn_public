@@ -22,7 +22,7 @@ import volume_mf_diff
 from function_space import FuncSpace, Element
 from config import sf_nd_nb
 import mesh_init
-from color import color2
+# from color import color2
 import multigrid_linearelastic as mg
 import bc_f
 import time
@@ -33,6 +33,7 @@ starttime = time.time()
 # torch.set_printoptions(sci_mode=False)
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
+torch.set_grad_enabled(False)
 
 dev = config.dev
 nele = config.nele
