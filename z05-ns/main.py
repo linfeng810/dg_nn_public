@@ -19,7 +19,7 @@ import output
 import petrov_galerkin
 import shape_function
 import sparsity
-import volume_mf_st, volume_mf_um, volume_mf_he, volume_mf_um_on_fix_mesh
+import volume_mf_st, volume_mf_um_diff_varprop, volume_mf_he, volume_mf_um_on_fix_mesh, volume_mf_um_le_varprop
 from function_space import FuncSpace, Element
 import solvers
 from config import sf_nd_nb
@@ -41,6 +41,7 @@ starttime = time.time()
 # torch.set_printoptions(sci_mode=False)
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
+torch.autograd.set_grad_enabled(False)
 
 dev = config.dev
 nele = config.nele
@@ -73,13 +74,15 @@ print('ele pair: ', vel_ele.ele_order, pre_ele.ele_order, 'quadrature degree: ',
 #     [x_all, nbf, nbele, alnmt, fina, cola, ncola, bc, cg_ndglno, cg_nonods] = mesh_init.init_3d()
 vel_func_space = FuncSpace(vel_ele, name="Velocity", mesh=config.mesh, dev=dev)
 pre_func_space = FuncSpace(pre_ele, name="Pressure", mesh=config.mesh, dev=dev,
-                           not_iso_parametric=True, x_element=vel_ele)  # super-parametric pressure ele.
+                           not_iso_parametric=True, x_element=vel_ele,)
+                           # func_space_template=vel_func_space)  # super-parametric pressure ele.
 sf_nd_nb.set_data(vel_func_space=vel_func_space,
                   pre_func_space=pre_func_space,
                   p1cg_nonods=vel_func_space.cg_nonods)
 
 disp_func_space = FuncSpace(vel_ele, name="Displacement", mesh=config.mesh, dev=dev,
-                            get_pndg_ndglbno=True)  # displacement func space
+                            get_pndg_ndglbno=True,
+                            func_space_template=vel_func_space)  # displacement func space
 sf_nd_nb.set_data(disp_func_space=disp_func_space)
 
 # material = materials.NeoHookean(sf_nd_nb.disp_func_space.element.nloc,
@@ -88,7 +91,30 @@ sf_nd_nb.set_data(disp_func_space=disp_func_space)
 #                                    ndim, dev, config.mu_s, config.lam_s)
 material = materials.STVK(sf_nd_nb.disp_func_space.element.nloc,
                           ndim, dev, config.mu_s, config.lam_s)
+mesh_material = materials.LinearElastic(
+    sf_nd_nb.disp_func_space.element.nloc,
+    ndim, dev, mu=0.3355704697986577, lam=16.4429530201342118)  # E=1, nu=0.3
+if False:  # use varying parameter linear elastic model for mesh movement
+    _E = torch.zeros(nele, disp_func_space.element.nloc,
+                     device=dev, dtype=torch.float64)
+    _nv = 0.3
+    _x = disp_func_space.x_ref_in.permute(0, 2, 1)
+    _idx = torch.logical_and(_x[:, :, 1] > .15, _x[:, :, 1] < .25)
+    # _E += 1
+    _E += 100 * torch.exp(-(_x[..., 1] - 0.2) ** 2 * 500)
+    mu = _E * _nv / (1 + _nv) / (1 - 2 * _nv)
+    lam = _E / 2 / (1 + _nv)
+    mesh_material = materials.LinearElasticVarProp(
+        disp_func_space.element.nloc, ndim,
+        dev, mu=mu, lam=lam,
+    )
+    fsi_output.output_diff_vtu(mu, disp_func_space, 0)
+if True:  # use varying diffusion coefficient for mesh movement
+    mesh_mu = volume_mf_um_diff_varprop.get_diff_coeff(disp_func_space)
+    sf_nd_nb.set_data(mesh_mu=mesh_mu)
+
 sf_nd_nb.set_data(material=material)
+sf_nd_nb.set_data(mesh_material=mesh_material)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_ndglno,
@@ -112,8 +138,9 @@ if False:  # test mesh displacement
         x_i_dict['disp'][nele_f:nele, ...] += (
             torch.ones(nele_s, disp_func_space.element.nloc, ndim, device=dev, dtype=torch.float64,)
                                               ) * 0.01
-        x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+        # x_i_dict['disp'] = volume_mf_um_diff_varprop.solve_for_mesh_disp(x_i_dict['disp'])
         # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+        x_i_dict['disp'] = volume_mf_um_le_varprop.solve_for_mesh_disp(x_i_dict['disp'])
 
         # move velocity mesh
         sf_nd_nb.vel_func_space.x_ref_in *= 0
@@ -376,8 +403,9 @@ if config.solver=='iterative':
             # x_all_previous[0]['pre'] += ana_sln[u_nonods*ndim:].view(nele, -1)
 
         elif config.initialCondition == 3:
-            x_all_previous[0]['all'] *= 0
-            x_all_previous[0]['all'] += torch.load(config.initDataFile)
+            for tt in range(config.time_order + 1):
+                x_all_previous[tt]['all'] *= 0
+                x_all_previous[tt]['all'] += torch.load(config.initDataFile[tt])
 
         p_ana_ave = 0
         if config.hasNullSpace:
@@ -390,8 +418,27 @@ if config.solver=='iterative':
         # u_all[0, :, :, :] = x_i_list[0].cpu().numpy()
         # p_all[0, ...] = x_i_list[1].cpu().numpy()
 
+        if config.initialCondition == 3:
+            # move velocity mesh
+            sf_nd_nb.vel_func_space.x_ref_in *= 0
+            sf_nd_nb.vel_func_space.x_ref_in += sf_nd_nb.disp_func_space.x_ref_in \
+                                                + x_i_dict['disp'].permute(0, 2, 1)
+
+            sf_nd_nb.pre_func_space.x_ref_in *= 0
+            sf_nd_nb.pre_func_space.x_ref_in += sf_nd_nb.vel_func_space.x_ref_in
+
+            u_m *= 0  # (use BDF scheme)
+            u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
+            for ii in range(0, sf_nd_nb.bdfscm.order):
+                u_m -= x_all_previous[ii]['disp'] * sf_nd_nb.bdfscm.alpha[ii] / dt
+            sf_nd_nb.set_data(u_m=u_m)  # store in commn data so that we can use it everywhere.
+
         # save initial condition to vtk
-        fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
+        sf_nd_nb.vel_func_space.get_x_all_after_move_mesh()
+        sf_nd_nb.pre_func_space.get_x_all_after_move_mesh()
+        fsi_output.output_fsi_vtu(x_i, sf_nd_nb.vel_func_space,
+                                  sf_nd_nb.pre_func_space,
+                                  sf_nd_nb.disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
 
         t = tstart  # physical time (start time)
 
@@ -425,7 +472,7 @@ if config.solver=='iterative':
                 continue
 
             if sf_nd_nb.isTransient:
-                if itime <= config.time_order:
+                if itime <= config.time_order and config.initialCondition == 1:
                     if itime == 1:
                         sf_nd_nb.set_data(bdfscm=cmmn_data.BDFdata(order=1))
                         # alpha_u_n *= 0
@@ -498,9 +545,10 @@ if config.solver=='iterative':
             #     prob=config.problem,
             #     t=t
             # )
-            x_i_dict['vel'] += u_bc[0]
-            # save bc condition to vtk
-            fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
+            if False:  # if want to save bc condition to vtk
+                x_i_dict['vel'] += u_bc[1]
+                fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
+                exit()
             # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
             if config.isGradDivStab or sf_nd_nb.isES:
                 u_ave = petrov_galerkin.get_ave_vel(x_all_previous[0]['vel'])
@@ -607,6 +655,13 @@ if config.solver=='iterative':
                 volume_mf_st.get_RAR_and_sfc_data_Fp(x_i_k, u_bc)
                 volume_mf_he.get_RAR_and_sfc_data_Sp(x_i_k)
                 # print('9. time elapsed, ', time.time() - starttime)
+                if False:  # test solid preconditioner
+                    import test_sfc_mg
+                    print('going to test mg solver for structure block S')
+                    test_sfc_mg.solve_with_precond(x_i,
+                                                   torch.ones_like(x_i, device=dev, dtype=torch.float64),
+                                                   x_i_k)
+                    exit()
 
                 # dp_i *= 0  # solve for delta p_i and u_i
                 if config.linear_solver == 'gmres-mg':
@@ -623,7 +678,7 @@ if config.solver=='iterative':
                     # )
                     x_i, its = solvers.gmres_mg_solver(
                         x_i, x_rhs,
-                        tol=max(min(1.e-3 * nr0l2, 1.e-3), 1.e-11),  # config.tol,
+                        tol=max(min(1.e-1 * nr0l2, 1.e-1), 1.e-11),  # config.tol,
                         include_adv=config.include_adv,
                         x_k=x_i_k,
                         u_bc=u_bc
@@ -635,19 +690,33 @@ if config.solver=='iterative':
                 else:
                     raise Exception('choose a valid solver...')
 
-                # # let's get non-linear residual here
-                # # define the residual as the l2 norm of difference between two iterations
-                # r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
-                # r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
-                # r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
-                # r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
-                #                                 x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                # r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
-                #                                 x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                # r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
-                # print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
-                # print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
-
+                # let's get non-linear residual here
+                # define the residual as the l2 norm of difference between two iterations
+                if nele_f > 0 and nele_s > 0:
+                    r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                    r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                    r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                    r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                                                    x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                                                    x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                    print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
+                    print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
+                elif nele_f > 0 and nele_s == 0:  # pure fluid
+                    r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                    r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                    r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                                                    x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                                                    x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    print('difference between 2 non-linear iteration norm: vel, pre: ', r_vel, r_pre)
+                    print('max diff between 2 non-linear steps: vel, pre: ', r_max_vel, r_max_pre)
+                elif nele_f == 0 and nele_s > 0:  # pure solid
+                    r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                    r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                    print('difference between 2 non-linear iteration norm: disp: ', r_disp)
+                    print('max diff between 2 non-linear steps: disp: ', r_disp_max)
                 # before update displacement, let's first update time derivative of displacement (vel & acceleration)
                 # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
                 # d^2 d / dt^2 used in solid subdomain)
@@ -676,8 +745,9 @@ if config.solver=='iterative':
                     # I think it's more sensible to compute the mesh displacement rather than
                     # mesh velocity. We can easily get mesh velocity with BDF scheme.
                     print('going to solve for mesh displacement and move the mesh...')
-                    x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'], t)
+                    x_i_dict['disp'] = volume_mf_um_diff_varprop.solve_for_mesh_disp(x_i_dict['disp'], t)
                     # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+                    # x_i_dict['disp'] = volume_mf_um_le_varprop.solve_for_mesh_disp(x_i_dict['disp'], t)
                     # get mesh velocity and move mesh
                     # print('u_m address', u_m.data_ptr(), 'u_m in sf_nd_nb address', u_m.data_ptr(),
                     #       'is two the same?', torch.allclose(u_m, sf_nd_nb.u_m))
@@ -721,8 +791,9 @@ if config.solver=='iterative':
                 # I think it's more sensible to compute the mesh displacement rather than
                 # mesh velocity. We can easily get mesh velocity with BDF scheme.
                 print('going to solve for mesh displacement and move the mesh...')
-                x_i_dict['disp'] = volume_mf_um.solve_for_mesh_disp(x_i_dict['disp'])
+                # x_i_dict['disp'] = volume_mf_um_diff_varprop.solve_for_mesh_disp(x_i_dict['disp'])
                 # x_i_dict['disp'] = volume_mf_um_on_fix_mesh.solve_for_mesh_disp(x_i_dict['disp'])
+                x_i_dict['disp'] = volume_mf_um_le_varprop.solve_for_mesh_disp(x_i_dict['disp'])
                 # get mesh velocity and move mesh
                 u_m *= 0  # (use BDF scheme)
                 u_m += x_i_dict['disp'] * sf_nd_nb.bdfscm.gamma / dt
@@ -750,7 +821,7 @@ if config.solver=='iterative':
             x_all_previous[0]['all'] += x_i
 
             # save x_i at this Re to reuse as the initial condition for higher Re
-            torch.save(x_i, config.filename + config.case_name + '_t%.2f.pt' % t)
+            torch.save(x_i, config.filename + config.case_name + '_t%.3f.pt' % t)
             print('total its / restart ', total_its)
             total_its = 0
 

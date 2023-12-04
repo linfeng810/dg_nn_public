@@ -88,7 +88,8 @@ class FuncSpace(object):
     """
     def __init__(self, element: Element, mesh, dev, name: str = "",
                  not_iso_parametric=False, x_element=None,
-                 get_pndg_ndglbno=False):
+                 get_pndg_ndglbno=False,
+                 func_space_template=None):
         """
         if we're using superparametric element, we should provice
         the element for geometry as well (might be higher order)
@@ -99,6 +100,9 @@ class FuncSpace(object):
         self.element = element
         self.ndim = self.element.ndim
         self.p1cg_nloc = self.ndim + 1
+        is_from_func_space_template = False
+        if func_space_template is not None:
+            is_from_func_space_template = True
         if self.ndim == 2:
             self.nele = mesh.cell_data_dict['gmsh:geometrical'][config.ele_key_2d[config.ele_p - 1]].shape[0]
             self.nonods = element.nloc * self.nele
@@ -108,7 +112,8 @@ class FuncSpace(object):
                 self.fina, self.cola, self.ncola, \
                 self.bc_node_list, self.cg_ndglno, self.cg_nonods, \
                 self.ref_node_order, self.prolongator_from_p1dg = \
-                init_2d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim + 1)
+                init_2d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim + 1,
+                        is_get_bc_node=not is_from_func_space_template)
             self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
             # if not iso-paramatric, we store geometry DOFs in x_ref_in
             # Now we're only store geometry DOFs in x_ref_in AND x_all
@@ -143,7 +148,8 @@ class FuncSpace(object):
                 self.fina, self.cola, self.ncola, \
                 self.bc_node_list, self.cg_ndglno, self.cg_nonods, \
                 self.ref_node_order, self.prolongator_from_p1dg = \
-                init_3d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim+1)
+                init_3d(self.mesh, self.nele, self.nonods, self.element.nloc, nface=self.ndim+1,
+                        is_get_bc_node=not is_from_func_space_template)
             self.restrictor_to_p1dg = torch.transpose(self.prolongator_from_p1dg, dim0=0, dim1=1)
             # if not iso-paramatric, we store geometry DOFs in x_ref_in
             # NOW we're only store geometry x_ref_in and
@@ -168,6 +174,9 @@ class FuncSpace(object):
                 self.x_all.reshape((self.nele, -1, self.element.ndim)).transpose((0, 2, 1)),
                 device=dev, dtype=torch.float64
             )
+        if is_from_func_space_template:
+            self.bc_node_list = func_space_template.bc_node_list
+            self.glb_bcface_type = func_space_template.glb_bcface_type
         self.nbele = torch.tensor(self.nbele, device=dev)
         self.nbf = torch.tensor(self.nbf, device=dev)
         self.alnmt = torch.tensor(self.alnmt, device=dev)

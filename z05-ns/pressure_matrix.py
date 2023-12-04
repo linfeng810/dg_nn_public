@@ -554,9 +554,12 @@ def _calc_RAR_mf_color(
         RARm += torch.mv(I_cf, mg_le.pre_pndg_to_p1dg_restrictor(ARm))  # (cg_nonods)
         # add to RARvalue
         for i in range(RARm.shape[0]):
-            for count in range(fina[i], fina[i + 1]):
-                j = cola[count]
-                value[count] += RARm[i] * mask[j]
+            # for count in range(fina[i], fina[i + 1]):
+            #     j = cola[count]
+            #     value[count] += RARm[i] * mask[j]
+            count = np.arange(fina[i], fina[i+1])
+            j = cola[count]
+            value[count] += RARm[i] * mask[j]
         # print('finishing (another) one color, time comsumed: ', time.time() - start_time)
     return value
 
@@ -842,19 +845,26 @@ def get_RAR_and_sfc_data_Lp(
     cg_nonods = sf_nd_nb.sparse_f.cg_nonods
     if cg_nonods < 1: # nothing to do here.
         return None
-    if not config.is_sfc:
+    if config.mg_opt_Lp == 1:
         RAR = csr_matrix((RARvalues.cpu(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
         sf_nd_nb.set_data(RARmat_Lp=RAR)
-    # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-    space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        _mg_on_P0CG_prep(fina, cola, RARvalues)
-    sf_nd_nb.sfc_data_Lp.set_data(
-        space_filling_curve_numbering=space_filling_curve_numbering,
-        variables_sfc=variables_sfc,
-        nlevel=nlevel,
-        nodes_per_level=nodes_per_level
-    )
+    elif config.mg_opt_Lp == 3:
+        RAR = csr_matrix((RARvalues.cpu(), cola, fina),
+                         shape=(cg_nonods, cg_nonods))
+        # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+        RAR_ml = config.pyAMGsmoother(RAR)
+        sf_nd_nb.set_data(RARmat_Lp=RAR_ml)
+    else:
+        # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+        space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+            _mg_on_P0CG_prep(fina, cola, RARvalues)
+        sf_nd_nb.sfc_data_Lp.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
 
 
 def pre_precond_Fp(x_p, u_n, u_bc):
@@ -917,13 +927,22 @@ def pre_precond_invLp(x_p, x_rhs):
         raise NotImplemented('PMG not implemented!')
 
     # smooth/solve on P1CG grid
-    if not config.is_sfc:  # two-grid method
+    if config.mg_opt_Lp == 1:  # two-grid method
+        # direct solve on P1CG
         e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
         e_direct = linalg.spsolve(
             sf_nd_nb.RARmat_Lp,
             r1.contiguous().view(-1).cpu().numpy()
         )
         e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64).view(cg_nonods)
+    elif config.mg_opt_Lp == 3:  # AMG on P1CG
+        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+        e_direct = sf_nd_nb.RARmat_Lp.solve(
+            r1.contiguous().view(-1).cpu().numpy(),
+            maxiter=1,
+            tol=1e-10)
+        # e_direct = np.reshape(e_direct, (cg_nonods))
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
     else:  # multi-grid on space-filling curve generated grids
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data_Lp.space_filling_curve_numbering)

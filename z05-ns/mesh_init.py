@@ -6,7 +6,7 @@ from config import sf_nd_nb
 from get_nb import getfinele, getfin_p1cg
 
 
-def init_2d(mesh, nele, nonods, nloc, nface):
+def init_2d(mesh, nele, nonods, nloc, nface, is_get_bc_node=True):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
@@ -213,11 +213,15 @@ def init_2d(mesh, nele, nonods, nloc, nface):
     x_all = mesh.points[cg_ndglno.reshape(-1)][:, :2]
     # print('x_all shape: ', x_all.shape)
 
-    # find boundary nodes and mark boundary faces
-    if not config.isFSI:
-        bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+    if is_get_bc_node:
+        # find boundary nodes and mark boundary faces
+        if False:
+            bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+        else:
+            bc, glb_bcface_type = get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all)
     else:
-        bc, glb_bcface_type = get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all)
+        bc = None
+        glb_bcface_type = None
 
     # store P3DG from/to P1DG restrictor/prolongator
     prolongator_from_p1dg = torch.tensor([
@@ -256,7 +260,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
         prolongator_from_p1dg
 
 
-def init_3d(mesh, nele, nonods, nloc, nface):
+def init_3d(mesh, nele, nonods, nloc, nface, is_get_bc_node=True):
     # initiate mesh ...
     # output:
     # x_all, coordinates of all nodes, numpy array, (nonods, nloc)
@@ -599,11 +603,15 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     x_all = mesh.points[cg_ndglno.reshape((-1))]
     # print('x_all shape: ', x_all.shape)
 
-    # mark boundary nodes and boundary face types
-    if not config.isFSI:
-        bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+    if is_get_bc_node:
+        # mark boundary nodes and boundary face types
+        if False:  # not config.isFSI: # get_bc_nodoe_fsi works for both FSI and pure fluid / solid problems
+            bc, glb_bcface_type = get_bc_node(mesh, faces, alnmt, nloc, x_all)
+        else:
+            bc, glb_bcface_type = get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all)
     else:
-        bc, glb_bcface_type = get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all)
+        bc = None
+        glb_bcface_type = None
 
     # store P3DG from/to P1DG restrictor/prolongator
     prolongator_from_p1dg = torch.tensor([

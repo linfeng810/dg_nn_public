@@ -4,13 +4,13 @@
 all integrations for hyper-elastic
 matric-free implementation
 """
-
-
+import scipy.linalg
 import torch
 from torch import Tensor
 import numpy as np
 from tqdm import tqdm
 import config
+import sa_amg
 import volume_mf_st
 from config import sf_nd_nb
 import materials
@@ -102,12 +102,15 @@ def calc_RAR_mf_color(
                     I_cf,
                     mg_le.vel_pndg_to_p1dg_restrictor(ARm_dict['disp'][nele_f:nele, :, idim])
                 )  # (cg_nonods, ndim)
-            for idim in range(ndim):
                 # add to value
-                for i in range(RARm.shape[0]):
-                    for count in range(fina[i], fina[i + 1]):
-                        j = cola[count]
-                        value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
+            for i in range(RARm.shape[0]):
+                count = np.arange(fina[i], fina[i+1])
+                j = cola[count]
+                for idim in range(ndim):
+                    # for count in range(fina[i], fina[i + 1]):
+                    #     j = cola[count]
+                    #     value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
+                    value[count, idim, jdim] += RARm[i, idim] * mask[j, jdim]
         # print('finishing (another) one color, time comsumed: ', time.time() - start_time)
     return value
 
@@ -331,7 +334,7 @@ def _s_res_one_batch(
                         diagA, bdiagA, batch_start_idx,
                         nb_gi_aln)
             if include_itf:  # if False, going to make interface stress from fluid EXPLICIT
-                idx_iface = f_itf == iface & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
+                idx_iface = (f_itf == iface) & (sf_nd_nb.disp_func_space.alnmt[F_itf] == nb_gi_aln)
                 r_in = _s_res_fitf(
                     r_in, x_k, x_i,
                     f_itf[idx_iface], E_F_itf[idx_iface],
@@ -669,8 +672,8 @@ def _s_res_fitf(
     Ieye = torch.eye(ndim, device=dev, dtype=torch.float64)
     # Cauchy stress on fluid side  (batch_in, ndim, ndim, sngi)
     sigma = torch.einsum('bjng,bni->bijg', snx_nb, u_f_nb) * config.mu_f \
-            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
-            # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
+            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye) \
+            + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
             # the last term is (grad u)^T in full stress, omitted here.
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
     F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
@@ -1223,8 +1226,8 @@ def _s_rhs_f_itf(
     Ieye = torch.eye(ndim, device=dev, dtype=torch.float64)
     # Cauchy stress on fluid side  (batch_in, ndim, ndim, sngi)
     sigma = torch.einsum('bjng,bni->bijg', snx_nb, u_f_nb) * config.mu_f \
-            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
-            # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
+            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye) \
+            + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
             # the last term is the (grad u)^T term in the full stress which we're not using here.
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
     F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
@@ -1293,20 +1296,86 @@ def get_RAR_and_sfc_data_Sp(
     )
     from scipy.sparse import bsr_matrix
 
-    if not config.is_sfc:
+    if config.mg_opt_S == 1:
         RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
         sf_nd_nb.set_data(RARmat_S=RAR.tocsr())
-    # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
-    RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
-    # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
-    space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
-        mg_le.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_s)
-    sf_nd_nb.sfc_data_S.set_data(
-        space_filling_curve_numbering=space_filling_curve_numbering,
-        variables_sfc=variables_sfc,
-        nlevel=nlevel,
-        nodes_per_level=nodes_per_level
-    )
+    elif config.mg_opt_S == 3:
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
+        if True:  # use real eigen vectors as near null space
+            # compute near null space
+            # null_space = scipy.linalg.null_space(RAR.todense())
+            print('eigen values:')
+            eigenvar = scipy.linalg.eigvals(RAR.todense())
+            eigenvar_real = eigenvar.real
+            eigenvar_real = np.sort(eigenvar_real)
+            print('smallest: ', eigenvar_real[0:10])
+            print('largest: ', eigenvar_real[-10:-1])
+            # find the eigen vectors corresponding to the smallest eigen values
+            eigv, lfeignvec, rteignvec = scipy.linalg.eig(RAR.todense(), left=True, right=True)
+            sort_idx = np.argsort(eigv.real)
+            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+            # RAR_ml = config.pyAMGsmoother(RAR.tocsr())  # , B=null_space)
+            ndim_nullspace = 7
+            RAR_ml = config.pyAMGsmoother(RAR.tocsr(),
+                                          B=rteignvec[:, sort_idx[0:ndim_nullspace]],  # left eig vec corr. to 10 min eigvar
+                                          BH=lfeignvec[:, sort_idx[0:ndim_nullspace]],
+                                          presmoother=('jacobi', {'omega': 1.8}),
+                                          postsmoother=('jacobi', {'omega': 1.8})
+                                          )  # right eig vec corr. to ...
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, rteignvec[:, sort_idx[0:ndim_nullspace]].transpose(),
+                                       ndim=ndim, name='smoothed_rigid_body_mode.txt')
+        else:  # use rigid body modes as near null space
+            # compute rigid body modes
+            v = sa_amg.get_rigid_body_mode(sf_nd_nb.sparse_s.cg1_nodes_coor, ndim=ndim)
+            # v = sa_amg.relax_rigid_body_mode(RAR.tocsr(), v.cpu().numpy(), nsmooth=1000)
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, v,
+                                       ndim=ndim, name='smoothed_rigid_body_mode.txt')
+            RAR_ml = config.pyAMGsmoother(RAR.tocsr(), B=v.cpu().numpy().transpose())
+        sf_nd_nb.set_data(RARmat_S=RAR_ml)
+    elif config.mg_opt_S == 4:  # SA wrapped with pytorch -- will be computing on torch device.
+        RAR = bsr_matrix((RARvalues.cpu().numpy(), cola, fina), shape=(ndim * cg_nonods, ndim * cg_nonods))
+        if False:  # use real eigen vectors as near null space
+            # compute near null space
+            # null_space = scipy.linalg.null_space(RAR.todense())
+            print('eigen values:')
+            eigenvar = scipy.linalg.eigvals(RAR.todense())
+            eigenvar_real = eigenvar.real
+            eigenvar_real = np.sort(eigenvar_real)
+            print('smallest: ', eigenvar_real[0:10])
+            print('largest: ', eigenvar_real[-10:-1])
+            # find the eigen vectors corresponding to the smallest eigen values
+            eigv, lfeignvec, rteignvec = scipy.linalg.eig(RAR.todense(), left=True, right=True)
+            sort_idx = np.argsort(eigv.real)
+
+            ndim_nullspace = 7
+            RAR_ml = sa_amg.SASolver(RAR.tocsr(),
+                                     v=rteignvec[:, sort_idx[0:ndim_nullspace]],  # left eig vec corr. to 10 min eigvar
+                                     omega=config.jac_wei)
+
+            # for debug, print out eigen vectors and coordinates
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, rteignvec[:, sort_idx[0:ndim_nullspace]].transpose(),
+                                       ndim=ndim, name='eigen_vec.txt')
+        else:  # use rigid body modes as near null space
+            # compute rigid body modes
+            v = sa_amg.get_rigid_body_mode(sf_nd_nb.sparse_s.cg1_nodes_coor, ndim=ndim)
+            # v = sa_amg.relax_rigid_body_mode(RAR.tocsr(), v.cpu().numpy(), nsmooth=1000)
+            sa_amg.print_out_eigen_vec(sf_nd_nb.sparse_s.cg1_nodes_coor, v,
+                                       ndim=ndim, name='smoothed_rigid_body_mode.txt')
+            RAR_ml = sa_amg.SASolver(RAR.tocsr(), v=v.cpu().numpy().transpose(),
+                                     omega=config.jac_wei)
+        sf_nd_nb.set_data(RARmat_S=RAR_ml)
+    else:
+        # np.savetxt('RAR.txt', RAR.toarray(), delimiter=',')
+        RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim,ndim,ncola)
+        # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
+        space_filling_curve_numbering, variables_sfc, nlevel, nodes_per_level = \
+            mg_le.mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in=sf_nd_nb.sparse_s)
+        sf_nd_nb.sfc_data_S.set_data(
+            space_filling_curve_numbering=space_filling_curve_numbering,
+            variables_sfc=variables_sfc,
+            nlevel=nlevel,
+            nodes_per_level=nodes_per_level
+        )
 
 
 # def all kinds of preconditioning operations...

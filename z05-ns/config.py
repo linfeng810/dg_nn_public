@@ -2,6 +2,7 @@
 import meshio
 import numpy as np
 import torch
+import pyamg
 import sys
 import cmmn_data
 import time
@@ -18,18 +19,20 @@ dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(0)
 
 isFSI = True  # fsi problem or not
+enforce_mesh_continuity = False  # whether to enforce mesh continuity, if true, will be more stable but the non-linear
+# residual won't fall as expected.
 
 #####################################################
 # time step settings
 #####################################################
-dt = 0.05  # timestep
+dt = 0.01  # timestep
 if args.dt is not None:
     dt = args.dt
-tstart = 0.  # starting time
+tstart = 0  # starting time
 tend = 6  # end time
-isTransient = False  # decide if we are doing transient simulation
+isTransient = True  # decide if we are doing transient simulation
 if not isTransient:
-    dt = 1e8  # if not transient, set dt to a large value
+    dt = 1e16  # if not transient, set dt to a large value
 isAdvExp = False  # treat advection term explicitly
 if True:  # isTransient:
     time_order = 3  # time discretisation order
@@ -55,6 +58,11 @@ filename = 'z32-square-mesh/square_3rd_order_dirineu_r4.msh'
 filename = 'z31-cube-mesh/cube_ho_poi_r3.msh'
 filename = 'z23-nozzle/nozzle_ho_fine.msh'
 # filename = 'z23-nozzle/fake_nozzle.msh'
+filename = 'z35-fsi/z05-2d-tube/tube_full.msh'
+filename = 'z35-fsi/z04-turek-ho-from-solidity/turek.msh'
+# filename = 'z35-fsi/z05-2d-tube/z01-plate/plate.msh'
+# filename = 'z35-fsi/z07-laspina1/ls1.msh'
+# filename = 'z35-fsi/z06-3d-tube/tube_3d.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -62,7 +70,7 @@ if args.filename is not None:
 mesh = meshio.read(filename)  # mesh object
 isoparametric = True  # use iso-parametric geometry
 sf_nd_nb = cmmn_data.SfNdNb()
-use_fict_dt_in_vel_precond = False
+use_fict_dt_in_vel_precond = True
 sf_nd_nb.use_fict_dt_in_vel_precond = use_fict_dt_in_vel_precond  # add mass matrix to velocity block preconditioner
 sf_nd_nb.fict_dt = 0.0025  # coefficient multiply to mass matrix add to vel blk precond
 print('use fictitious timestep in velocity block preconditioner? (to make it diagonal dominant)',
@@ -105,9 +113,10 @@ else:
     # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
     # nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
     nele = nele_f + nele_s
+    print('nele, nele_f, nele_s, ndim', nele, nele_f, nele_s, ndim)
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
-tol = 1.e-8  # convergence tolerance for linear solver (e.g. MG)
+tol = 1.e-5  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = tol  # convergence criteria
@@ -125,12 +134,37 @@ everywhere smooth_start_level is used."""
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
+# multi-grid options for various blocks to approximate inverse
+# old options
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
-print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
-      'with PMG?', is_pmg,
-      'with SFC?', is_sfc)
+# is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+# is_amg = True  # whether using algebraic multigrid (AMG) as smoother
+# if both is_sfc and is_amg are false, then direct solve on P1CG is used.
+# print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
+#       'with PMG?', is_pmg,
+#       'with SFC?', is_sfc,
+#       'with pyAMG', is_amg)
 print('jacobi block solver is: ', blk_solver)
+# new options:
+# 1 -- direct inverse on P1CG
+# 2 -- use SFC-mg as smoother on P1CG
+# 3 -- use pyAMG as smoother on P1CG
+# 4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.
+mg_opt_F = 2  # velocity block
+mg_opt_Lp = 2  # velocity Laplacian block
+mg_opt_S = 1  # structure displacement block
+mg_opt_Um = 2  # mesh displacement
+pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.air_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.ruge_stuben_solver
+print('===MG on P1CG parameters===')
+print('this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its))
+print(f'1 -- direct inverse on P1CG, \n'
+      f'2 -- use SFC-mg as smoother on P1CG, \n'
+      f'3 -- use pyAMG as smoother on P1CG: \n'
+      f'4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.')
+print('velocity block: ', mg_opt_F, 'Laplacian block: ', mg_opt_Lp, 'structure displacement block: ', mg_opt_S,
+      'mesh displacement block: ', mg_opt_Um)
 
 # gmres parameters
 gmres_m = 80  # restart
@@ -141,22 +175,22 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
 
 # non-linear iteration parameters
 n_its_max = 10
-n_tol = 1.e-8
+n_tol = 1.e-5
 relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
 sf_nd_nb.relax_coeff = relax_coeff
 
 ####################
 # material property
 ####################
-problem = 'nozzle'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'turek'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
 # or 'fsi-test' = test fluid-structure boundary
 # or 'turek' = turek benchmark FSI-2
 # or 'fsi-poiseuille' = fsi poiseuille flow
-# E = 500
-# nu = 0.  # or 0.49, or 0.4999
+# E = 2.3e6
+# nu = 0.45  # or 0.49, or 0.4999
 # lam_s = E*nu/(1.+nu)/(1.-2.*nu)
 # mu_s = E/2.0/(1.+nu)
 lam_s = 8e6
@@ -169,9 +203,9 @@ print('Lame coefficient: lamda, mu', lam_s, mu_s)
 # lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
 # print('lam_s, mu_s', lam_s, mu_s)
-rho_f = 1.
-if isFSI:
-    rho_s = 1.e3  # solid density at initial configuration
+rho_f = 1e3
+rho_s = 1e3  # solid density at initial configuration
+print('rho_f, rho_s', rho_f, rho_s)
 a = torch.eye(ndim, device=dev, dtype=torch.float64)
 kijkl = torch.einsum('ik,jl->ijkl', a, a)  # k tensor for double diffusion
 cijkl = lam_s * torch.einsum('ij,kl->ijkl', a, a) \
@@ -191,11 +225,11 @@ else:
 # print('cijkl=', cijkl)
 
 if True:
-    mu_f = 1.  # this is diffusion coefficient (viscosity)
+    mu_f = 1  # this is diffusion coefficient (viscosity)
     _Re = int(1 / mu_f)
     hasNullSpace = False  # to remove null space, adding 1 to a pressure diagonal node
     is_pressure_stablise = False  # to add stablise term h[p][q] to pressure block or not.
-    include_adv = False  # if Navier-Stokes, include advection term.
+    include_adv = True  # if Navier-Stokes, include advection term.
     if isAdvExp:
         include_adv = False  # treat advection explicitly, no longer need to include adv in left-hand matrix.
     print('viscosity, Re, hasNullSpace, is_pressure_stabilise?', mu_f, _Re, hasNullSpace, is_pressure_stablise)
@@ -204,8 +238,11 @@ if True:
     # 2. solve steady stokes as initial condition
     # 3. to use a precalculated fields (u and p) in a file as initial condition
     if initialCondition == 3:
-        initDataFile = 'Re109_t20.00.pt'
-        print('use this data file as initial condition: ' + initDataFile)
+        initDataFile = ['z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t5.00.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t5.00.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t4.99.pt',
+                        'z35-fsi/z04-turek-ho/turek.msh_turekRe1_p3p2_20231121-152240_t4.99.pt',]
+        print('use this data file as initial condition: ' + initDataFile[0])
 
 # === all kinds of stabilisation for convection-dominant flow ===
 # Edge stabilisation (for convection-dominant and not-fine-enough mesh) (like SUPG but simpler)
@@ -239,4 +276,4 @@ print('No of batch: ', no_batch)
 case_name = '_' + problem + 'Re' + str(_Re) + '_p' + str(ele_p) + 'p' + str(ele_p_pressure) + \
             '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
 # case_name = '_bfsRe109_p3p2_20230828-190846'
-print('case name is: ' + case_name)
+print('case name is: ' + filename + case_name)

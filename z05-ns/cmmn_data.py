@@ -56,6 +56,8 @@ class SfNdNb:
         self.inter_stress_thisstep = None  # interface stress from this step (nele, ndim, ndim, sngi)
 
         self.material = None  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
+        self.mesh_material = None  # mesh material (e.g. NeoHookean, StVenant-Kirchoff)  when not using diffusion eq
+        self.mesh_mu = None  # diffusion coefficient for mesh movement (constant for each element)
 
     def set_data(self,
                  vel_func_space=None,
@@ -77,6 +79,8 @@ class SfNdNb:
                  u_ave=None,  # volume averaged velocity (nele, ndim)
                  u_m=None,  # mesh velocity (nele, u_nloc, ndim)
                  material=None,  # structure material (e.g. NeoHookean, StVenant-Kirchoff)
+                 mesh_material=None,  # mesh material (e.g. NeoHookean, StVenant-Kirchoff) when not using diffusion eq
+                 mesh_mu=None,  # mesh diffusion coefficient (constant for each element)
                  ):
         if type(vel_func_space) != NoneType:
             self.vel_func_space = vel_func_space
@@ -118,15 +122,32 @@ class SfNdNb:
             self.u_m = u_m
         if material is not None:
             self.material = material
+        if mesh_material is not None:
+            self.mesh_material = mesh_material
+        if mesh_mu is not None:
+            self.mesh_mu = mesh_mu
 
 
 class SFCdata:
     """
     SFC related data, including:
     space_filling_curve_numbering
-    variables_sfc
-    nlevel
-    nodes_per_level
+
+    variables_sfc : list (nlevel)
+        a list of all ingredients one needs to perform a smoothing
+        step on level-th grid. Each list member is a list of the
+        following member:
+        [0] a_sfc_sparse : a 2-D list of torch coo sparse tensor,
+            list shape (ndim, ndim)
+            coo sparse tensor shape (nonods_level, nonods_level)
+            coarse level grid operator
+        [1] diag_weights : torch tensor, (ndim, nonods_level)
+            diagonal of coarse grid operator
+        [2] nonods : integer
+            number of nodes on level-th grid
+
+    nlevel: int
+    nodes_per_level: list of integers
     """
 
     def __init__(self,
@@ -240,6 +261,7 @@ class Sparsity:
         self.I_cf = None
         self.cg_nonods = None
         self.p1dg_nonods = None
+        self.cg1_nodes_coor = None  # P1CG mesh nodes coordinates
 
     def set_data(self,
                  fina=None,
@@ -251,6 +273,7 @@ class Sparsity:
                  I_cf=None,
                  cg_nonods=None,
                  p1dg_nonods=None,
+                 cg1_nodes_coor=None,
                  ):
         if fina is not None:
             self.fina = fina
@@ -270,3 +293,5 @@ class Sparsity:
             self.cg_nonods = cg_nonods
         if p1dg_nonods is not None:
             self.p1dg_nonods = p1dg_nonods
+        if cg1_nodes_coor is not None:
+            self.cg1_nodes_coor = cg1_nodes_coor
