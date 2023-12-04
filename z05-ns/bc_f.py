@@ -760,6 +760,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
         # neumann bc are all zero
         # solid diri bc is also zero
         f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f[nloc * config.nele_f : nloc * config.nele, 1] += -9.8  # add gravity to solid
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'seeweed' and ndim == 2:
         # seeweed in channel flow
@@ -898,6 +899,38 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     u_bc[ibc][inod // nloc, inod % nloc, 0] = (1 - 4 * y ** 2) * 0.06067 * 956
             if t < 10:
                 u_bc[ibc] *= (1 - np.cos(np.pi * t / 10.0)) / 2.0
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'tube3d' and ndim == 3:
+        # pressure wave
+        for ibc in range(1, 2):  # inlet is pressure pulse
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                z = x_inod[2]
+                u_bc[ibc][inod // nloc, inod % nloc, 2] = 1.3332e4 / 10  # Pa
+            if t > 0.003:
+                u_bc[ibc] *= 0
+
+        fNorm = torch.linalg.norm(f.view(-1), dim=0)
+    elif prob == 'tube2d' and ndim == 2:
+        # pressure wave
+        for ibc in range(1, 2):  # inlet is pressure pulse
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:
+                    continue
+                x_inod = sf_nd_nb.disp_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                if torch.abs(x) < 1e-8:
+                    u_bc[ibc][inod // nloc, inod % nloc, 1] = 1.3332e4 / 10  # Pa
+            if t > 0.003:
+                u_bc[ibc] *= 0
+
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     else:
         raise Exception('the problem ' + prob + ' is not defined in fsi_bc_f')

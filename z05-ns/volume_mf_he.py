@@ -672,8 +672,8 @@ def _s_res_fitf(
     Ieye = torch.eye(ndim, device=dev, dtype=torch.float64)
     # Cauchy stress on fluid side  (batch_in, ndim, ndim, sngi)
     sigma = torch.einsum('bjng,bni->bijg', snx_nb, u_f_nb) * config.mu_f \
-            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
-            # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
+            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye) \
+            + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
             # the last term is (grad u)^T in full stress, omitted here.
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
     F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye
@@ -1226,8 +1226,8 @@ def _s_rhs_f_itf(
     Ieye = torch.eye(ndim, device=dev, dtype=torch.float64)
     # Cauchy stress on fluid side  (batch_in, ndim, ndim, sngi)
     sigma = torch.einsum('bjng,bni->bijg', snx_nb, u_f_nb) * config.mu_f \
-            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye)
-            # + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
+            - torch.einsum('bng,bn,ij->bijg', sq_nb, p_f_nb, Ieye) \
+            + torch.einsum('bing,bnj->bijg', snx_nb, u_f_nb) * config.mu_f
             # the last term is the (grad u)^T term in the full stress which we're not using here.
     # Deformation gradient on face F (batch_in, ndim, ndim, sngi)
     F = torch.einsum('bni,bjng->bgij', d_s_th, snx) + Ieye

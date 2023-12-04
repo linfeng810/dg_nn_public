@@ -546,8 +546,9 @@ if config.solver=='iterative':
             #     t=t
             # )
             if False:  # if want to save bc condition to vtk
-                x_i_dict['vel'] += u_bc[0]
+                x_i_dict['vel'] += u_bc[1]
                 fsi_output.output_fsi_vtu(x_i, vel_func_space, pre_func_space, disp_func_space, itime=0, u_m=sf_nd_nb.u_m)
+                exit()
             # if use grad-div stabilisation or edge stabilisation, get elementwise volume-averaged velocity here
             if config.isGradDivStab or sf_nd_nb.isES:
                 u_ave = petrov_galerkin.get_ave_vel(x_all_previous[0]['vel'])
@@ -691,17 +692,31 @@ if config.solver=='iterative':
 
                 # let's get non-linear residual here
                 # define the residual as the l2 norm of difference between two iterations
-                r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
-                r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
-                r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
-                r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
-                                                x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
-                                                x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
-                r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
-                print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
-                print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
-
+                if nele_f > 0 and nele_s > 0:
+                    r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                    r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                    r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                    r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                                                    x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                                                    x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                    print('difference between 2 non-linear iteration norm: vel, pre, disp: ', r_vel, r_pre, r_disp)
+                    print('max diff between 2 non-linear steps: vel, pre, disp: ', r_max_vel, r_max_pre, r_disp_max)
+                elif nele_f > 0 and nele_s == 0:  # pure fluid
+                    r_vel = torch.linalg.norm((x_i_dict['vel'] - x_i_k_dict['vel'])[0:nele_f, ...]).cpu().numpy()
+                    r_pre = torch.linalg.norm((x_i_dict['pre'] - x_i_k_dict['pre'])[0:nele_f, ...]).cpu().numpy()
+                    r_max_vel = torch.max(torch.abs(x_i_dict['vel'] -
+                                                    x_i_k_dict['vel'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    r_max_pre = torch.max(torch.abs(x_i_dict['pre'] -
+                                                    x_i_k_dict['pre'])[0:nele_f, ...].view(-1)).cpu().numpy()
+                    print('difference between 2 non-linear iteration norm: vel, pre: ', r_vel, r_pre)
+                    print('max diff between 2 non-linear steps: vel, pre: ', r_max_vel, r_max_pre)
+                elif nele_f == 0 and nele_s > 0:  # pure solid
+                    r_disp = torch.linalg.norm(x_i_dict['disp'][nele_f:nele, ...]).cpu().numpy()
+                    r_disp_max = torch.max(torch.abs(x_i_dict['disp'][nele_f:nele, ...].view(-1))).cpu().numpy()
+                    print('difference between 2 non-linear iteration norm: disp: ', r_disp)
+                    print('max diff between 2 non-linear steps: disp: ', r_disp_max)
                 # before update displacement, let's first update time derivative of displacement (vel & acceleration)
                 # in trasient terms (interface structure velocity d_n_dt use in fluid interface bc, and
                 # d^2 d / dt^2 used in solid subdomain)
