@@ -2,6 +2,7 @@
 import meshio
 import numpy as np
 import torch
+import pyamg
 import sys
 import cmmn_data
 import time
@@ -114,13 +115,30 @@ is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
 blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
-is_amg = True  # whether using AMG as smoother
-print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
-      'with PMG?', is_pmg,
-      'with SFC?', is_sfc,
-      'with pyAMG', is_amg)
+# is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+# is_amg = True  # whether using algebraic multigrid (AMG) as smoother
+# if both is_sfc and is_amg are false, then direct solve on P1CG is used.
+# print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
+#       'with PMG?', is_pmg,
+#       'with SFC?', is_sfc,
+#       'with pyAMG', is_amg)
 print('jacobi block solver is: ', blk_solver)
+# new options:
+# 1 -- direct inverse on P1CG
+# 2 -- use SFC-mg as smoother on P1CG
+# 3 -- use pyAMG as smoother on P1CG
+# 4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.
+mg_opt_D = 4  # diffusion block
+pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.air_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.ruge_stuben_solver
+print('===MG on P1CG parameters===')
+print('this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its))
+print(f'1 -- direct inverse on P1CG, \n'
+      f'2 -- use SFC-mg as smoother on P1CG, \n'
+      f'3 -- use pyAMG as smoother on P1CG: \n'
+      f'4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.')
+print('diffusion block: ', mg_opt_D)
 
 # gmres parameters
 gmres_m = 20  # restart

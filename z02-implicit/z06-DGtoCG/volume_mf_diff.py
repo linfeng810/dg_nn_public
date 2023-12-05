@@ -9,6 +9,7 @@ import config
 from config import sf_nd_nb
 import multigrid_linearelastic as mg
 from tqdm import tqdm
+import sa_amg
 
 if config.ndim == 2:
     from shape_function import get_det_nlx as get_det_nlx
@@ -849,15 +850,22 @@ def _get_RAR_and_sfc_data_Um():
     )
     from scipy.sparse import csr_matrix
 
-    if not config.is_sfc:
+    if config.mg_opt_D == 1:
         RAR = csr_matrix((RARvalues.cpu().numpy(), cola, fina),
                          shape=(cg_nonods, cg_nonods))
-        if not config.is_amg:  # directly solve on P1CG
-            sf_nd_nb.set_data(RARmat_Um=RAR.tocsr())
-        else:  # use pyamg to smooth on P1CG, setup AMG here
-            # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
-            RAR_ml = pyamg.smoothed_aggregation_solver(RAR.tocsr())
-            sf_nd_nb.set_data(RARmat_Um=RAR_ml)
+        sf_nd_nb.set_data(RARmat_Um=RAR.tocsr())
+    elif config.mg_opt_D == 3:  # use pyamg to smooth on P1CG, setup AMG here
+        RAR = csr_matrix((RARvalues.cpu().numpy(), cola, fina),
+                         shape=(cg_nonods, cg_nonods))
+        # RAR_ml = pyamg.ruge_stuben_solver(RAR.tocsr())
+        RAR_ml = pyamg.smoothed_aggregation_solver(RAR.tocsr())
+        sf_nd_nb.set_data(RARmat_Um=RAR_ml)
+    elif config.mg_opt_D == 4:  # SA wrapped with pytorch -- will be computing on torch device.
+        RAR = csr_matrix((RARvalues.cpu().numpy(), cola, fina),
+                         shape=(cg_nonods, cg_nonods))
+        RAR_ml = sa_amg.SASolver(RAR.tocsr(),
+                                 omega=config.jac_wei)
+        sf_nd_nb.set_data(RARmat_Um=RAR_ml)
     else:
         # RARvalues = torch.permute(RARvalues, (1, 2, 0)).contiguous()  # (ndim, ndim, ncola)
         # get SFC, coarse grid and operators on coarse grid. Store them to save computational time?
@@ -1056,22 +1064,27 @@ def _um_left_precond(x_i, x_rhs):
     else:  # PnDG down one order each time, eventually go to P1CG
         raise NotImplementedError('pmg not implemented!')
 
-    if not config.is_sfc:  # two-grid method
-        if not config.is_amg:  # directly solve on P1CG
-            e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
-            e_direct = sp.sparse.linalg.spsolve(
-                sf_nd_nb.RARmat_Um,
-                r1.contiguous().view(-1).cpu().numpy())
-            e_direct = np.reshape(e_direct, (cg_nonods))
-            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
-        else:  # use pyamg to smooth on P1CG
-            e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
-            e_direct = sf_nd_nb.RARmat_Um.solve(
-                r1.contiguous().view(-1).cpu().numpy(),
-                maxiter=1,
-                tol=1e-10)
-            # e_direct = np.reshape(e_direct, (cg_nonods))
-            e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+    if config.mg_opt_D == 1:  # directly solve on P1CG
+        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+        e_direct = sp.sparse.linalg.spsolve(
+            sf_nd_nb.RARmat_Um,
+            r1.contiguous().view(-1).cpu().numpy())
+        e_direct = np.reshape(e_direct, (cg_nonods))
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+    elif config.mg_opt_D == 3:  # use pyamg to smooth on P1CG
+        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+        e_direct = sf_nd_nb.RARmat_Um.solve(
+            r1.contiguous().view(-1).cpu().numpy(),
+            maxiter=1,
+            tol=1e-10)
+        # e_direct = np.reshape(e_direct, (cg_nonods))
+        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+    elif config.mg_opt_D == 4:  # SA wrapped with pytorch -- will be computing on torch device.
+        e_i = sf_nd_nb.RARmat_Um.solve(
+            r1.contiguous().view(-1),
+            maxiter=1,
+            tol=1e-10)
+        e_i = e_i.view(-1)
     else:  # multi-grid method
         ncurve = 1  # always use 1 sfc
         N = len(sf_nd_nb.sfc_data_Um.space_filling_curve_numbering)
