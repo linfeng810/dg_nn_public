@@ -4,6 +4,7 @@ import torch
 import config , time
 from config import sf_nd_nb
 from get_nb import getfinele, getfin_p1cg
+import os
 
 
 def init_2d(mesh, nele, nonods, nloc, nface):
@@ -753,6 +754,15 @@ def get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all=0):
     in gmsh. negative number denotes non-bc nodes.
     """
 
+    # try if we can get boundary nodes from file
+    if os.path.isfile(config.filename + 'bc_list.npy') and \
+            os.path.isfile(config.filename + 'glb_bcface_type.npy'):
+        bc_list_input = np.load(config.filename + 'bc_list.npy')
+        bc_list = [bc_list_input[i, :] for i in range(bc_list_input.shape[0])]
+        glb_bcface_type = np.load(config.filename + 'glb_bcface_type.npy')
+        print('found bc node list in file, load bc node list from file...')
+        return bc_list, glb_bcface_type
+
     # input mesh is meshio object. it contains boundary element physical tag info.
     # we're going to use that to mark nodes in x_all with physical tag.
 
@@ -819,6 +829,10 @@ def get_bc_node_fsi(mesh, faces, alnmt, nbf, nloc, x_all=0):
             glb_bcface_type[glb_iface] = 5  # mark as interface_s
 
     print('finishing getting bc nodes... time consumed: %f s' % (time.time() - sttime))
+
+    # writing bc_list and glb_bc_face_type for future use
+    np.save(config.filename+'bc_list.npy', np.asarray(bc_list))
+    np.save(config.filename+'glb_bcface_type.npy', glb_bcface_type)
     return bc_list, glb_bcface_type
 
 
