@@ -1591,11 +1591,26 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
     # j12 = torch.einsum('ij,ki->kj', nlx[0, :, :], y).view(batch_in, ngi)
     # j21 = torch.einsum('ij,ki->kj', nlx[1, :, :], x).view(batch_in, ngi)
     # j22 = torch.einsum('ij,ki->kj', nlx[1, :, :], y).view(batch_in, ngi)
-    # calculate determinant of jacobian
-    det = torch.det(j)
-    # det = torch.mul(j11, j22) - torch.mul(j21, j12)
-    # calculate inv jacobian
-    invj = torch.linalg.inv(j)
+    if False:  # use torch det/inv to compute det/inv. this cause synchronisation and is slow.
+        # calculate determinant of jacobian
+        det = torch.det(j)
+        # det = torch.mul(j11, j22) - torch.mul(j21, j12)
+        # calculate inv jacobian
+        invj = torch.linalg.inv(j)
+    else:  # use arithmetric operations to compute det/inv. this is faster.
+        det = j[..., 0, 0] * (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1]) \
+               - j[..., 0, 1] * (j[..., 1, 0] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 0]) \
+               + j[..., 0, 2] * (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0])
+        invj = torch.zeros_like(j)
+        invj[..., 0, 0] = (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1]) / det
+        invj[..., 0, 1] = (j[..., 0, 2] * j[..., 2, 1] - j[..., 0, 1] * j[..., 2, 2]) / det
+        invj[..., 0, 2] = (j[..., 0, 1] * j[..., 1, 2] - j[..., 0, 2] * j[..., 1, 1]) / det
+        invj[..., 1, 0] = (j[..., 1, 2] * j[..., 2, 0] - j[..., 1, 0] * j[..., 2, 2]) / det
+        invj[..., 1, 1] = (j[..., 0, 0] * j[..., 2, 2] - j[..., 0, 2] * j[..., 2, 0]) / det
+        invj[..., 1, 2] = (j[..., 0, 2] * j[..., 1, 0] - j[..., 0, 0] * j[..., 1, 2]) / det
+        invj[..., 2, 0] = (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0]) / det
+        invj[..., 2, 1] = (j[..., 0, 1] * j[..., 2, 0] - j[..., 0, 0] * j[..., 2, 1]) / det
+        invj[..., 2, 2] = (j[..., 0, 0] * j[..., 1, 1] - j[..., 0, 1] * j[..., 1, 0]) / det
     # calculate detwei
     det = det.view(batch_in, ngi)
     # invdet = torch.div(1.0, det)
