@@ -83,7 +83,7 @@ def _solve_diffusion(
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_new_opt_all_fi'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_s_fb_all_in_one'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
@@ -470,6 +470,8 @@ def get_residual_or_smooth(
                     r0.view(nele, u_nloc)[idx_in, :]
                 ).view(batch_in, u_nloc)
             else:  # use point Jabocian to approximate inv block diagonal
+                # getting diagonal of K
+                diagK += torch.diagonal(bdiagK.view(batch_in, u_nloc, u_nloc), dim1=1, dim2=2).view(batch_in, u_nloc)
                 c_i = torch.zeros_like(x_i, device=dev, dtype=torch.float64)  # correction to x_i
                 c_i = c_i.view(nele, u_nloc)
                 for it in range(3):
@@ -498,7 +500,7 @@ def _k_res_one_batch(
 
     r0 = r0.view(nele, u_nloc)
     x_i = x_i.view(nele, u_nloc)
-    diagK = diagK.view(-1, u_nloc)
+    # diagK = diagK.view(-1, u_nloc)
     bdiagK = bdiagK.view(-1, u_nloc, u_nloc)
 
     # get shape function and derivatives
@@ -522,8 +524,8 @@ def _k_res_one_batch(
         K, x_i[idx_in, ...]
     )
     # get diagonal of velocity block K
-    diagK += torch.diagonal(K.view(batch_in, u_nloc, u_nloc)
-                            , dim1=1, dim2=2).view(batch_in, u_nloc)
+    # diagK += torch.diagonal(K.view(batch_in, u_nloc, u_nloc)
+    #                         , dim1=1, dim2=2).view(batch_in, u_nloc)
     bdiagK[idx_in[0:nele_f], ...] += K
 
     return r0, diagK, bdiagK
@@ -781,8 +783,8 @@ def _s_res_fi(
     # update residual
     r0[E_F_i, ...] -= torch.einsum('bmn,bn->bm', K, u_ith)
     # put diagonal into diagK and bdiagK
-    diagK[E_F_i - batch_start_idx, ...] += torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
-                                                          dim1=1, dim2=2).view(batch_in, u_nloc)
+    # diagK[E_F_i - batch_start_idx, ...] += torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
+    #                                                       dim1=1, dim2=2).view(batch_in, u_nloc)
     bdiagK[E_F_i - batch_start_idx, ...] += K
 
     # other side
@@ -952,7 +954,7 @@ def _s_res_fi_all_face(
     x_i = x_i.view(nele, u_nloc)
     for iface in range(nface):
         r0 -= torch.bmm(K[:, iface, :, :], x_i.view(nele, u_nloc, 1)).view(nele, u_nloc)
-        diagK += torch.diagonal(K[:, iface, :, :], dim1=1, dim2=2).view(nele, u_nloc)
+        # diagK += torch.diagonal(K[:, iface, :, :], dim1=1, dim2=2).view(nele, u_nloc)
         bdiagK += K[:, iface, :, :]
 
     # other side (we don't need K anymore)
@@ -1038,7 +1040,7 @@ def _s_res_fb(
     """boundary faces"""
     batch_in = f_b.shape[0]
     if batch_in < 1:  # nothing to do here.
-        return r0, diagK, bdiagK
+        return None  # r0, diagK, bdiagK
     dev = func_space.dev
     nele = func_space.nele
     ndim = func_space.element.ndim
@@ -1100,9 +1102,92 @@ def _s_res_fb(
     # update residual
     r0[E_F_b, ...] -= torch.einsum('bmn,bn->bm', K, u_ith)
     # put in diagonal
-    diagK[E_F_b - batch_start_idx, ...] += torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
-                                                          dim1=-2, dim2=-1).view(batch_in, u_nloc)
+    # diagK[E_F_b - batch_start_idx, ...] += torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
+    #                                                       dim1=-2, dim2=-1).view(batch_in, u_nloc)
     bdiagK[E_F_b - batch_start_idx, ...] += K
+    # return r0, diagK, bdiagK
+
+
+# @torch.jit.optimize_for_inference
+# @torch.jit.script
+def _s_res_fb_all_face(
+        r0, f_b, E_F_b,
+        x_i,
+        diagK, bdiagK,
+        batch_start_idx: int,
+        func_space: function_space.FuncSpaceTS,
+        mu_f: float, eta_e: float,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """boundary faces"""
+    batch_in = f_b.shape[0]
+    if batch_in < 1:  # nothing to do here.
+        return None  # r0, diagK, bdiagK
+    dev = func_space.dev
+    nele = func_space.nele
+    ndim = func_space.element.ndim
+    sngi = func_space.element.sngi
+    dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
+    # get element parameters
+    u_nloc = func_space.element.nloc
+    x_i = x_i.view(nele, u_nloc)
+    r0 = r0.view(nele, u_nloc)
+    # shape function
+    snx, sdetwei, snormal = sdet_snlx(
+        snlx=func_space.element.snlx,
+        x_loc=func_space.x_ref_in[E_F_b],
+        sweight=func_space.element.sweight,
+        nloc=func_space.element.nloc,
+        sngi=func_space.element.sngi,
+        sn=func_space.element.sn,
+        real_snlx=None,
+        is_get_f_det_normal=True,
+    )
+    sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
+    snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
+    sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
+    snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim, sngi)
+    h = torch.sum(sdetwei, -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    gamma_e = eta_e / h
+
+    # block K
+    K = torch.zeros(batch_in, u_nloc, u_nloc,
+                    device=dev, dtype=torch.float64)
+    # [vi nj] {du_i / dx_j}  consistent term
+    snx_snormal = torch.bmm(
+        snx.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),
+        snormal.permute(0, 2, 1).reshape(-1, ndim, 1)
+    )  # (batch_in * sngi, u_nloc, 1)
+    snx_snormal_sn = torch.einsum(
+        'bmg,bgn->bmng',
+        sn,  # (batch_in, nloc, sngi)
+        snx_snormal.view(batch_in, sngi, u_nloc)
+    )
+    snx_snormal_sn_sdetwei = torch.einsum(
+        'bmng,bg->bmn',
+        snx_snormal_sn,  # (batch_in, nloc, nloc, sngi)
+        sdetwei  # (batch_in, sngi)
+    )
+    K -= snx_snormal_sn_sdetwei
+    # {dv_i / dx_j} [ui nj]  symmetry term
+    K -= snx_snormal_sn_sdetwei.transpose(1, 2)
+    # \gamma_e [v_i] [u_i]  penalty term
+    sn_sn = torch.einsum('bmg,bng->bmng', sn, sn)
+    sn_sn_sdetwei = torch.einsum('bmng,bg->bmn', sn_sn, sdetwei)
+    K += sn_sn_sdetwei * gamma_e.view(batch_in, 1, 1)
+    K *= mu_f
+
+    # SCATTER
+    for iface in range(nface):
+        idx_iface = (f_b == iface)
+        E_idx = E_F_b[idx_iface]
+        # update residual
+        r0[E_idx, ...] -= torch.einsum('bmn,bn->bm', K[idx_iface], x_i[E_idx])
+        # put in diagonal
+        # diagK[E_idx - batch_start_idx, ...] += torch.diagonal(K[idx_iface].view(-1, u_nloc, u_nloc),
+        #                                                       dim1=-2, dim2=-1).view(-1, u_nloc)
+        bdiagK[E_idx - batch_start_idx, ...] += K[idx_iface]
     # return r0, diagK, bdiagK
 
 
@@ -1170,14 +1255,20 @@ def _s_res_one_batch(
         x_i,
     )
     # boundary faces (dirichlet)
-    for iface in range(nface):
-        idx_iface = f_b == iface
-        _s_res_fb(  # r0, diagK, bdiagK = _s_res_fb(
-            r0, f_b[idx_iface], E_F_b[idx_iface],
-            x_i,
-            diagK, bdiagK, batch_start_idx,
-            func_space, mu_f, eta_e
-        )
+    # for iface in range(nface):
+    #     idx_iface = f_b == iface
+    #     _s_res_fb(  # r0, diagK, bdiagK = _s_res_fb(
+    #         r0, f_b[idx_iface], E_F_b[idx_iface],
+    #         x_i,
+    #         diagK, bdiagK, batch_start_idx,
+    #         func_space, mu_f, eta_e
+    #     )
+    _s_res_fb_all_face(
+        r0, f_b, E_F_b,
+        x_i,
+        diagK, bdiagK, batch_start_idx,
+        func_space, mu_f, eta_e
+    )
     return r0, diagK, bdiagK
 
 
