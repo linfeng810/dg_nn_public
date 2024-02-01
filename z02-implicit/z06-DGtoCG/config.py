@@ -112,7 +112,7 @@ everywhere smooth_start_level is used."""
 # smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
 
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
-blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
+blk_solver = 'jacobian'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
 # is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
@@ -245,6 +245,7 @@ no_batch = 1
 print('No of batch: ', no_batch)
 
 case_name = '_' + problem + 'Re' + str(_Re) + '_p' + str(ele_p) + 'p' + str(ele_p_pressure) + \
-            '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
+            '_' + '00000000-000000'  # when debugging, use this to avoid generating too many files
+            # '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
 # case_name = '_bfsRe109_p3p2_20230828-190846'
 print('case name is: ' + filename + case_name)

@@ -5,11 +5,13 @@ import sparsity
 from mesh_init import init_2d, init_3d
 from shape_function import SHATRInew
 import config
+from typing import List, Optional
 
 
 # dev = config.dev
 
 
+@torch.jit.script
 class Element(object):
     """
     this is a class that log element information.
@@ -21,6 +23,10 @@ class Element(object):
         self.ele_order = ele_order
         self.gi_order = gi_order
         self.ndim = edim
+        self.nloc = 0
+        self.snloc = 0
+        self.ngi = 0
+        self.sngi = 0
         # assuming simplex element (triangle or tetrahedron)
         if self.ndim == 3:
             self.nloc = int(1/6*(ele_order+1)*(ele_order+2)*(ele_order+3))
@@ -63,14 +69,14 @@ class Element(object):
         self.n, self.nlx, self.weight, \
             self.sn, self.snlx, self.sweight, \
             self.gi_align = \
-            SHATRInew(self.nloc, self.ngi, self.ndim, self.snloc, self.sngi)
-        # converse to torch tensor
-        self.n = torch.tensor(self.n, device=dev, dtype=torch.float64)
-        self.nlx = torch.tensor(self.nlx, device=dev, dtype=torch.float64)
-        self.weight = torch.tensor(self.weight, device=dev, dtype=torch.float64)
-        self.sn = torch.tensor(self.sn, device=dev, dtype=torch.float64)
-        self.snlx = torch.tensor(self.snlx, device=dev, dtype=torch.float64)
-        self.sweight = torch.tensor(self.sweight, device=dev, dtype=torch.float64)
+            SHATRInew(self.nloc, self.ngi, self.ndim, self.snloc, self.sngi, dev)
+        # # converse to torch tensor
+        # self.n = torch.tensor(self.n, device=dev, dtype=torch.float64)
+        # self.nlx = torch.tensor(self.nlx, device=dev, dtype=torch.float64)
+        # self.weight = torch.tensor(self.weight, device=dev, dtype=torch.float64)
+        # self.sn = torch.tensor(self.sn, device=dev, dtype=torch.float64)
+        # self.snlx = torch.tensor(self.snlx, device=dev, dtype=torch.float64)
+        # self.sweight = torch.tensor(self.sweight, device=dev, dtype=torch.float64)
 
 
 class FuncSpace(object):
@@ -286,3 +292,102 @@ class FuncSpace(object):
             np_1_np,
         )
         return prolongator
+
+
+@torch.jit.script
+class FuncSpaceTS:
+    def __init__(self,
+                 alnmt,
+                 bc_node_list: List[torch.Tensor],
+                 cell_volume,
+                 cg_ndglno,
+                 cg_nonods: int,
+                 cola,
+                 dev: torch.device,
+                 element: Element,
+                 fina,
+                 glb_bcface_type,
+                 name: str,
+                 nbele,
+                 nbf,
+                 ncola: int,
+                 nele: int,
+                 nonods: int,
+                 not_iso_parametric: bool,
+                 p1cg_nloc: int,
+                 p1dg_nonods: int,
+                 pncg_nonods: Optional[int],
+                 pncg_nonods_f: Optional[int],
+                 pndg_ndglbno: Optional[int],
+                 pndg_ndglbno_f: Optional[int],
+                 prolongator_from_p1dg,
+                 ref_node_order,
+                 restrictor_1order,
+                 restrictor_to_p1dg,
+                 x_element: Element,
+                 x_ref_in
+                 ):
+        self.alnmt = alnmt
+        self.bc_node_list = bc_node_list
+        self.cell_volume = cell_volume
+        self.cg_ndglno = cg_ndglno
+        self.cg_nonods = cg_nonods
+        self.cola = cola
+        self.dev = dev
+        self.element = element
+        self.fina = fina
+        self.glb_bcface_type = glb_bcface_type
+        self.name = name
+        self.nbele = nbele
+        self.nbf = nbf
+        self.ncola = ncola
+        self.nele = nele
+        self.nonods = nonods
+        self.not_iso_parametric = not_iso_parametric
+        self.p1cg_nloc = p1cg_nloc
+        self.p1dg_nonods = p1dg_nonods
+        self.pncg_nonods = pncg_nonods
+        self.pncg_nonods_f = pncg_nonods_f
+        self.pndg_ndglbno = pndg_ndglbno
+        self.pndg_ndglbno_f = pndg_ndglbno_f
+        self.prolongator_from_p1dg = prolongator_from_p1dg
+        self.ref_node_order = ref_node_order
+        self.restrictor_1order = restrictor_1order
+        self.restrictor_to_p1dg = restrictor_to_p1dg
+        self.x_element = x_element
+        self.x_ref_in = x_ref_in
+
+
+def create_funcspacets_from_funcspace(funcspace: FuncSpace):
+    dev = config.dev
+    return FuncSpaceTS(
+        alnmt=funcspace.alnmt,
+        bc_node_list=[torch.tensor(l, device=dev, dtype=torch.bool) for l in funcspace.bc_node_list],
+        cell_volume=funcspace.cell_volume,
+        cg_ndglno=torch.tensor(funcspace.cg_ndglno, device=dev, dtype=torch.int64),
+        cg_nonods=funcspace.cg_nonods,
+        cola=torch.tensor(funcspace.cola, device=dev, dtype=torch.int64),
+        dev=dev,
+        element=funcspace.element,
+        fina=torch.tensor(funcspace.fina, device=dev, dtype=torch.int64),
+        glb_bcface_type=funcspace.glb_bcface_type,
+        name=funcspace.name,
+        nbele=funcspace.nbele,
+        nbf=funcspace.nbf,
+        ncola=funcspace.ncola,
+        nele=funcspace.nele,
+        nonods=funcspace.nonods,
+        not_iso_parametric=funcspace.not_iso_parametric,
+        p1cg_nloc=funcspace.p1cg_nloc,
+        p1dg_nonods=funcspace.p1dg_nonods,
+        pncg_nonods=funcspace.pncg_nonods,
+        pncg_nonods_f=funcspace.pncg_nonods_f,
+        pndg_ndglbno=funcspace.pndg_ndglbno,
+        pndg_ndglbno_f=funcspace.pndg_ndglbno_f,
+        prolongator_from_p1dg=funcspace.prolongator_from_p1dg,
+        ref_node_order=torch.tensor(funcspace.ref_node_order, device=dev, dtype=torch.int64),
+        restrictor_1order=funcspace.restrictor_1order,
+        restrictor_to_p1dg=funcspace.restrictor_to_p1dg,
+        x_element=funcspace.x_element,
+        x_ref_in=funcspace.x_ref_in
+    )

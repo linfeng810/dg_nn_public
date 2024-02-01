@@ -15,6 +15,7 @@ from tqdm import tqdm
 import cmmn_data
 import config
 import fsi_output
+import function_space
 import output
 import shape_function
 import sparsity
@@ -55,8 +56,11 @@ if True:  # scale mesh
     mesh_init.scale_mesh(mesh=config.mesh, origin=np.zeros(3), scale=np.asarray([1, 1, 1]))
 
 vel_func_space = FuncSpace(vel_ele, name="Velocity", mesh=config.mesh, dev=dev)
-sf_nd_nb.set_data(vel_func_space=vel_func_space,
-                  p1cg_nonods=vel_func_space.cg_nonods)
+vel_func_space_ts = function_space.create_funcspacets_from_funcspace(
+    funcspace=vel_func_space,
+)
+sf_nd_nb.set_data(vel_func_space=vel_func_space_ts,
+                  p1cg_nonods=vel_func_space_ts.cg_nonods)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_ndglno,

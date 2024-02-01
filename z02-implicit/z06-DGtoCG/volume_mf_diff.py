@@ -6,10 +6,12 @@ import numpy as np
 import scipy as sp
 import pyamg
 import config
+import function_space
 from config import sf_nd_nb
 import multigrid_linearelastic as mg
 from tqdm import tqdm
 import sa_amg
+from typing import List, Tuple
 
 if config.ndim == 2:
     from shape_function import get_det_nlx as get_det_nlx
@@ -81,21 +83,17 @@ def _solve_diffusion(
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_s_res_one_batch_opt'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_new_opt_all_fi'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
-            r0, x_i = get_residual_or_smooth(
-                r0, x_i, x_rhs,
-                do_smooth=True,
-            )
-            with record_function("model_inference"):
-                for jj in range(100):
-                    prof.step()
-                    r0, x_i = get_residual_or_smooth(
-                        r0, x_i, x_rhs,
-                        do_smooth=True,
-                    )
+            for i in range(5):  # do smooth 5 times
+                r0, x_i = get_residual_or_smooth(
+                    r0, x_i, x_rhs,
+                    do_smooth=True,
+                )
+                prof.step()
+
         # endtime = time.time()
         # print('time for 1000 integration: ', endtime - starttime)
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
@@ -103,6 +101,21 @@ def _solve_diffusion(
         # Print aggregated stats
         print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cuda_time_total", row_limit=5))
 
+        exit(0)
+
+    if False:  # use torch.utils.benchmark to time get_residual_or_smooth
+        import torch.utils.benchmark as benchmark
+        r0 = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+        get_residual_or_smooth(
+            r0, x_i, x_rhs,
+            do_smooth=True,
+        )
+        t0 = benchmark.Timer(
+            stmt='get_residual_or_smooth(r0, x_i, x_rhs, do_smooth)',
+            setup='from volume_mf_diff import get_residual_or_smooth',
+            globals={'r0': r0, 'x_i': x_i, 'x_rhs': x_rhs, 'do_smooth': False},
+        )
+        print(t0.timeit(10))
         exit(0)
 
     # get RAR and SFC data
@@ -378,7 +391,9 @@ def get_residual_or_smooth(
         r0, diagK, bdiagK = _k_res_one_batch(
             r0, x_i,
             diagK, bdiagK,
-            idx_in
+            idx_in,
+            sf_nd_nb.vel_func_space,
+            config.mu_f, nele_f,
         )
         # surface integral
         idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
@@ -433,7 +448,9 @@ def get_residual_or_smooth(
         r0, diagK, bdiagK = _s_res_one_batch(
             r0, x_i,
             diagK, bdiagK,
-            idx_in_f, brk_pnt[i]
+            idx_in_f, brk_pnt[i],
+            sf_nd_nb.vel_func_space,
+            config.mu_f, config.eta_e
         )
 
         # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
@@ -453,30 +470,31 @@ def get_residual_or_smooth(
                     r0.view(nele, u_nloc)[idx_in, :]
                 ).view(batch_in, u_nloc)
             else:  # use point Jabocian to approximate inv block diagonal
-                new_b = torch.einsum('...ij,...j->...i', bdiagK, x_i.view(nele, u_nloc)[idx_in, :]) \
-                        + config.jac_wei * r0.view(nele, u_nloc)[idx_in, :]
-                new_b = new_b.view(-1)  # batch_in * nloc
-                diagK = diagK.view(-1)  # batch_in * nloc
-                x_i = x_i.view(nele, u_nloc)
-                x_i_partial = x_i[idx_in, :]
-                for its in range(3):
-                    x_i_partial += ((new_b - torch.einsum('...ij,...j->...i',
-                                                          bdiagK,
-                                                          x_i_partial).view(-1))
-                                    / diagK).view(-1, u_nloc)
-                x_i[idx_in, :] = x_i_partial.view(-1, u_nloc)
+                c_i = torch.zeros_like(x_i, device=dev, dtype=torch.float64)  # correction to x_i
+                c_i = c_i.view(nele, u_nloc)
+                for it in range(3):
+                    # we need proper relaxing coefficient here as well! 1.0 simply doesn't work.
+                    c_i += config.jac_wei * (r0 - torch.bmm(bdiagK, c_i.view(nele, u_nloc, 1)).squeeze()) / diagK
+                    # print(torch.norm(r0 - torch.bmm(bdiagK, c_i.view(nele, u_nloc, 1)).squeeze()))
+                x_i += config.jac_wei * c_i.view(x_i.shape)
     r0 = r0.view(-1)
     x_i = x_i.view(-1)
     return r0, x_i
 
 
+# @torch.jit.optimize_for_inference
+# @torch.jit.script
 def _k_res_one_batch(
         r0, x_i,
         diagK, bdiagK,
-        idx_in,
-):
+        idx_in,  # those without explicit type declaration default to torch.Tensor
+        func_space: function_space.FuncSpaceTS,
+        mu_f: float, nele_f: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     batch_in = diagK.shape[0]
-    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    u_nloc = func_space.element.nloc
+    nele = func_space.nele
+    dev = func_space.dev
 
     r0 = r0.view(nele, u_nloc)
     x_i = x_i.view(nele, u_nloc)
@@ -484,66 +502,21 @@ def _k_res_one_batch(
     bdiagK = bdiagK.view(-1, u_nloc, u_nloc)
 
     # get shape function and derivatives
-    n = sf_nd_nb.vel_func_space.element.n
+    # n = sf_nd_nb.vel_func_space.element.n
     nx, ndetwei = get_det_nlx(
-        nlx=sf_nd_nb.vel_func_space.element.nlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[idx_in],
-        weight=sf_nd_nb.vel_func_space.element.weight,
+        nlx=func_space.element.nlx,
+        x_loc=func_space.x_ref_in[idx_in],
+        weight=func_space.element.weight,
         nloc=u_nloc,
-        ngi=sf_nd_nb.vel_func_space.element.ngi,
+        ngi=func_space.element.ngi,
         real_nlx=None,
     )
 
     K = torch.zeros(batch_in, u_nloc, u_nloc, device=dev, dtype=torch.float64)
-    if False:
-        with profile(activities=[
-                ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(wait=1, warmup=1, active=10, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_K_one_batch_one_term'),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=True) as prof:
-            with record_function("model_inference"):
-                iisteps = 10
-                prof.step()
-                for ii in range(iisteps):
-                    K += torch.einsum(
-                        'bimg,bing,bg->bmn', nx, nx, ndetwei,
-                    ) * config.mu_f
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-        # prof.export_chrome_trace("trace.json")
-        # Print aggregated stats
-        print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cuda_time_total", row_limit=5))
 
-        exit(0)
-    if False:
-        # import time
-        # starttime = time.time()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
-
-        # Run some things here
-
-        iisteps = 100
-        for ii in range(iisteps):
-            nx, ndetwei = get_det_nlx(
-                nlx=sf_nd_nb.vel_func_space.element.nlx,
-                x_loc=sf_nd_nb.vel_func_space.x_ref_in[idx_in],
-                weight=sf_nd_nb.vel_func_space.element.weight,
-                nloc=u_nloc,
-                ngi=sf_nd_nb.vel_func_space.element.ngi,
-                real_nlx=None,
-            )
-        # endtime = time.time()
-        end_event.record()
-        torch.cuda.synchronize()  # Wait for the events to be recorded!
-        elapsed_time_ms = start_event.elapsed_time(end_event)
-        print('time for %d integration: %f ms' % (iisteps, elapsed_time_ms))
-        exit(0)
     K += torch.einsum(
         'bimg,bing,bg->bmn', nx, nx, ndetwei,
-    ) * config.mu_f
+    ) * mu_f
     r0[idx_in, ...] -= torch.einsum(
         'bmn,bn->bm',
         K, x_i[idx_in, ...]
@@ -556,206 +529,117 @@ def _k_res_one_batch(
     return r0, diagK, bdiagK
 
 
-# @profile (line-by-line profile)
-# @torch.compile
-def _s_res_one_batch(
-        r0, x_i,
-        diagK, bdiagK,
-        idx_in_f,
-        batch_start_idx
-):
-    """
-    surface integral (left hand side)
-    """
-    nbf = sf_nd_nb.vel_func_space.nbf
-    glb_bcface_type = sf_nd_nb.vel_func_space.glb_bcface_type
-
-    # change view
-    u_nloc = sf_nd_nb.vel_func_space.element.nloc
-
-    # separate nbf to get internal face list and boundary face list
-    F_i = torch.where(torch.logical_and(glb_bcface_type < 0,
-                                        idx_in_f))[0]  # interior face of fluid subdomain
-    F_inb = nbf[F_i]  # neighbour list of interior face
-    F_inb = F_inb.type(torch.int64)
-    F_b = torch.where(torch.logical_and(
-        sf_nd_nb.vel_func_space.glb_bcface_type == 0,
-        idx_in_f))[0]  # dirichlet boundary faces
-
-    # create two lists of which element f_i / f_b is in
-    E_F_i = torch.floor_divide(F_i, nface)
-    E_F_inb = torch.floor_divide(F_inb, nface)
-    E_F_b = torch.floor_divide(F_b, nface)
-
-    # local face number
-    f_b = torch.remainder(F_b, nface)
-    f_i = torch.remainder(F_i, nface)
-    f_inb = torch.remainder(F_inb, nface)
-
-    if False:  # test integration speed
-        import time
-        r0 = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
-        for iface in range(2, 3):
-            for nb_gi_aln in range(1, 2):
-                idx_iface = (f_i == iface) & (sf_nd_nb.vel_func_space.alnmt[F_i] == nb_gi_aln)
-                if idx_iface.sum() < 1:
-                    # there is nothing to do here, go on
-                    continue
-                print(iface, nb_gi_aln, idx_iface.sum())
-                starttime = time.time()
-                iisteps = 100
-                for ii in tqdm(range(iisteps)):
-                    r0, diagK, bdiagK = _s_res_fi(
-                        r0, f_i[idx_iface], E_F_i[idx_iface],
-                        f_inb[idx_iface], E_F_inb[idx_iface],
-                        x_i,
-                        diagK, bdiagK, batch_start_idx,
-                        nb_gi_aln,
-                    )
-                    # r0, diagK, bdiagK = _s_res_fi_all_face(
-                    #     r0, diagK, bdiagK,
-                    #     f_i, E_F_i,
-                    #     f_inb, E_F_inb,
-                    #     x_i,
-                    # )
-                endtime = time.time()
-                print('time for %d integration: %f' % (iisteps, endtime - starttime))
-                exit(0)
-    # for interior faces
-    for iface in range(nface):
-        for nb_gi_aln in range(nface - 1):
-            idx_iface = (f_i == iface) & (sf_nd_nb.vel_func_space.alnmt[F_i] == nb_gi_aln)
-            if idx_iface.sum() < 1:
-                # there is nothing to do here, go on
-                continue
-            r0, diagK, bdiagK = _s_res_fi(
-                r0, f_i[idx_iface], E_F_i[idx_iface],
-                f_inb[idx_iface], E_F_inb[idx_iface],
-                x_i,
-                diagK, bdiagK, batch_start_idx,
-                nb_gi_aln,
-            )
-    # r0, diagK, bdiagK = _s_res_fi_all_face(
-    #     r0, diagK, bdiagK,
-    #     f_i, E_F_i,
-    #     f_inb, E_F_inb,
-    #     x_i,
-    # )
-    # boundary faces (dirichlet)
-    for iface in range(nface):
-        idx_iface = f_b == iface
-        r0, diagK, bdiagK = _s_res_fb(
-            r0, f_b[idx_iface], E_F_b[idx_iface],
-            x_i,
-            diagK, bdiagK, batch_start_idx,
-        )
-    return r0, diagK, bdiagK
-
-
+# @torch.jit.optimize_for_inference
+# @torch.jit.script
 def _s_res_fi(
         r0, f_i, E_F_i,
         f_inb, E_F_inb,
         x_i,
-        diagK, bdiagK, batch_start_idx,
-        nb_gi_aln,
-):
+        diagK, bdiagK, batch_start_idx: int,
+        nb_gi_aln: int,  # index of neighbour face alignment (3 options in 3D; 2 in 2D)
+        func_space: function_space.FuncSpaceTS,
+        mu_f: float, eta_e: float,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """internal faces"""
     batch_in = f_i.shape[0]
+    dev = func_space.dev
+    nele = func_space.nele
+    ndim = func_space.element.ndim
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     # get element parameters
-    u_nloc = sf_nd_nb.vel_func_space.element.nloc
-    sngi = sf_nd_nb.vel_func_space.element.sngi
+    u_nloc = func_space.element.nloc
+    sngi = func_space.element.sngi
     r0 = r0.view(nele, u_nloc)
     x_i = x_i.view(nele, u_nloc)
 
     # shape function on this side
-    if False and f_i[0] == 2 and nb_gi_aln == 1:
-        print("batch in ", batch_in)
-        import time
-        starttime = time.time()
-        iisteps = 100
-        for ii in tqdm(range(iisteps)):
-            snx, sdetwei, snormal = sdet_snlx(
-                snlx=sf_nd_nb.vel_func_space.element.snlx,
-                x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
-                sweight=sf_nd_nb.vel_func_space.element.sweight,
-                nloc=sf_nd_nb.vel_func_space.element.nloc,
-                sngi=sf_nd_nb.vel_func_space.element.sngi,
-                sn=sf_nd_nb.vel_func_space.element.sn,
-                real_snlx=None,
-                is_get_f_det_normal=True,
-            )
-            sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
-            snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
-            sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
-            snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
-
-            # shape function on the other side
-            snx_nb, _, _ = sdet_snlx(
-                snlx=sf_nd_nb.vel_func_space.element.snlx,
-                x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
-                sweight=sf_nd_nb.vel_func_space.element.sweight,
-                nloc=sf_nd_nb.vel_func_space.element.nloc,
-                sngi=sf_nd_nb.vel_func_space.element.sngi,
-                sn=sf_nd_nb.vel_func_space.element.sn,
-                real_snlx=None,
-                is_get_f_det_normal=False,
-            )
-            # get faces we want
-            sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
-            snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
-            snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, sngi)
-            # change gaussian points order on other side
-            nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
-            snx_nb = snx_nb[..., nb_aln]
-            snormal_nb = snormal_nb[..., nb_aln]
-            # don't forget to change gaussian points order on sn_nb!
-            sn_nb = sn_nb[..., nb_aln]
-        endtime = time.time()
-        print('time for %d integration: %f s' % (iisteps, endtime - starttime))
-        exit(0)
+    # if False and f_i[0] == 2 and nb_gi_aln == 1:
+    #     print("batch in ", batch_in)
+    #     import time
+    #     starttime = time.time()
+    #     iisteps = 100
+    #     for ii in tqdm(range(iisteps)):
+    #         snx, sdetwei, snormal = sdet_snlx(
+    #             snlx=sf_nd_nb.vel_func_space.element.snlx,
+    #             x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
+    #             sweight=sf_nd_nb.vel_func_space.element.sweight,
+    #             nloc=sf_nd_nb.vel_func_space.element.nloc,
+    #             sngi=sf_nd_nb.vel_func_space.element.sngi,
+    #             sn=sf_nd_nb.vel_func_space.element.sn,
+    #             real_snlx=None,
+    #             is_get_f_det_normal=True,
+    #         )
+    #         sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    #         snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
+    #         sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
+    #         snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
+    #
+    #         # shape function on the other side
+    #         snx_nb, _, _ = sdet_snlx(
+    #             snlx=sf_nd_nb.vel_func_space.element.snlx,
+    #             x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
+    #             sweight=sf_nd_nb.vel_func_space.element.sweight,
+    #             nloc=sf_nd_nb.vel_func_space.element.nloc,
+    #             sngi=sf_nd_nb.vel_func_space.element.sngi,
+    #             sn=sf_nd_nb.vel_func_space.element.sn,
+    #             real_snlx=None,
+    #             is_get_f_det_normal=False,
+    #         )
+    #         # get faces we want
+    #         sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+    #         snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
+    #         snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, sngi)
+    #         # change gaussian points order on other side
+    #         nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
+    #         snx_nb = snx_nb[..., nb_aln]
+    #         snormal_nb = snormal_nb[..., nb_aln]
+    #         # don't forget to change gaussian points order on sn_nb!
+    #         sn_nb = sn_nb[..., nb_aln]
+    #     endtime = time.time()
+    #     print('time for %d integration: %f s' % (iisteps, endtime - starttime))
+    #     exit(0)
     snx, sdetwei, snormal = sdet_snlx(
-        snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
-        sweight=sf_nd_nb.vel_func_space.element.sweight,
-        nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi,
-        sn=sf_nd_nb.vel_func_space.element.sn,
+        snlx=func_space.element.snlx,
+        x_loc=func_space.x_ref_in[E_F_i],
+        sweight=func_space.element.sweight,
+        nloc=func_space.element.nloc,
+        sngi=func_space.element.sngi,
+        sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
     )
-    sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    sn = func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
 
     # shape function on the other side
     snx_nb, _, _ = sdet_snlx(
-        snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
-        sweight=sf_nd_nb.vel_func_space.element.sweight,
-        nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi,
-        sn=sf_nd_nb.vel_func_space.element.sn,
+        snlx=func_space.element.snlx,
+        x_loc=func_space.x_ref_in[E_F_inb],
+        sweight=func_space.element.sweight,
+        nloc=func_space.element.nloc,
+        sngi=func_space.element.sngi,
+        sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=False,  # don't need to get snormal and sdetwei for neighbouring ele because
         # its either the same as this ele or the opposite of this ele
     )
     # get faces we want
-    sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+    sn_nb = func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
     snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
     # snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, sngi)
     # change gaussian points order on other side
-    nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
-    snx_nb = snx_nb[..., nb_aln]
+    nb_aln = func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
+    snx_nb = snx_nb[:, :, :, nb_aln]
     # snormal_nb = snormal_nb[..., nb_aln]
     # don't forget to change gaussian points order on sn_nb!
-    sn_nb = sn_nb[..., nb_aln]
+    sn_nb = sn_nb[:, :, nb_aln]
 
     h = torch.sum(sdetwei, -1)
     if ndim == 3:
         h = torch.sqrt(h)
-    gamma_e = config.eta_e / h
+    gamma_e = eta_e / h
 
     u_ith = x_i[E_F_i, ...]
     u_inb = x_i[E_F_inb, ...]
@@ -815,84 +699,84 @@ def _s_res_fi(
     # sn1 = sn.permute(0, 2, 1).contiguous()
     # snx1 = snx.permute(0, 3, 2, 1).contiguous()
     # snormal1 = snormal.permute(0, 2, 1).contiguous()
-    if False and f_i[0] == 2 and nb_gi_aln == 1:
-        print("batch in ", batch_in)
-        # import time
-        # starttime = time.time()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
-
-        # Run some things here
-
-        iisteps = 100
-        for ii in range(iisteps):
-            # unfold einsum
-            snx_snormal = torch.bmm(
-                snx.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),
-                snormal.permute(0, 2, 1).reshape(-1, ndim, 1)
-            )
-            snx_snormal_sn = torch.bmm(
-                sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
-                snx_snormal.view(-1, 1, u_nloc),
-            ).view(batch_in, sngi, u_nloc, u_nloc)
-            snx_snormal_sn_sdetwei = (snx_snormal_sn
-                                      * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
-            K1 += snx_snormal_sn_sdetwei * (-0.5)
-            K1 += snx_snormal_sn_sdetwei.transpose(1, 2) * (-0.5)
-            sn_sn = torch.bmm(
-                sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
-                sn.permute(0, 2, 1).reshape(-1, 1, u_nloc),
-            ).view(batch_in, sngi, u_nloc, u_nloc)
-            sn_sn_sdetwei = (sn_sn
-                             * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
-            K1 += sn_sn_sdetwei * gamma_e.unsqueeze(1).unsqueeze(2)
-        # endtime = time.time()
-        end_event.record()
-        torch.cuda.synchronize()  # Wait for the events to be recorded!
-        elapsed_time_ms = start_event.elapsed_time(end_event)
-        print('time for %d integration: %f ms' % (iisteps, elapsed_time_ms))
-        exit(0)
-    if False and f_i[0] == 2 and nb_gi_aln == 1:
-        print('going to profile...')
-        with profile(activities=[
-            ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(wait=1, warmup=1, active=10, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_K_no_einsum'),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=True) as prof:
-            with record_function("model_inference"):
-                iisteps = 1000
-                for ii in range(iisteps):
-                    prof.step()
-                    # unfold einsum
-                    snx_snormal = torch.bmm(
-                        snx.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),
-                        snormal.permute(0, 2, 1).reshape(-1, ndim, 1)
-                    )
-                    snx_snormal_sn = torch.bmm(
-                        sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
-                        snx_snormal.view(-1, 1, u_nloc),
-                    ).view(batch_in, sngi, u_nloc, u_nloc)
-                    snx_snormal_sn_sdetwei = (snx_snormal_sn
-                                              * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
-                    K1 += snx_snormal_sn_sdetwei * (-0.5)
-                    K1 += snx_snormal_sn_sdetwei.transpose(1, 2) * (-0.5)
-                    sn_sn = torch.bmm(
-                        sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
-                        sn.permute(0, 2, 1).reshape(-1, 1, u_nloc),
-                    ).view(batch_in, sngi, u_nloc, u_nloc)
-                    sn_sn_sdetwei = (sn_sn
-                                     * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
-                    K1 += sn_sn_sdetwei * gamma_e.unsqueeze(1).unsqueeze(2)
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-        # prof.export_chrome_trace("trace.json")
-        # Print aggregated stats
-        print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cuda_time_total", row_limit=5))
-
-        exit(0)
-    K *= config.mu_f
+    # if False and f_i[0] == 2 and nb_gi_aln == 1:
+    #     print("batch in ", batch_in)
+    #     # import time
+    #     # starttime = time.time()
+    #     start_event = torch.cuda.Event(enable_timing=True)
+    #     end_event = torch.cuda.Event(enable_timing=True)
+    #     start_event.record()
+    #
+    #     # Run some things here
+    #
+    #     iisteps = 100
+    #     for ii in range(iisteps):
+    #         # unfold einsum
+    #         snx_snormal = torch.bmm(
+    #             snx.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),
+    #             snormal.permute(0, 2, 1).reshape(-1, ndim, 1)
+    #         )
+    #         snx_snormal_sn = torch.bmm(
+    #             sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
+    #             snx_snormal.view(-1, 1, u_nloc),
+    #         ).view(batch_in, sngi, u_nloc, u_nloc)
+    #         snx_snormal_sn_sdetwei = (snx_snormal_sn
+    #                                   * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
+    #         K1 += snx_snormal_sn_sdetwei * (-0.5)
+    #         K1 += snx_snormal_sn_sdetwei.transpose(1, 2) * (-0.5)
+    #         sn_sn = torch.bmm(
+    #             sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
+    #             sn.permute(0, 2, 1).reshape(-1, 1, u_nloc),
+    #         ).view(batch_in, sngi, u_nloc, u_nloc)
+    #         sn_sn_sdetwei = (sn_sn
+    #                          * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
+    #         K1 += sn_sn_sdetwei * gamma_e.unsqueeze(1).unsqueeze(2)
+    #     # endtime = time.time()
+    #     end_event.record()
+    #     torch.cuda.synchronize()  # Wait for the events to be recorded!
+    #     elapsed_time_ms = start_event.elapsed_time(end_event)
+    #     print('time for %d integration: %f ms' % (iisteps, elapsed_time_ms))
+    #     exit(0)
+    # if False and f_i[0] == 2 and nb_gi_aln == 1:
+    #     print('going to profile...')
+    #     with profile(activities=[
+    #         ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    #             schedule=torch.profiler.schedule(wait=1, warmup=1, active=10, repeat=1),
+    #             on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_K_no_einsum'),
+    #             record_shapes=True,
+    #             profile_memory=True,
+    #             with_stack=True) as prof:
+    #         with record_function("model_inference"):
+    #             iisteps = 1000
+    #             for ii in range(iisteps):
+    #                 prof.step()
+    #                 # unfold einsum
+    #                 snx_snormal = torch.bmm(
+    #                     snx.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),
+    #                     snormal.permute(0, 2, 1).reshape(-1, ndim, 1)
+    #                 )
+    #                 snx_snormal_sn = torch.bmm(
+    #                     sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
+    #                     snx_snormal.view(-1, 1, u_nloc),
+    #                 ).view(batch_in, sngi, u_nloc, u_nloc)
+    #                 snx_snormal_sn_sdetwei = (snx_snormal_sn
+    #                                           * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
+    #                 K1 += snx_snormal_sn_sdetwei * (-0.5)
+    #                 K1 += snx_snormal_sn_sdetwei.transpose(1, 2) * (-0.5)
+    #                 sn_sn = torch.bmm(
+    #                     sn.permute(0, 2, 1).reshape(-1, u_nloc, 1),
+    #                     sn.permute(0, 2, 1).reshape(-1, 1, u_nloc),
+    #                 ).view(batch_in, sngi, u_nloc, u_nloc)
+    #                 sn_sn_sdetwei = (sn_sn
+    #                                  * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
+    #                 K1 += sn_sn_sdetwei * gamma_e.unsqueeze(1).unsqueeze(2)
+    #     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    #     # prof.export_chrome_trace("trace.json")
+    #     # Print aggregated stats
+    #     print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cuda_time_total", row_limit=5))
+    #
+    #     exit(0)
+    K *= mu_f
 
     # update residual
     r0[E_F_i, ...] -= torch.einsum('bmn,bn->bm', K, u_ith)
@@ -916,7 +800,7 @@ def _s_res_fi(
     #     'bjmg,bng,bjg,bg->bmn',
     #     snx,  # (batch_in, ndim, nloc, sngi)
     #     sn_nb,  # (batch_in, nloc, sngi)
-    #     snormal_nb,  # (batch_in, ndim, sngi)
+    #     -snormal,  # (batch_in, ndim, sngi)
     #     sdetwei,  # (batch_in, sngi)
     # ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
     # # \gamma_e * [v_i][u_i]  penalty term
@@ -928,7 +812,7 @@ def _s_res_fi(
     #     gamma_e,  # (batch_in)
     # ) * (-1.)  # because n2 \cdot n1 = -1
 
-    # K1 = torch.zeros_like(K, device=dev, dtype=torch.float64)
+    # # K1 = torch.zeros_like(K, device=dev, dtype=torch.float64)
     # unfold einsum
     snx_snormal = torch.bmm(
         snx_nb.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),
@@ -959,12 +843,12 @@ def _s_res_fi(
     sn_sn_sdetwei = (sn_sn
                      * sdetwei.view(batch_in, sngi, 1, 1)).sum(dim=1)
     K += sn_sn_sdetwei * gamma_e.unsqueeze(1).unsqueeze(2) * (-1.)
-    K *= config.mu_f
+    K *= mu_f
     # print(torch.linalg.norm(K - K1))
 
     # update residual
     r0[E_F_i, ...] -= torch.einsum('bmn,bn->bm', K, u_inb)
-    return r0, diagK, bdiagK
+    # return r0, diagK, bdiagK
 
 
 def _s_res_fi_all_face(
@@ -973,7 +857,10 @@ def _s_res_fi_all_face(
         f_inb, E_F_inb,
         x_i,
 ):
-    """internal faces"""
+    """all internal faces computed in 1 batch
+    no matter local face index or neighbour face gi pnts alignment
+    will deal those when putting into global matrix/residual
+    at the end of this function"""
     batch_in = f_i.shape[0]
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     # get element parameters
@@ -984,7 +871,7 @@ def _s_res_fi_all_face(
     # shape function on this side
     snx, sdetwei, snormal = sdet_snlx(
         snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
+        x_loc=sf_nd_nb.vel_func_space.x_ref_in,
         sweight=sf_nd_nb.vel_func_space.element.sweight,
         nloc=sf_nd_nb.vel_func_space.element.nloc,
         sngi=sf_nd_nb.vel_func_space.element.sngi,
@@ -992,194 +879,193 @@ def _s_res_fi_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
     )
-    sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
-    snx = snx[E_F_i, f_i, ...]  # (batch_in, ndim, nloc, sngi)
-    sdetwei = sdetwei[E_F_i, f_i, ...]  # (batch_in, sngi)
-    snormal = snormal[E_F_i, f_i, ...]  # (batch_in, ndim, sngi)
 
-    # shape function on the other side
-    snx_nb, _, snormal_nb = sdet_snlx(
-        snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
-        sweight=sf_nd_nb.vel_func_space.element.sweight,
-        nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi,
-        sn=sf_nd_nb.vel_func_space.element.sn,
+    # # shape function on the other side
+    # snx_nb, _, _ = sdet_snlx(
+    #     snlx=sf_nd_nb.vel_func_space.element.snlx,
+    #     x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
+    #     sweight=sf_nd_nb.vel_func_space.element.sweight,
+    #     nloc=sf_nd_nb.vel_func_space.element.nloc,
+    #     sngi=sf_nd_nb.vel_func_space.element.sngi,
+    #     sn=sf_nd_nb.vel_func_space.element.sn,
+    #     real_snlx=None,
+    #     is_get_f_det_normal=False,
+    # )
+
+    # K block
+    K = torch.zeros(nele, nface, u_nloc, u_nloc, device=dev, dtype=torch.float64)
+    # this side
+    # without fetching faces, we will do for all faces,
+    # and use a flag to make bc face be 0.
+
+    # sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+    # snx = snx[E_F_i, f_i, ...]  # (batch_in, ndim, nloc, sngi)
+    # sdetwei = sdetwei[E_F_i, f_i, ...]  # (batch_in, sngi)
+    # snormal = snormal[E_F_i, f_i, ...]  # (batch_in, ndim, sngi)
+
+    # shape:
+    # sn (nface, nloc, sngi)
+    # snx (nele, nface, ndim, nloc, sngi)
+    # sdetwei (nele, nface, sngi)
+    # snormal (nele, nface, ndim, sngi)
+    sn = sf_nd_nb.vel_func_space.element.sn
+    sngi = sf_nd_nb.vel_func_space.element.sngi
+    h = torch.sum(sdetwei, -1)
+    if ndim == 3:
+        h = torch.sqrt(h)
+    gamma_e = config.eta_e / h  # (nele, nface)
+
+    snx_snormal = torch.bmm(
+        snx.permute(0, 1, 4, 3, 2).reshape(-1, u_nloc, ndim),
+        snormal.permute(0, 1, 3, 2).reshape(-1, ndim, 1)
+    )  # (nele * nface * sngi, u_nloc, 1)
+    snx_snormal_sn = torch.einsum(
+        'fng,bfgm->bfmng',
+        sn.view(nface, u_nloc, sngi),
+        snx_snormal.view(nele, nface, sngi, u_nloc)
     )
+    snx_snormal_sn_sdetwei = torch.einsum(
+        'bfmng,bfg->bfmn',
+        snx_snormal_sn,  # (nele, nface, nloc, nloc, sngi)
+        sdetwei  # .view(nele, nface, sngi)
+    )
+    K += snx_snormal_sn_sdetwei * (-0.5)  # consistent term
+    K += snx_snormal_sn_sdetwei.transpose(2, 3) * (-0.5)  # symmetry term
+    sn_sn = torch.einsum(
+        'fmg,fng->fmng',
+        sn, sn,  # (nface, nloc, sngi)
+    )
+    sn_sn_sdetwei = torch.einsum(
+        'fmng,bfg->bfmn',  # (nele, nface, nloc, nloc)
+        sn_sn, sdetwei  # (nele, nface, sngi)
+    )
+    K += sn_sn_sdetwei * gamma_e.unsqueeze(2).unsqueeze(3)  # penalty term
+
+    K *= config.mu_f
+
+    # set boundary face to 0
+    K = K.view(nele * nface, u_nloc, u_nloc)
+    K *= (sf_nd_nb.vel_func_space.glb_bcface_type < 0).view(-1, 1, 1).to(torch.float64)
+
+    # put them to r0, diagK and bdiagK (SCATTER)
+    K = K.view(nele, nface, u_nloc, u_nloc)
+    x_i = x_i.view(nele, u_nloc)
+    for iface in range(nface):
+        r0 -= torch.bmm(K[:, iface, :, :], x_i.view(nele, u_nloc, 1)).view(nele, u_nloc)
+        diagK += torch.diagonal(K[:, iface, :, :], dim1=1, dim2=2).view(nele, u_nloc)
+        bdiagK += K[:, iface, :, :]
+
+    # other side (we don't need K anymore)
+    # we can get residual only. no contribution to diagK or bdiagK
+    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=torch.float64)
+    u_inb = x_i[E_F_inb, ...]
+
     # get faces we want
+    sn_th = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
-    snx_nb = snx_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
-    snormal_nb = snormal_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, sngi)
+    snx_nb = snx[E_F_inb, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
+    # snormal_nb = snormal_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, sngi)
+    snormal_th = snormal[E_F_i, f_i, ...]  # (batch_in, ndim, sngi)
+    sdetwei_th = sdetwei[E_F_i, f_i, ...]  # (batch_in, sngi)
     # change gaussian points order on other side
-    # ===== old ======
-    # nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
-    # snx_nb = snx_nb[..., nb_aln]
-    # snormal_nb = snormal_nb[..., nb_aln]
-    # # don't forget to change gaussian points order on sn_nb!
-    # sn_nb = sn_nb[..., nb_aln]
     # ===== new ======
     for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
         idx = sf_nd_nb.vel_func_space.alnmt[E_F_i * nface + f_i] == nb_gi_aln
         nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]
         snx_nb[idx, ...] = snx_nb[idx][..., nb_aln]
-        snormal_nb[idx, ...] = snormal_nb[idx][..., nb_aln]
+        # snormal_nb[idx, ...] = snormal_nb[idx][..., nb_aln]
         sn_nb[idx, ...] = sn_nb[idx][..., nb_aln]
-
-    h = torch.sum(sdetwei, -1)
-    if ndim == 3:
-        h = torch.sqrt(h)
-    gamma_e = config.eta_e / h
-
-    u_ith = x_i[E_F_i, ...]
-    u_inb = x_i[E_F_inb, ...]
-
-    # # K block
-    # K = torch.zeros(batch_in, u_nloc, u_nloc, device=dev, dtype=torch.float64)
-    # # this side
-    # # [v_i n_j] {du_i / dx_j}  consistent term
-    # K += torch.einsum(
-    #     'bmg,bjg,bjng,bg->bmn',
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim, sngi)
-    #     snx,  # (batch_in, ndim, nloc, sngi)
-    #     sdetwei,  # (batch_in, sngi)
-    # ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
-    # # {dv_i / dx_j} [u_i n_j]  symmetry term
-    # K += torch.einsum(
-    #     'bjmg,bng,bjg,bg->bmn',
-    #     snx,  # (batch_in, ndim, nloc, sngi)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     snormal,  # (batch_in, ndim, sngi)
-    #     sdetwei,  # (batch_in, sngi)
-    # ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # # \gamma_e * [v_i][u_i]  penalty term
-    # K += torch.einsum(
-    #     'bmg,bng,bg,b->bmn',
-    #     sn,  # (batch_in, nloc, sngi)
-    #     sn,  # (batch_in, nloc, sngi)
-    #     sdetwei,  # (batch_in, sngi)
-    #     gamma_e,  # (batch_in)
-    # )
-    # K *= config.mu_f
-
-    # assume we don't need to get block diagonal
-    # K block
-    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=torch.float64)
-    # this side
-    # [v_i n_j] {du_i / dx_j}  consistent term
-    Au += torch.einsum(
-        'bmg,bjg,bjng,bg,bn->bm',
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim, sngi)
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        u_ith,  # (batch_in, u_nloc)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim)
-    # {dv_i / dx_j} [u_i n_j]  symmetry term
-    Au += torch.einsum(
-        'bjmg,bng,bjg,bg,bn->bm',
-        snx,  # (batch_in, ndim, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim, sngi)
-        sdetwei,  # (batch_in, sngi)
-        u_ith,  # (batch_in, u_nloc)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # \gamma_e * [v_i][u_i]  penalty term
-    Au += torch.einsum(
-        'bmg,bng,bg,b,bn->bm',
-        sn,  # (batch_in, nloc, sngi)
-        sn,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        gamma_e,  # (batch_in)
-        u_ith,  # (batch_in, u_nloc)
-    )
-    Au *= config.mu_f
-
-    # update residual
-    # Au = torch.einsum('bmn,bn->bm', K, u_ith)
-    # # put diagonal into diagK and bdiagK
-    # diagS = torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
-    #                        dim1=1, dim2=2).view(batch_in, u_nloc)
-    # put them to r0, diagK and bdiagK (SCATTER)
-    for iface in range(nface):
-        idx_iface = (f_i == iface)
-        r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
-        # diagK[E_F_i[idx_iface], ...] += diagS[idx_iface, ...]
-        # bdiagK[E_F_i[idx_iface], ...] += K[idx_iface, ...]
-
-    # other side
-    Au *= 0
-    # [v_i n_j] {du_i / dx_j}  consistent term
-    Au += torch.einsum(
-        'bmg,bjg,bjng,bg,bn->bm',
-        sn,  # (batch_in, nloc, sngi)
-        snormal,  # (batch_in, ndim, sngi)
+    # *consistent term
+    snx_ui = torch.einsum(
+        'bing,bn->big',
         snx_nb,  # (batch_in, ndim, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        u_inb,  # (batch_in, u_nloc)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # {dv_i / dx_j} [u_i n_j]  symmetry term
-    Au += torch.einsum(
-        'bjmg,bng,bjg,bg,bn->bm',
-        snx,  # (batch_in, ndim, nloc, sngi)
+        u_inb,  # (batch_in, nloc)
+    )
+    snx_ui_snormal = torch.einsum(
+        'big,big->bg',
+        snx_ui,  # (batch_in, ndim, nloc)
+        snormal_th,  # (batch_in, ndim, sngi)
+    )
+    snx_ui_snormal_sn = snx_ui_snormal.view(batch_in, 1, sngi) * sn_th
+    Au -= torch.einsum(
+        'bmg,bg->bm',
+        snx_ui_snormal_sn,  # (batch_in, nloc, sngi)
+        sdetwei_th,  # (batch_in, sngi)
+    ) * (-0.5)
+    # *symmetry term
+    sn_ui = torch.einsum(
+        'bng,bn->bg',
         sn_nb,  # (batch_in, nloc, sngi)
-        snormal_nb,  # (batch_in, ndim, sngi)
-        sdetwei,  # (batch_in, sngi)
-        u_inb,  # (batch_in, u_nloc)
-    ) * (-0.5)  # .unsqueeze(2).unsqueeze(4).expand(batch_in, u_nloc, ndim, u_nloc, ndim) \
-    # \gamma_e * [v_i][u_i]  penalty term
-    Au += torch.einsum(
-        'bmg,bng,bg,b,bn->bm',
-        sn,  # (batch_in, nloc, sngi)
-        sn_nb,  # (batch_in, nloc, sngi)
-        sdetwei,  # (batch_in, sngi)
-        gamma_e,  # (batch_in)
-        u_inb,  # (batch_in, u_nloc)
-    ) * (-1.)  # because n2 \cdot n1 = -1
-    Au *= config.mu_f
+        u_inb,  # (batch_in, nloc)
+    )  # this will be reused later in penalty term
+    sn_ui_snormal = sn_ui.view(batch_in, 1, sngi) * snormal_th * (-1.)  # mul -1 to be snormal_nb
+    sn_ui_snormal_snx = torch.einsum(
+        'big,bimg->bmg',
+        sn_ui_snormal,  # (batch_in, ndim, sngi)
+        snx[E_F_i, f_i, ...],  # (batch_in, ndim, nloc, sngi)
+    )
+    Au -= torch.einsum(
+        'bmg,bg->bm',
+        sn_ui_snormal_snx,
+        sdetwei_th,
+    ) * (-0.5)
+    # *penalty term
+    sn_ui_sn = sn_ui.view(batch_in, 1, sngi) * sn_th
+    Au -= torch.einsum(
+        'bmg,bg->bm',
+        sn_ui_sn,  # (batch_in, nloc, sngi)
+        sdetwei_th,  # (batch_in, sngi)
+    ) * (-gamma_e[E_F_i, f_i].view(batch_in, 1))
 
     # update residual
     # scatter
     for iface in range(nface):
         idx_iface = (f_i == iface)
-        r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
+        r0[E_F_i[idx_iface], ...] += Au[idx_iface, ...]
     return r0, diagK, bdiagK
 
 
+# @torch.jit.optimize_for_inference
+# @torch.jit.script
 def _s_res_fb(
         r0, f_b, E_F_b,
         x_i,
         diagK, bdiagK,
-        batch_start_idx,
-):
+        batch_start_idx: int,
+        func_space: function_space.FuncSpaceTS,
+        mu_f: float, eta_e: float,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """boundary faces"""
     batch_in = f_b.shape[0]
     if batch_in < 1:  # nothing to do here.
         return r0, diagK, bdiagK
+    dev = func_space.dev
+    nele = func_space.nele
+    ndim = func_space.element.ndim
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     # get element parameters
-    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    u_nloc = func_space.element.nloc
     x_i = x_i.view(nele, u_nloc)
     r0 = r0.view(nele, u_nloc)
     # shape function
     snx, sdetwei, snormal = sdet_snlx(
-        snlx=sf_nd_nb.vel_func_space.element.snlx,
-        x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
-        sweight=sf_nd_nb.vel_func_space.element.sweight,
-        nloc=sf_nd_nb.vel_func_space.element.nloc,
-        sngi=sf_nd_nb.vel_func_space.element.sngi,
-        sn=sf_nd_nb.vel_func_space.element.sn,
+        snlx=func_space.element.snlx,
+        x_loc=func_space.x_ref_in[E_F_b],
+        sweight=func_space.element.sweight,
+        nloc=func_space.element.nloc,
+        sngi=func_space.element.sngi,
+        sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
     )
-    sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
+    sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
     snormal = snormal[dummy_idx, f_b, ...]  # (batch_in, ndim, sngi)
     h = torch.sum(sdetwei, -1)
     if ndim == 3:
         h = torch.sqrt(h)
-    gamma_e = config.eta_e / h
+    gamma_e = eta_e / h
 
     u_ith = x_i[E_F_b, ...]
     # block K
@@ -1209,7 +1095,7 @@ def _s_res_fb(
         sdetwei,  # (batch_in, sngi)
         gamma_e,  # (batch_in)
     )
-    K *= config.mu_f
+    K *= mu_f
 
     # update residual
     r0[E_F_b, ...] -= torch.einsum('bmn,bn->bm', K, u_ith)
@@ -1217,6 +1103,81 @@ def _s_res_fb(
     diagK[E_F_b - batch_start_idx, ...] += torch.diagonal(K.view(batch_in, u_nloc, u_nloc),
                                                           dim1=-2, dim2=-1).view(batch_in, u_nloc)
     bdiagK[E_F_b - batch_start_idx, ...] += K
+    # return r0, diagK, bdiagK
+
+
+# @profile (line-by-line profile)
+# @torch.compile
+# @torch.jit.optimize_for_inference
+# @torch.jit.script
+def _s_res_one_batch(
+        r0, x_i,
+        diagK, bdiagK,
+        idx_in_f,
+        batch_start_idx: int,
+        func_space: function_space.FuncSpaceTS,
+        mu_f: float, eta_e: float,
+):  # -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    surface integral (left hand side)
+    """
+    nbf = func_space.nbf
+    glb_bcface_type = func_space.glb_bcface_type
+    nface = func_space.element.ndim + 1
+
+    # change view
+    u_nloc = func_space.element.nloc
+
+    # separate nbf to get internal face list and boundary face list
+    F_i = torch.where(torch.logical_and(glb_bcface_type < 0,
+                                        idx_in_f))[0]  # interior face of fluid subdomain
+    F_inb = nbf[F_i]  # neighbour list of interior face
+    F_inb = F_inb.type(torch.int64)
+    F_b = torch.where(torch.logical_and(
+        func_space.glb_bcface_type == 0,
+        idx_in_f))[0]  # dirichlet boundary faces
+
+    # create two lists of which element f_i / f_b is in
+    E_F_i = torch.floor_divide(F_i, nface)
+    E_F_inb = torch.floor_divide(F_inb, nface)
+    E_F_b = torch.floor_divide(F_b, nface)
+
+    # local face number
+    f_b = torch.remainder(F_b, nface)
+    f_i = torch.remainder(F_i, nface)
+    f_inb = torch.remainder(F_inb, nface)
+
+    # for interior faces
+    # for iface in range(nface):
+    #     for nb_gi_aln in range(nface - 1):
+    #         idx_iface = (f_i == iface) & (func_space.alnmt[F_i] == nb_gi_aln)
+    #         if idx_iface.sum() < 1:
+    #             # there is nothing to do here, go on
+    #             continue
+    #         _s_res_fi(  # r0, diagK, bdiagK = _s_res_fi(
+    #             r0, f_i[idx_iface], E_F_i[idx_iface],
+    #             f_inb[idx_iface], E_F_inb[idx_iface],
+    #             x_i,
+    #             diagK, bdiagK, batch_start_idx,
+    #             nb_gi_aln,
+    #             func_space,
+    #             mu_f, eta_e
+    #         )
+    r0, diagK, bdiagK = _s_res_fi_all_face(
+        r0, diagK, bdiagK,
+        f_i, E_F_i,
+        f_inb, E_F_inb,
+        x_i,
+    )
+    # boundary faces (dirichlet)
+    for iface in range(nface):
+        idx_iface = f_b == iface
+        _s_res_fb(  # r0, diagK, bdiagK = _s_res_fb(
+            r0, f_b[idx_iface], E_F_b[idx_iface],
+            x_i,
+            diagK, bdiagK, batch_start_idx,
+            func_space, mu_f, eta_e
+        )
     return r0, diagK, bdiagK
 
 

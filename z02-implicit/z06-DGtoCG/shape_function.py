@@ -15,7 +15,8 @@ from typing import Optional, Tuple
 # dev = config.dev
 
 
-def _gi_pnts_tetra(ngi):
+@torch.jit.ignore
+def _gi_pnts_tetra(ngi: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     output gaussian points and weights in tetrahedron
     reference tetrahedron:
@@ -454,7 +455,9 @@ def _gi_pnts_line(ngi):
     return pnts, sweight, alignment
 
 
-def SHATRInew(nloc,ngi,ndim, snloc, sngi):
+@torch.jit.ignore
+def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: int)\
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     '''
     shape functions on a reference element
 
@@ -481,7 +484,10 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
 
     sweight, quad pnts weights on face, np array (sngi)
     '''
-    dev = config.dev
+    if type(dev_idx) is torch.device:
+        dev = dev_idx
+    else:
+        dev = torch.device('cuda', dev_idx) if dev_idx > -1 else torch.device('cpu')
     if ndim == 3 :
         # 3D tetrahedron
         # volume shape function
@@ -1017,6 +1023,15 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
             raise Exception('snloc %d is not accpted in 3D' % snloc)
         nlx_all = np.stack([nlx, nly, nlz], axis=0)
         snlx_all = np.stack([snlx, snly, snlz], axis=1)
+
+        # transform output to torch tensor on designated device
+        n = torch.tensor(n, device=dev, dtype=torch.float64)
+        nlx_all = torch.tensor(nlx_all, device=dev, dtype=torch.float64)
+        weight = torch.tensor(weight, device=dev, dtype=torch.float64)
+        sn = torch.tensor(sn, device=dev, dtype=torch.float64)
+        snlx_all = torch.tensor(snlx_all, device=dev, dtype=torch.float64)
+        sweight = torch.tensor(sweight, device=dev, dtype=torch.float64)
+
         return n, nlx_all, weight, sn, snlx_all, sweight, gi_align
     # ================== FROM here on, its 2D shape functions.==============================
     l1=np.zeros(ngi)
@@ -1289,6 +1304,14 @@ def SHATRInew(nloc,ngi,ndim, snloc, sngi):
                 snly[iface, 2, gi] = -1.0
 
     snlx_all=np.stack([snlx,snly],axis=1)
+
+    # transform everything to torch tensor on designated device
+    n = torch.tensor(n, device=dev, dtype=torch.float64)
+    nlx_all = torch.tensor(nlx_all, device=dev, dtype=torch.float64)
+    weight = torch.tensor(weight, device=dev, dtype=torch.float64)
+    sn = torch.tensor(sn, device=dev, dtype=torch.float64)
+    snlx_all = torch.tensor(snlx_all, device=dev, dtype=torch.float64)
+    sweight = torch.tensor(sweight, device=dev, dtype=torch.float64)
 
     return n, nlx_all, weight, sn, snlx_all, sweight, gi_align
 
