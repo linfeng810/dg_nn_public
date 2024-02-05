@@ -83,7 +83,7 @@ def _solve_diffusion(
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_store_diagK_126449_1'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_store_diagK_54709_lab_sync_einsumSF'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
@@ -463,7 +463,7 @@ def _k_res_one_batch(
 
     r0 = r0.view(nele, u_nloc)
     x_i = x_i.view(nele, u_nloc)
-
+    # with torch.profiler.record_function("GETTING VOLUME SF"):
     # get shape function and derivatives
     # n = sf_nd_nb.vel_func_space.element.n
     nx, ndetwei = get_det_nlx(
@@ -474,6 +474,7 @@ def _k_res_one_batch(
         ngi=func_space.element.ngi,
         real_nlx=None,
     )
+    # torch.cuda.synchronize()
 
     nx_u = torch.mul(
         nx,  # (nele, ndim, u_nloc, ngi)
@@ -835,6 +836,7 @@ def _s_res_fi_all_face(
     r0 = r0.view(nele, u_nloc)
     x_i = x_i.view(nele, u_nloc)
 
+    # with torch.profiler.record_function("GETTING FI SURFACE SF"):
     # shape function on this side
     snx, sdetwei, snormal = sdet_snlx(
         snlx=func_space.element.snlx,
@@ -846,7 +848,8 @@ def _s_res_fi_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
     )
-
+        # torch.cuda.synchronize()
+    # with torch.profiler.record_function("FI internal"):
     Au = torch.zeros(nele, nface, u_nloc, device=dev, dtype=torch.float64)
     # this side
     # without fetching faces, we will do for all faces,
@@ -956,7 +959,8 @@ def _s_res_fi_all_face(
     # x_i = x_i.view(nele, u_nloc)
     for iface in range(nface):
         r0 -= Au[:, iface, :]
-
+    # torch.cuda.synchronize()
+    # with torch.profiler.record_function("FI external"):
     # other side (we don't need K anymore)
     # we can get residual only. no contribution to diagK or bdiagK
     Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=torch.float64)
@@ -1063,6 +1067,7 @@ def _s_res_fi_all_face(
     for iface in range(nface):
         idx_iface = (f_i == iface)
         r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
+    # torch.cuda.synchronize()
     # return r0, diagK, bdiagK
 
 
@@ -1170,6 +1175,7 @@ def _s_res_fb_all_face(
     u_nloc = func_space.element.nloc
     x_i = x_i.view(nele, u_nloc)
     r0 = r0.view(nele, u_nloc)
+    # with torch.profiler.record_function("GETTING FB SURFACE SF"):
     # shape function
     snx, sdetwei, snormal = sdet_snlx(
         snlx=func_space.element.snlx,
@@ -1181,6 +1187,7 @@ def _s_res_fb_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
     )
+    # torch.cuda.synchronize()
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b, ...]  # (batch_in, sngi)
@@ -1236,6 +1243,7 @@ def _s_res_fb_all_face(
         E_idx = E_F_b[idx_iface]
         # update residual
         r0[E_idx, ...] -= Au[idx_iface, ...]
+    # torch.cuda.synchronize()
     # return r0, diagK, bdiagK
 
 
