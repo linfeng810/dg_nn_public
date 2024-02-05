@@ -1360,7 +1360,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc, sngi, sn=None, real_snlx=None):
     # print('x size', x_loc[:,0,:].shape)
     batch_in = x_loc.shape[0]
     ndim = x_loc.shape[1]
-    dev = torch.device('cuda', snlx.get_device()) if snlx.get_device() > -1 else torch.device('cpu')
+    dev = snlx.device  # torch.device('cuda', snlx.get_device()) if snlx.get_device() > -1 else torch.device('cpu')
 
     # first we calculate jacobian matrix (J^T) = [j11,j12,
     #                                             j21,j22,]
@@ -1569,7 +1569,7 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
     """
     batch_in = x_loc.shape[0]
     ndim = x_loc.shape[1]
-    dev = torch.device('cuda', nlx.get_device()) if nlx.get_device() > -1 else torch.device('cpu')
+    dev = nlx.device  # torch.device('cuda', nlx.get_device()) if nlx.get_device() > -1 else torch.device('cpu')
     # x = x_loc[:, 0, :].view(batch_in, nloc)
     # y = x_loc[:, 1, :].view(batch_in, nloc)
     # z = x_loc[:, 2, :].view(batch_in, nloc)
@@ -1670,7 +1670,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
     config_isoparametric = True
     ndim = x_loc.shape[1]
     nface = ndim + 1
-    dev = torch.device('cuda', snlx.get_device()) if snlx.get_device() > -1 else torch.device('cpu')
+    dev = snlx.device  # torch.device('cuda', snlx.get_device()) if snlx.get_device() > -1 else torch.device('cpu')
     # input : x_loc
     # (batch_size , ndim, nloc), coordinate info of local nodes
     # reference coordinate: (xi, eta)

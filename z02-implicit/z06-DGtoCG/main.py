@@ -22,6 +22,7 @@ import sparsity
 import volume_mf_diff
 from function_space import FuncSpace, Element
 from config import sf_nd_nb
+from get_bdiag_diag import get_bdiag_diag
 import mesh_init
 # from color import color2
 import multigrid_linearelastic as mg
@@ -190,6 +191,8 @@ if config.solver == 'iterative':
         sf_nd_nb.nits += 1
         print('============')  # start new non-linear iteration
         sf_nd_nb.Kmatinv = None
+        print('getting block diagonal and diagonal of lhs matrix...')
+        get_bdiag_diag()
 
         # print('going to solve for mesh displacement and move the mesh...')
         x_i = volume_mf_diff.solve_for_diff(x_i, f, u_bc, alpha_u_n,

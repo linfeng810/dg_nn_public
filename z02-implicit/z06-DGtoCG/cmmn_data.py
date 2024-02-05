@@ -32,6 +32,10 @@ class SfNdNb:
         self.sfc_data_Um = SFCdata()  # sfc data for mesh displacement/velocity
         self.Lpmatinv = None  # inverse of pressure Laplacian
         self.Kmatinv = None  # velocity block of stokes problem
+
+        self.diagK = None  # diagonal of lhs matrix
+        self.bdiagK = None  # block diagonal of lhs matrix
+
         # velocity block of stokes problem - values and coordinates (coo format)
         self.indices_st = None
         self.values_st = None
@@ -73,6 +77,8 @@ class SfNdNb:
                  RARmat_S=None,  # solid blk operator on P1DG, type: scipy csr sparse matrix
                  RARmat_Um=None,  # mesh displacement/velocity blk operator on P1DG, type: scipy csr sparse matrix
                  Kmatinv=None,  # inverse of velocity block of stokes problem
+                 diagK=None,  # diagonal of lhs matrix
+                 bdiagK=None,  # block diagonal of lhs matrix
                  indices_st=None,
                  values_st=None,
                  bdfscm=None,
@@ -126,6 +132,10 @@ class SfNdNb:
             self.mesh_material = mesh_material
         if mesh_mu is not None:
             self.mesh_mu = mesh_mu
+        if diagK is not None:
+            self.diagK = diagK
+        if bdiagK is not None:
+            self.bdiagK = bdiagK
 
 
 class SFCdata:
