@@ -1459,7 +1459,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc, sngi, sn=None, real_snlx=None):
     return snx, sdetwei, snormal
 
 
-def get_det_nlx(nlx, x_loc, weight, nloc, ngi, real_nlx=None):
+def get_det_nlx(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[torch.Tensor]):
     '''
     take in element nodes coordinates, spit out
     detwei and local shape function derivative
@@ -1547,8 +1547,10 @@ def get_det_nlx(nlx, x_loc, weight, nloc, ngi, real_nlx=None):
     return get_det_nlx_3d(nlx, x_loc, weight, nloc, ngi, real_nlx)
 
 
+# @torch.jit.ignore
 @torch.jit.script
-def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[torch.Tensor]):
+def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[torch.Tensor])\
+        -> Tuple[torch.Tensor, torch.Tensor]:
     """
     take in element nodes coordinates, spit out
     detwei and local shape function derivative
@@ -1581,12 +1583,13 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
     #   d x/d chi,  dy/d chi,   dz/d chi]
     # output: each component of jacobi
     # (batch_size , ngi)
-    j = torch.zeros(batch_in, ngi, ndim, ndim, device=dev, dtype=torch.float64)
+    j = torch.zeros(ndim, ndim, batch_in, ngi, device=dev, dtype=torch.float64)
     for idim in range(ndim):
         for jdim in range(ndim):
-            j[..., idim, jdim] = torch.einsum('ij,ki->kj',
-                                              nlx[idim, :, :],
-                                              x_loc[:, jdim, :]).view(batch_in, ngi)
+            j[idim, jdim, ...] = torch.matmul(
+                x_loc[:, jdim, :],
+                nlx[idim, :, :]
+            )
     # j11 = torch.einsum('ij,ki->kj', nlx[0, :, :], x).view(batch_in, ngi)
     # j12 = torch.einsum('ij,ki->kj', nlx[0, :, :], y).view(batch_in, ngi)
     # j21 = torch.einsum('ij,ki->kj', nlx[1, :, :], x).view(batch_in, ngi)
@@ -1598,19 +1601,19 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
         # calculate inv jacobian
         invj = torch.linalg.inv(j)
     else:  # use arithmetric operations to compute det/inv. this is faster.
-        det = j[..., 0, 0] * (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1]) \
-               - j[..., 0, 1] * (j[..., 1, 0] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 0]) \
-               + j[..., 0, 2] * (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0])
+        det = j[0, 0] * (j[1, 1] * j[2, 2] - j[1, 2] * j[2, 1]) \
+               - j[0, 1] * (j[1, 0] * j[2, 2] - j[1, 2] * j[2, 0]) \
+               + j[0, 2] * (j[1, 0] * j[2, 1] - j[1, 1] * j[2, 0])
         invj = torch.zeros_like(j)
-        invj[..., 0, 0] = (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1]) / det
-        invj[..., 0, 1] = (j[..., 0, 2] * j[..., 2, 1] - j[..., 0, 1] * j[..., 2, 2]) / det
-        invj[..., 0, 2] = (j[..., 0, 1] * j[..., 1, 2] - j[..., 0, 2] * j[..., 1, 1]) / det
-        invj[..., 1, 0] = (j[..., 1, 2] * j[..., 2, 0] - j[..., 1, 0] * j[..., 2, 2]) / det
-        invj[..., 1, 1] = (j[..., 0, 0] * j[..., 2, 2] - j[..., 0, 2] * j[..., 2, 0]) / det
-        invj[..., 1, 2] = (j[..., 0, 2] * j[..., 1, 0] - j[..., 0, 0] * j[..., 1, 2]) / det
-        invj[..., 2, 0] = (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0]) / det
-        invj[..., 2, 1] = (j[..., 0, 1] * j[..., 2, 0] - j[..., 0, 0] * j[..., 2, 1]) / det
-        invj[..., 2, 2] = (j[..., 0, 0] * j[..., 1, 1] - j[..., 0, 1] * j[..., 1, 0]) / det
+        invj[0, 0] = (j[1, 1] * j[2, 2] - j[1, 2] * j[2, 1]) / det
+        invj[0, 1] = (j[0, 2] * j[2, 1] - j[0, 1] * j[2, 2]) / det
+        invj[0, 2] = (j[0, 1] * j[1, 2] - j[0, 2] * j[1, 1]) / det
+        invj[1, 0] = (j[1, 2] * j[2, 0] - j[1, 0] * j[2, 2]) / det
+        invj[1, 1] = (j[0, 0] * j[2, 2] - j[0, 2] * j[2, 0]) / det
+        invj[1, 2] = (j[0, 2] * j[1, 0] - j[0, 0] * j[1, 2]) / det
+        invj[2, 0] = (j[1, 0] * j[2, 1] - j[1, 1] * j[2, 0]) / det
+        invj[2, 1] = (j[0, 1] * j[2, 0] - j[0, 0] * j[2, 1]) / det
+        invj[2, 2] = (j[0, 0] * j[1, 1] - j[0, 1] * j[1, 0]) / det
     # calculate detwei
     det = det.view(batch_in, ngi)
     # invdet = torch.div(1.0, det)
@@ -1622,13 +1625,14 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
     # for idim in range(ndim):
     #     nx[:, idim, :, :] = torch.einsum('bgj,jng->bng', invj[:, :, idim, :], nlx[:, :, :])
     if real_nlx is None:
-        nx = torch.einsum('bgij,jng->bing', invj, nlx)
+        nx = torch.einsum('ijbg,jng->bing', invj, nlx)
     else:
-        nx = torch.einsum('bgij,jng->bing', invj, real_nlx)
+        nx = torch.einsum('ijbg,jng->bing', invj, real_nlx)
 
     return nx, detwei
 
 
+# @torch.jit.ignore
 @torch.jit.script
 def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
                  sn: Optional[torch.Tensor], real_snlx: Optional[torch.Tensor],
@@ -1694,14 +1698,19 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
     #   d x/d chi,  dy/d chi,   dz/d chi]
     # output: each component of jacobi
     # (nface, sngi, batch_in)
-    j = torch.zeros(batch_in, nface, sngi, ndim, ndim, device=dev, dtype=torch.float64)
+    j = torch.zeros(ndim, ndim, batch_in, nface, sngi, device=dev, dtype=torch.float64)
     if nloc != snlx.shape[2]:
         nloc = snlx.shape[2]
+    snlx_new = snlx.permute(1, 0, 3, 2).contiguous()  # (ndim, nface, sngi, nloc)
     for idim in range(ndim):
         for jdim in range(ndim):
-            j[..., idim, jdim] = torch.einsum('fig,bi->bfg',  # f: nface, b: batch_in, g: sngi, i: inod
-                                              snlx[:, idim, :, :],
-                                              x_loc[:, jdim, :])
+            # j[idim, jdim] = torch.einsum('fig,bi->bfg',  # f: nface, b: batch_in, g: sngi, i: inod
+            #                                   snlx[:, idim, :, :],
+            #                                   x_loc[:, jdim, :])
+            j[idim, jdim] = torch.mul(
+                x_loc[:, jdim, :].view(batch_in, 1, nloc),  # (batch_in, 1, nloc)
+                snlx_new[idim, :, :, :].view(1, nface * sngi, nloc)
+            ).sum(-1).view(batch_in, nface, sngi)
             # # avoid einsum
             # j[..., idim, jdim] = (
             #         snlx[:, idim, :, :].unsqueeze(0).expand(batch_in, nface, nloc, sngi)
@@ -1712,19 +1721,19 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
     # j22 = torch.tensordot(snlx[:, 1, :, :], y, dims=([1], [2])).view(nface, sngi, batch_in)
 
     if True:  # avoid using pytorch inv function as this sync with CPU
-        detj = j[..., 0, 0] * (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1]) \
-            - j[..., 0, 1] * (j[..., 1, 0] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 0]) \
-            + j[..., 0, 2] * (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0])
+        detj = j[0, 0] * (j[1, 1] * j[2, 2] - j[1, 2] * j[2, 1]) \
+            - j[0, 1] * (j[1, 0] * j[2, 2] - j[1, 2] * j[2, 0]) \
+            + j[0, 2] * (j[1, 0] * j[2, 1] - j[1, 1] * j[2, 0])
         invj = torch.zeros_like(j)
-        invj[..., 0, 0] = (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1]) / detj
-        invj[..., 0, 1] = (j[..., 0, 2] * j[..., 2, 1] - j[..., 0, 1] * j[..., 2, 2]) / detj
-        invj[..., 0, 2] = (j[..., 0, 1] * j[..., 1, 2] - j[..., 0, 2] * j[..., 1, 1]) / detj
-        invj[..., 1, 0] = (j[..., 1, 2] * j[..., 2, 0] - j[..., 1, 0] * j[..., 2, 2]) / detj
-        invj[..., 1, 1] = (j[..., 0, 0] * j[..., 2, 2] - j[..., 0, 2] * j[..., 2, 0]) / detj
-        invj[..., 1, 2] = (j[..., 0, 2] * j[..., 1, 0] - j[..., 0, 0] * j[..., 1, 2]) / detj
-        invj[..., 2, 0] = (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0]) / detj
-        invj[..., 2, 1] = (j[..., 0, 1] * j[..., 2, 0] - j[..., 0, 0] * j[..., 2, 1]) / detj
-        invj[..., 2, 2] = (j[..., 0, 0] * j[..., 1, 1] - j[..., 0, 1] * j[..., 1, 0]) / detj
+        invj[0, 0] = (j[1, 1] * j[2, 2] - j[1, 2] * j[2, 1]) / detj
+        invj[0, 1] = (j[0, 2] * j[2, 1] - j[0, 1] * j[2, 2]) / detj
+        invj[0, 2] = (j[0, 1] * j[1, 2] - j[0, 2] * j[1, 1]) / detj
+        invj[1, 0] = (j[1, 2] * j[2, 0] - j[1, 0] * j[2, 2]) / detj
+        invj[1, 1] = (j[0, 0] * j[2, 2] - j[0, 2] * j[2, 0]) / detj
+        invj[1, 2] = (j[0, 2] * j[1, 0] - j[0, 0] * j[1, 2]) / detj
+        invj[2, 0] = (j[1, 0] * j[2, 1] - j[1, 1] * j[2, 0]) / detj
+        invj[2, 1] = (j[0, 1] * j[2, 0] - j[0, 0] * j[2, 1]) / detj
+        invj[2, 2] = (j[0, 0] * j[1, 1] - j[0, 1] * j[1, 0]) / detj
     else:
         # calculate determinant of jacobian
         # (nface, sngi, batch_in)
@@ -1736,7 +1745,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
         # del det  # this is the final use of volume det
     # calculate snx
     if real_snlx is None:
-        snx = torch.einsum('bfgij,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
+        snx = torch.einsum('ijbfg,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
                            invj,
                            snlx)
         # # avoid einsum
@@ -1756,7 +1765,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
         #      .expand(batch_in, nface, nloc, sngi, ndim, 1).reshape(-1, ndim, 1))
         # ).reshape(batch_in, nface, nloc, sngi, ndim).permute(0, 1, 4, 2, 3)
     else:
-        snx = torch.einsum('bfgij,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
+        snx = torch.einsum('ijbfg,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
                            invj,
                            real_snlx)
         # # avoid einsum, expand as bfngij  <- this is 20 times slower than using einsum
@@ -1837,7 +1846,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
             )
         else:  # reuse Jacobian on face quadrature points
             ddu_and_ddv = torch.einsum(
-                'bfgji,fjk->bfigk',
+                'jibfg,fjk->bfigk',
                 j,
                 drst_duv,
             )
@@ -1850,16 +1859,16 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
             dim=2,
         )  # partial phi / partial u  x  paritial phi / partial v. output shape (nele, nface, ndim, sngi)
         abs_ddu_x_ddv = torch.linalg.vector_norm(ddu_x_ddv, dim=2)  # (nele, nface, sngi)
-        sdetwei = torch.einsum(
-            'bfg,g->bfg',  # (nele, nface, sngi)
+        sdetwei = torch.mul(
+            # 'bfg,g->bfg',  # (nele, nface, sngi)
             abs_ddu_x_ddv,  # (nele, nface, sngi)
-            sweight,  # (sngi)
+            sweight.view(1, 1, sngi),  # (sngi)
         )
         # get surface normal
-        snormal = torch.einsum(
-            'bfig,bfg->bfig',
+        snormal = torch.mul(
+            # 'bfig,bfg->bfig',
             ddu_x_ddv,
-            1./abs_ddu_x_ddv,
+            (1./abs_ddu_x_ddv).view(batch_in, nface, 1, sngi),
         )
 
     return snx, sdetwei, snormal
