@@ -82,12 +82,12 @@ def _solve_diffusion(
         # for ii in tqdm(range(20)):
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_store_diagK_54709_lab_sync_einsumSF'),
+                schedule=torch.profiler.schedule(wait=1, warmup=2, active=3, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_cube_132564'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
-            for i in range(5):  # do smooth 5 times
+            for i in range(6):  # do smooth 5 times
                 r0, x_i = get_residual_or_smooth(
                     r0, x_i, x_rhs,
                     do_smooth=False,
@@ -184,6 +184,10 @@ def _k_rhs_one_batch(x_rhs, alpha_x_i, f, idx_in):
 
     # get shape functions
     n = sf_nd_nb.vel_func_space.element.n
+    if sf_nd_nb.vel_func_space.jac_v.shape[0] == nele:
+        j = sf_nd_nb.vel_func_space.jac_v[idx_in]
+    else:
+        j = sf_nd_nb.vel_func_space.jac_v  # will pass an empty tensor [] and get_det_nlx will handle it.
     nx, ndetwei = get_det_nlx(
         nlx=sf_nd_nb.vel_func_space.element.nlx,
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[idx_in],
@@ -191,6 +195,7 @@ def _k_rhs_one_batch(x_rhs, alpha_x_i, f, idx_in):
         nloc=u_nloc,
         ngi=sf_nd_nb.vel_func_space.element.ngi,
         real_nlx=None,
+        j=j,
     )
 
     # f . v contribution to vel rhs
@@ -283,6 +288,10 @@ def _s_rhs_fd(
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
 
     # shape function
+    if sf_nd_nb.vel_func_space.jac_s.shape[0] != 0:
+        j = sf_nd_nb.vel_func_space.jac_s[:, :, E_F_b, :, :]
+    else:
+        j = sf_nd_nb.vel_func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     snx, sdetwei, snormal = sdet_snlx(
         snlx=sf_nd_nb.vel_func_space.element.snlx,
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b],
@@ -292,6 +301,7 @@ def _s_rhs_fd(
         sn=sf_nd_nb.vel_func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=j,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
@@ -339,6 +349,10 @@ def _s_rhs_fb(
         return x_rhs
 
     # shape function
+    if sf_nd_nb.vel_func_space.jac_s.shape[0] != 0:
+        j = sf_nd_nb.vel_func_space.jac_s[:, :, E_F_b_n, :, :]
+    else:
+        j = sf_nd_nb.vel_func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     snx, sdetwei, snormal = sdet_snlx(
         snlx=sf_nd_nb.vel_func_space.element.snlx,
         x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_b_n],
@@ -348,6 +362,7 @@ def _s_rhs_fb(
         sn=sf_nd_nb.vel_func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=j,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b_n, ...]  # (batch_in, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b_n, ...]  # (batch_in, sngi)
@@ -401,9 +416,9 @@ def get_residual_or_smooth(
         idx_in_f = torch.zeros(nele * nface, dtype=torch.bool, device=dev)
         idx_in_f[brk_pnt[i] * nface:brk_pnt[i + 1] * nface] = True
 
-        r0, _, _ = _s_res_one_batch(
+        r0 = _s_res_one_batch(
             r0, x_i,
-            diagK, bdiagK,
+            # diagK, bdiagK,
             idx_in_f, brk_pnt[i],
             sf_nd_nb.vel_func_space,
             config.mu_f, config.eta_e
@@ -473,6 +488,7 @@ def _k_res_one_batch(
         nloc=u_nloc,
         ngi=func_space.element.ngi,
         real_nlx=None,
+        j=func_space.jac_v,
     )
     # torch.cuda.synchronize()
 
@@ -514,51 +530,10 @@ def _s_res_fi(
     x_i = x_i.view(nele, u_nloc)
 
     # shape function on this side
-    # if False and f_i[0] == 2 and nb_gi_aln == 1:
-    #     print("batch in ", batch_in)
-    #     import time
-    #     starttime = time.time()
-    #     iisteps = 100
-    #     for ii in tqdm(range(iisteps)):
-    #         snx, sdetwei, snormal = sdet_snlx(
-    #             snlx=sf_nd_nb.vel_func_space.element.snlx,
-    #             x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_i],
-    #             sweight=sf_nd_nb.vel_func_space.element.sweight,
-    #             nloc=sf_nd_nb.vel_func_space.element.nloc,
-    #             sngi=sf_nd_nb.vel_func_space.element.sngi,
-    #             sn=sf_nd_nb.vel_func_space.element.sn,
-    #             real_snlx=None,
-    #             is_get_f_det_normal=True,
-    #         )
-    #         sn = sf_nd_nb.vel_func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
-    #         snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
-    #         sdetwei = sdetwei[dummy_idx, f_i, ...]  # (batch_in, sngi)
-    #         snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
-    #
-    #         # shape function on the other side
-    #         snx_nb, _, _ = sdet_snlx(
-    #             snlx=sf_nd_nb.vel_func_space.element.snlx,
-    #             x_loc=sf_nd_nb.vel_func_space.x_ref_in[E_F_inb],
-    #             sweight=sf_nd_nb.vel_func_space.element.sweight,
-    #             nloc=sf_nd_nb.vel_func_space.element.nloc,
-    #             sngi=sf_nd_nb.vel_func_space.element.sngi,
-    #             sn=sf_nd_nb.vel_func_space.element.sn,
-    #             real_snlx=None,
-    #             is_get_f_det_normal=False,
-    #         )
-    #         # get faces we want
-    #         sn_nb = sf_nd_nb.vel_func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
-    #         snx_nb = snx_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
-    #         snormal_nb = snormal_nb[dummy_idx, f_inb, ...]  # (batch_in, ndim, sngi)
-    #         # change gaussian points order on other side
-    #         nb_aln = sf_nd_nb.vel_func_space.element.gi_align[nb_gi_aln, :]  # nb_aln for velocity element
-    #         snx_nb = snx_nb[..., nb_aln]
-    #         snormal_nb = snormal_nb[..., nb_aln]
-    #         # don't forget to change gaussian points order on sn_nb!
-    #         sn_nb = sn_nb[..., nb_aln]
-    #     endtime = time.time()
-    #     print('time for %d integration: %f s' % (iisteps, endtime - starttime))
-    #     exit(0)
+    if func_space.jac_s.shape[0] != 0:
+        j = func_space.jac_s[:, :, E_F_i, :, :]
+    else:
+        j = func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     snx, sdetwei, snormal = sdet_snlx(
         snlx=func_space.element.snlx,
         x_loc=func_space.x_ref_in[E_F_i],
@@ -568,6 +543,7 @@ def _s_res_fi(
         sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=j,
     )
     sn = func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
@@ -575,6 +551,10 @@ def _s_res_fi(
     snormal = snormal[dummy_idx, f_i, ...]  # (batch_in, ndim, sngi)
 
     # shape function on the other side
+    if func_space.jac_s.shape[0] != 0:
+        j = func_space.jac_s[:, :, E_F_inb, :, :]
+    else:
+        j = func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     snx_nb, _, _ = sdet_snlx(
         snlx=func_space.element.snlx,
         x_loc=func_space.x_ref_in[E_F_inb],
@@ -585,6 +565,7 @@ def _s_res_fi(
         real_snlx=None,
         is_get_f_det_normal=False,  # don't need to get snormal and sdetwei for neighbouring ele because
         # its either the same as this ele or the opposite of this ele
+        j=j,
     )
     # get faces we want
     sn_nb = func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
@@ -847,6 +828,7 @@ def _s_res_fi_all_face(
         sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=func_space.jac_s,
     )
         # torch.cuda.synchronize()
     # with torch.profiler.record_function("FI internal"):
@@ -1094,6 +1076,10 @@ def _s_res_fb(
     x_i = x_i.view(nele, u_nloc)
     r0 = r0.view(nele, u_nloc)
     # shape function
+    if func_space.jac_s.shape[0] != 0:
+        j = func_space.jac_s[:, :, E_F_b, :, :]
+    else:
+        j = func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     snx, sdetwei, snormal = sdet_snlx(
         snlx=func_space.element.snlx,
         x_loc=func_space.x_ref_in[E_F_b],
@@ -1103,6 +1089,7 @@ def _s_res_fb(
         sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=j,
     )
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
@@ -1176,6 +1163,10 @@ def _s_res_fb_all_face(
     x_i = x_i.view(nele, u_nloc)
     r0 = r0.view(nele, u_nloc)
     # with torch.profiler.record_function("GETTING FB SURFACE SF"):
+    if func_space.jac_s.shape[0] != 0:
+        j = func_space.jac_s[:, :, E_F_b, :, :]
+    else:
+        j = func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     # shape function
     snx, sdetwei, snormal = sdet_snlx(
         snlx=func_space.element.snlx,
@@ -1186,6 +1177,7 @@ def _s_res_fb_all_face(
         sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=j,
     )
     # torch.cuda.synchronize()
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
@@ -1253,7 +1245,7 @@ def _s_res_fb_all_face(
 @torch.jit.script
 def _s_res_one_batch(
         r0, x_i,
-        diagK, bdiagK,
+        # diagK, bdiagK,
         idx_in_f,
         batch_start_idx: int,
         func_space: function_space.FuncSpaceTS,
@@ -1326,7 +1318,7 @@ def _s_res_one_batch(
         batch_start_idx,
         func_space, mu_f, eta_e
     )
-    return r0, diagK, bdiagK
+    return r0
 
 
 def _get_RAR_and_sfc_data_Um():
@@ -1639,6 +1631,7 @@ def get_l2_error(x_num, x_ana):
         nloc=sf_nd_nb.vel_func_space.element.nloc,
         ngi=sf_nd_nb.vel_func_space.element.ngi,
         real_nlx=None,
+        j=sf_nd_nb.vel_func_space.jac_v,
     )
     u_i_gi = torch.einsum('ng,bn->bng', n, x_num.view(nele, -1))
     u_ana_gi = torch.einsum('ng,bn->bng', n, x_ana.view(nele, -1))

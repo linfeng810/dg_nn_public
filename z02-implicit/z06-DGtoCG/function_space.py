@@ -1,6 +1,6 @@
 import torch
 
-import config
+# import config
 import sparsity
 from mesh_init import init_2d, init_3d
 from shape_function import SHATRInew
@@ -105,6 +105,8 @@ class FuncSpace(object):
         self.element = element
         self.ndim = self.element.ndim
         self.p1cg_nloc = self.ndim + 1
+        self.jac_v = torch.Tensor()
+        self.jac_s = torch.Tensor()
         if self.ndim == 2:
             self.nele = mesh.cell_data_dict['gmsh:geometrical'][config.ele_key_2d[config.ele_p - 1]].shape[0]
             self.nonods = element.nloc * self.nele
@@ -206,7 +208,8 @@ class FuncSpace(object):
                 weight=self.element.weight,
                 nloc=self.element.nloc,
                 ngi=self.element.ngi,
-                real_nlx=self.element.nlx
+                real_nlx=self.element.nlx,
+                j=self.jac_v,
             )
         elif self.ndim == 2:
             _, ndetwei = shape_function.get_det_nlx(
@@ -215,7 +218,8 @@ class FuncSpace(object):
                 weight=self.element.weight,
                 nloc=self.element.nloc,
                 ngi=self.element.ngi,
-                real_nlx=self.element.nlx
+                real_nlx=self.element.nlx,
+                j=self.jac_v,
             )
         else:
             raise Exception('function space must reside in either 3D or 2D domain')
@@ -245,6 +249,10 @@ class FuncSpace(object):
         else:
             self.x_all *= 0
             self.x_all += self.x_ref_in.permute(0, 2, 1).reshape(self.x_all.shape).cpu().numpy()
+
+    def store_jacobian(self, jac_v: torch.Tensor, jac_s: torch.Tensor):
+        self.jac_v = jac_v
+        self.jac_s = jac_s
 
     @staticmethod
     def _get_pndg_restrictor(p, gi_order, ndim, dev):
@@ -325,7 +333,9 @@ class FuncSpaceTS:
                  restrictor_1order,
                  restrictor_to_p1dg,
                  x_element: Element,
-                 x_ref_in
+                 x_ref_in,
+                 jac_v: torch.Tensor,
+                 jac_s: torch.Tensor,
                  ):
         self.alnmt = alnmt
         self.bc_node_list = bc_node_list
@@ -356,13 +366,19 @@ class FuncSpaceTS:
         self.restrictor_to_p1dg = restrictor_to_p1dg
         self.x_element = x_element
         self.x_ref_in = x_ref_in
+        self.jac_v = jac_v
+        self.jac_s = jac_s
+
+    def store_jacobian(self, jac_v: torch.Tensor, jac_s: torch.Tensor):
+        self.jac_v = jac_v
+        self.jac_s = jac_s
 
 
 def create_funcspacets_from_funcspace(funcspace: FuncSpace):
     dev = config.dev
     return FuncSpaceTS(
         alnmt=funcspace.alnmt,
-        bc_node_list=[torch.tensor(l, device=dev, dtype=torch.bool) for l in funcspace.bc_node_list],
+        bc_node_list=[torch.tensor(lst, device=dev, dtype=torch.bool) for lst in funcspace.bc_node_list],
         cell_volume=funcspace.cell_volume,
         cg_ndglno=torch.tensor(funcspace.cg_ndglno, device=dev, dtype=torch.int64),
         cg_nonods=funcspace.cg_nonods,
@@ -389,5 +405,7 @@ def create_funcspacets_from_funcspace(funcspace: FuncSpace):
         restrictor_1order=funcspace.restrictor_1order,
         restrictor_to_p1dg=funcspace.restrictor_to_p1dg,
         x_element=funcspace.x_element,
-        x_ref_in=funcspace.x_ref_in
+        x_ref_in=funcspace.x_ref_in,
+        jac_v=torch.Tensor(0),
+        jac_s=torch.Tensor(0)
     )

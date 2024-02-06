@@ -87,6 +87,7 @@ def _k_res_one_batch(
         nloc=u_nloc,
         ngi=func_space.element.ngi,
         real_nlx=None,
+        j=func_space.jac_v,
     )
 
     # this saves memory
@@ -129,6 +130,7 @@ def _s_res_fi_all_face(
         sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=func_space.jac_s,
     )
 
     # K block
@@ -220,6 +222,10 @@ def _s_res_fb_all_face(
     # get element parameters
     u_nloc = func_space.element.nloc
     # shape function
+    if func_space.jac_s.shape[0] != 0:
+        j = func_space.jac_s[:, :, E_F_b, :, :]
+    else:
+        j = func_space.jac_s  # will pass an empty tensor [] and sdet_snlx will handle it.
     snx, sdetwei, snormal = sdet_snlx(
         snlx=func_space.element.snlx,
         x_loc=func_space.x_ref_in[E_F_b],
@@ -229,6 +235,7 @@ def _s_res_fb_all_face(
         sn=func_space.element.sn,
         real_snlx=None,
         is_get_f_det_normal=True,
+        j=j,
     )
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)

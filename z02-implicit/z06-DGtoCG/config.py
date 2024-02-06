@@ -67,6 +67,8 @@ ele_key_3d = ['tetra', 'tetra10', 'tetra20', 'tetra35', 'tetra56']
 ele_key_2d = ['triangle', 'triangle6', 'triangle10']
 ele_key_1d = ['line', 'line3', 'line4', 'line5', 'line6', 'line7', 'line8', 'line9', 'line10', 'line11', 'line12',]
 
+is_store_jacobian = False  # store element jacobian matrix on quadrature points (face and volume)
+
 # mesh info
 # Check the dimension of the mesh
 if ele_key_3d[ele_p - 1] in mesh.cells_dict:

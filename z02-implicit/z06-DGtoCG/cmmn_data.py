@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-from types import NoneType
-import torch
+# from types import NoneType
+# import torch
 # from function_space import FuncSpace
 
 
@@ -88,13 +88,13 @@ class SfNdNb:
                  mesh_material=None,  # mesh material (e.g. NeoHookean, StVenant-Kirchoff) when not using diffusion eq
                  mesh_mu=None,  # mesh diffusion coefficient (constant for each element)
                  ):
-        if type(vel_func_space) != NoneType:
+        if vel_func_space is not None:
             self.vel_func_space = vel_func_space
-        if type(pre_func_space) != NoneType:
+        if pre_func_space is not None:
             self.pre_func_space = pre_func_space
         if disp_func_space is not None:
             self.disp_func_space = disp_func_space
-        if type(p1cg_nonods) != NoneType:
+        if p1cg_nonods is not None:
             self.p1cg_nonods = p1cg_nonods
         # if type(vel_I_prol) != NoneType:
         #     self.vel_I_prol = vel_I_prol
@@ -114,7 +114,7 @@ class SfNdNb:
             self.RARmat_S = RARmat_S
         if RARmat_Um is not None:
             self.RARmat_Um = RARmat_Um
-        if type(Kmatinv) != NoneType:
+        if Kmatinv is not None:
             self.Kmatinv = Kmatinv
         if indices_st is not None:
             self.indices_st = indices_st
@@ -177,13 +177,13 @@ class SFCdata:
                  nlevel=None,
                  nodes_per_level=None,
                  ):
-        if type(space_filling_curve_numbering) != NoneType:
+        if space_filling_curve_numbering is not None:
             self.space_filling_curve_numbering = space_filling_curve_numbering
-        if type(variables_sfc) != NoneType:
+        if variables_sfc is not None:
             self.variables_sfc = variables_sfc
-        if type(nlevel) != NoneType:
+        if nlevel is not None:
             self.nlevel = nlevel
-        if type(nodes_per_level) != NoneType:
+        if nodes_per_level is not None:
             self.nodes_per_level = nodes_per_level
 
 

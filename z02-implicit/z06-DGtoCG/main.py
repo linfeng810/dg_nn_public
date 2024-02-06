@@ -6,17 +6,17 @@
 # import
 import numpy as np
 import torch
-from torch.nn import Conv1d,Sequential,Module
-import scipy as sp
+# from torch.nn import Conv1d,Sequential,Module
+# import scipy as sp
 # import time
-from scipy.sparse import coo_matrix, bsr_matrix
-from tqdm import tqdm
+# from scipy.sparse import coo_matrix, bsr_matrix
+# from tqdm import tqdm
 
 import cmmn_data
 import config
 import fsi_output
 import function_space
-import output
+# import output
 import shape_function
 import sparsity
 import volume_mf_diff
@@ -25,7 +25,7 @@ from config import sf_nd_nb
 from get_bdiag_diag import get_bdiag_diag
 import mesh_init
 # from color import color2
-import multigrid_linearelastic as mg
+# import multigrid_linearelastic as mg
 import bc_f
 import time
 
@@ -46,7 +46,7 @@ dt = config.dt
 tend = config.tend
 tstart = config.tstart
 
-print('computation on ',dev)
+print('computation on ', dev)
 
 # define element
 quad_degree = config.ele_p*2
@@ -84,7 +84,7 @@ if False:  # output CG1 nodes and space-filling curve index
 
 print('nele=', nele)
 
-print('1. time elapsed, ',time.time()-starttime)
+print('1. time elapsed, ', time.time()-starttime)
 
 """getting boundary condition and rhs force, all problem are defined in fsi_bc"""
 u_bc, f, fNorm = bc_f.diff_bc(
@@ -107,7 +107,7 @@ u_nloc = sf_nd_nb.vel_func_space.element.nloc
 no_total_dof = nele * vel_ele.nloc
 if config.solver == 'iterative':
     print('i am going to time loop')
-    print('8. time elapsed, ',time.time()-starttime)
+    print('8. time elapsed, ', time.time()-starttime)
     # print("Using quit()")
     # quit()
     r0l2all = []
@@ -144,6 +144,13 @@ if config.solver == 'iterative':
     t = tstart  # physical time (start time)
 
     alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64).view(nele, -1, ndim)
+
+    # if config.is_store_jacobian, compute and store jacobian here
+    if config.is_store_jacobian:
+        sf_nd_nb.vel_func_space.store_jacobian(
+            jac_v=shape_function.get_v_jac(vel_func_space.element.nlx, vel_func_space.x_ref_in),
+            jac_s=shape_function.get_s_jac(vel_func_space.element.snlx, vel_func_space.x_ref_in)
+        )
 
     for itime in range(1, tstep):  # time loop
         wall_time_start = time.time()
@@ -231,4 +238,3 @@ if config.solver == 'iterative':
     # END OF TIME LOOP
 
 print('10. done output, time elaspsed: ', time.time()-starttime)
-
