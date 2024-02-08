@@ -131,6 +131,7 @@ def _s_res_fi_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=func_space.jac_s,
+        drst_duv=func_space.drst_duv,
     )
 
     # K block
@@ -236,6 +237,7 @@ def _s_res_fb_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=j,
+        drst_duv=func_space.drst_duv,
     )
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)

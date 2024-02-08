@@ -197,6 +197,13 @@ class FuncSpace(object):
             self.pndg_ndglbno = sparsity.get_pndg_sparsity(self)
             self.pncg_nonods = self.pndg_ndglbno.shape[1]  # this is whole domain PnCG_nonods
 
+        self.drst_duv = torch.tensor([  # --> this is for shape function face det/norm
+            [[0, 0], [0, 1], [1, 0]],  # face 2-1-3
+            [[1, 0], [0, 0], [0, 1]],  # face 0-2-3
+            [[0, 1], [1, 0], [0, 0]],  # face 1-0-3
+            [[-1, -1], [1, 0], [0, 1]],  # face 0-1-2
+        ], device=config.dev, dtype=torch.float64)  # (nface, ndim, ndim-1)
+
     def _get_cell_volume(self):
         """this is to get element volume and store in self.cell_volume"""
         n = self.element.n
@@ -368,6 +375,12 @@ class FuncSpaceTS:
         self.x_ref_in = x_ref_in
         self.jac_v = jac_v
         self.jac_s = jac_s
+        self.drst_duv = torch.tensor([  # --> this is for shape function face det/norm
+            [[0, 0], [0, 1], [1, 0]],  # face 2-1-3
+            [[1, 0], [0, 0], [0, 1]],  # face 0-2-3
+            [[0, 1], [1, 0], [0, 0]],  # face 1-0-3
+            [[-1, -1], [1, 0], [0, 1]],  # face 0-1-2
+        ], device=self.dev, dtype=torch.float64)  # (nface, ndim, ndim-1)
 
     def store_jacobian(self, jac_v: torch.Tensor, jac_s: torch.Tensor):
         self.jac_v = jac_v

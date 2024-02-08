@@ -487,7 +487,7 @@ def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: in
     if type(dev_idx) is torch.device:
         dev = dev_idx
     else:
-        dev = torch.device('cuda', dev_idx) if dev_idx > -1 else torch.device('cpu')
+        dev = torch.device('cuda', dev_idx) if type(dev_idx) is int else torch.device('cpu')
     if ndim == 3 :
         # 3D tetrahedron
         # volume shape function
@@ -1701,7 +1701,8 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
 def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
                  sn: Optional[torch.Tensor], real_snlx: Optional[torch.Tensor],
                  is_get_f_det_normal: bool,
-                 j: torch.Tensor)\
+                 j: torch.Tensor,
+                 drst_duv: torch.Tensor)\
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     # local shape function on element face
@@ -1865,12 +1866,6 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
         snormal = snormal.unsqueeze(-1).expand(batch_in, nface, ndim, sngi)
     else:  # iso-parametric geometry
         # get detwei
-        drst_duv = torch.tensor([
-            [[0, 0], [0, 1], [1, 0]],  # face 2-1-3
-            [[1, 0], [0, 0], [0, 1]],  # face 0-2-3
-            [[0, 1], [1, 0], [0, 0]],  # face 1-0-3
-            [[-1, -1], [1, 0], [0, 1]],  # face 0-1-2
-        ], device=dev, dtype=torch.float64)  # (nface, ndim, ndim-1)
         if False:  # old implementation -- recalculate Jacobian but only select nodes on face.
             # this is unnecessary as we already have Jacobian on face quadrature points
             ddu_and_ddv = torch.einsum(

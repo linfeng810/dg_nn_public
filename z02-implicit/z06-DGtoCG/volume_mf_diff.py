@@ -83,7 +83,7 @@ def _solve_diffusion(
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=1, warmup=2, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/_cube_132564'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/ef191bb_d8D8_cpu'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
@@ -302,6 +302,7 @@ def _s_rhs_fd(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=j,
+        drst_duv=sf_nd_nb.vel_func_space.drst_duv,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
@@ -363,6 +364,7 @@ def _s_rhs_fb(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=j,
+        drst_duv=sf_nd_nb.vel_func_space.drst_duv,
     )
     sn = sf_nd_nb.vel_func_space.element.sn[f_b_n, ...]  # (batch_in, nloc, sngi)
     sdetwei = sdetwei[dummy_idx, f_b_n, ...]  # (batch_in, sngi)
@@ -544,6 +546,7 @@ def _s_res_fi(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=j,
+        drst_duv=func_space.drst_duv,
     )
     sn = func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_i, ...]  # (batch_in, ndim, nloc, sngi)
@@ -566,6 +569,7 @@ def _s_res_fi(
         is_get_f_det_normal=False,  # don't need to get snormal and sdetwei for neighbouring ele because
         # its either the same as this ele or the opposite of this ele
         j=j,
+        drst_duv=func_space.drst_duv,
     )
     # get faces we want
     sn_nb = func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
@@ -829,6 +833,7 @@ def _s_res_fi_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=func_space.jac_s,
+        drst_duv=func_space.drst_duv,
     )
         # torch.cuda.synchronize()
     # with torch.profiler.record_function("FI internal"):
@@ -1090,6 +1095,7 @@ def _s_res_fb(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=j,
+        drst_duv=func_space.drst_duv,
     )
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
     snx = snx[dummy_idx, f_b, ...]  # (batch_in, ndim, nloc, sngi)
@@ -1178,6 +1184,7 @@ def _s_res_fb_all_face(
         real_snlx=None,
         is_get_f_det_normal=True,
         j=j,
+        drst_duv=func_space.drst_duv,
     )
     # torch.cuda.synchronize()
     sn = func_space.element.sn[f_b, ...]  # (batch_in, nloc, sngi)
