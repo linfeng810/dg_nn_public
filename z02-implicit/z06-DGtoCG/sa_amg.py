@@ -12,13 +12,13 @@ dev = config.dev
 def get_rigid_body_mode(coor, ndim):
     """given coordinates on a mesh, return rigid body mode"""
     if type(coor) is not torch.Tensor:
-        coor = torch.tensor(coor, dtype=torch.float64, device=config.dev)
+        coor = torch.tensor(coor, dtype=config.dtype, device=config.dev)
     if ndim == 2:
         coords = coor[:, 0:2]
         x = coords[:, 0]
         y = coords[:, 1]
         nnod = x.shape[0]
-        v = torch.zeros(3, nnod, ndim, dtype=torch.float64, device=config.dev)
+        v = torch.zeros(3, nnod, ndim, dtype=config.dtype, device=config.dev)
         v[0, :, 0] += 1./nnod
         v[1, :, 1] += 1./nnod
         # rotation
@@ -30,7 +30,7 @@ def get_rigid_body_mode(coor, ndim):
         y = coords[:, 1]
         z = coords[:, 2]
         nnod = x.shape[0]
-        v = torch.zeros(6, nnod, ndim, dtype=torch.float64, device=config.dev)
+        v = torch.zeros(6, nnod, ndim, dtype=config.dtype, device=config.dev)
         v[0, :, 0] += 1./nnod
         v[1, :, 1] += 1./nnod
         v[2, :, 2] += 1./nnod
@@ -189,7 +189,7 @@ class SASolver:
            x0 is modified in place. otherwise it is newly created.
         """
         if x0 is None:
-            x0 = torch.zeros_like(b, device=config.dev, dtype=torch.float64)
+            x0 = torch.zeros_like(b, device=config.dev, dtype=config.dtype)
         x = x0
         normb = torch.linalg.norm(b)
         if normb == 0:

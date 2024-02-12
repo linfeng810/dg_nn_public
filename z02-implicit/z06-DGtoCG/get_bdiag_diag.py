@@ -39,7 +39,7 @@ def get_bdiag_diag():
     # volume integral
     batch_in = nele
 
-    bdiagK = torch.zeros(batch_in, u_nloc, u_nloc, device=dev, dtype=torch.float64)
+    bdiagK = torch.zeros(batch_in, u_nloc, u_nloc, device=dev, dtype=config.dtype)
     _k_res_one_batch(  # r0, diagK, bdiagK = _k_res_one_batch(
         bdiagK,
         # idx_in,
@@ -63,7 +63,7 @@ def get_bdiag_diag():
 
 
 # @torch.jit.optimize_for_inference
-@torch.jit.script
+# @torch.jit.script
 def _k_res_one_batch(
         bdiagK,
         # idx_in,  # those without explicit type declaration default to torch.Tensor
@@ -135,7 +135,7 @@ def _s_res_fi_all_face(
     )
 
     # K block
-    K = torch.zeros(nele, nface, u_nloc, u_nloc, device=dev, dtype=torch.float64)
+    K = torch.zeros(nele, nface, u_nloc, u_nloc, device=dev, dtype=bdiagK.dtype)
     # this side
     # without fetching faces, we will do for all faces,
     # and use a flag to make bc face be 0.
@@ -193,12 +193,13 @@ def _s_res_fi_all_face(
 
     # set boundary face to 0
     K = K.view(nele * nface, u_nloc, u_nloc)
-    K *= (func_space.glb_bcface_type < 0).view(-1, 1, 1).to(torch.float64)
+    K *= (func_space.glb_bcface_type < 0).view(-1, 1, 1).to(K.dtype)
 
     # put them to r0, diagK and bdiagK (SCATTER)
     K = K.view(nele, nface, u_nloc, u_nloc)
     for iface in range(nface):
         bdiagK += K[:, iface, :, :]
+    a = 0
 
 
 # @torch.jit.optimize_for_inference
@@ -250,7 +251,7 @@ def _s_res_fb_all_face(
 
     # block K
     K = torch.zeros(batch_in, u_nloc, u_nloc,
-                    device=dev, dtype=torch.float64)
+                    device=dev, dtype=bdiagK.dtype)
     # [vi nj] {du_i / dx_j}  consistent term
     snx_snormal = torch.bmm(
         snx.permute(0, 3, 2, 1).reshape(-1, u_nloc, ndim),

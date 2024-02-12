@@ -50,7 +50,7 @@ def _gi_pnts_tetra(ngi: int) -> Tuple[torch.Tensor, torch.Tensor]:
              0.0636610018750175, 0.6030056647916491, 0.2696723314583159,
              0.2696723314583159, 0.0636610018750175, 0.6030056647916491,
              0.6030056647916491, 0.2696723314583159, 0.0636610018750175]
-        L = np.asarray(L, dtype=np.float64)
+        L = np.asarray(L, dtype=config.dtype_np)
         L = np.reshape(L, (ngi, 3))
         weight = [0.0399227502581679, 0.0399227502581679, 0.0399227502581679,
                   0.0399227502581679, 0.0100772110553207, 0.0100772110553207,
@@ -60,7 +60,7 @@ def _gi_pnts_tetra(ngi: int) -> Tuple[torch.Tensor, torch.Tensor]:
                   0.0482142857142857, 0.0482142857142857, 0.0482142857142857,
                   0.0482142857142857, 0.0482142857142857, 0.0482142857142857,
                   0.0482142857142857, 0.0482142857142857, 0.0482142857142857]
-        weight = np.asarray(weight, dtype=np.float64)
+        weight = np.asarray(weight, dtype=config.dtype_np)
         weight *= 1. / 6.
     elif ngi == 57:
         # 57 points, degree of precision = 9
@@ -124,7 +124,7 @@ def _gi_pnts_tetra(ngi: int) -> Tuple[torch.Tensor, torch.Tensor]:
             4.5391629975180497e-01, 3.8270448072734262e-02, 3.7610183241574287e-02, 2.3863928753715094e-03,
             3.5049017304033134e-02, 2.2298618247688448e-01, 4.6550714146934034e-02, 2.4079323312008009e-03,
         ]
-        L = np.asarray(L, dtype=np.float64)
+        L = np.asarray(L, dtype=config.dtype_np)
         L = np.reshape(L, (ngi, 4))
         weight = L[:,3]  # last column is weight, sum is 1/6
         L = L[:,0:3]
@@ -144,24 +144,24 @@ def _gi_pnts_tetra(ngi: int) -> Tuple[torch.Tensor, torch.Tensor]:
             0.1005964238332008, 0.3994035761667992, 0.1005964238332008,
             0.1005964238332008, 0.1005964238332008, 0.3994035761667992,
         ]
-        L = np.asarray(L, dtype=np.float64)
+        L = np.asarray(L, dtype=config.dtype_np)
         L = np.reshape(L, (ngi, 3))
         weight = [
             -0.0789333333333333, 0.0457333333333333, 0.0457333333333333,
             0.0457333333333333, 0.0457333333333333, 0.1493333333333333, 0.1493333333333333,
             0.1493333333333333, 0.1493333333333333, 0.1493333333333333, 0.1493333333333333,
         ]
-        weight = np.asarray(weight, dtype=np.float64)
+        weight = np.asarray(weight, dtype=config.dtype_np)
         weight *= 1. / 6.
     elif ngi == 4:
         L = [0.1381966011250105, 0.1381966011250105, 0.1381966011250105,
              0.1381966011250105, 0.1381966011250105, 0.5854101966249685,
              0.1381966011250105, 0.5854101966249685, 0.1381966011250105,
              0.5854101966249685, 0.1381966011250105, 0.1381966011250105, ]
-        L = np.asarray(L, dtype=np.float64)
+        L = np.asarray(L, dtype=config.dtype_np)
         L = np.reshape(L, (ngi, 3))
         weight = [0.25, 0.25, 0.25, 0.25]
-        weight = np.asarray(weight, dtype=np.float64)
+        weight = np.asarray(weight, dtype=config.dtype_np)
         weight *= 1. / 6.
     else:
         raise Exception('ngi ', ngi, 'for tetrahedron is not implemented or existed!')
@@ -203,7 +203,7 @@ def _gi_pnts_tri(sngi):
              e, d, c,
              d, e, c,
              ],
-            dtype=np.float64).reshape((sngi, 3))
+            dtype=config.dtype_np).reshape((sngi, 3))
         sweight = [0.205950504760887, 0.205950504760887, 0.205950504760887,
                    0.063691414286223, 0.063691414286223, 0.063691414286223,
                    0.063691414286223, 0.063691414286223, 0.063691414286223]
@@ -213,7 +213,7 @@ def _gi_pnts_tri(sngi):
         alignment = [0, 2, 1, 4, 3, 8, 7, 6, 5,
                      1, 0, 2, 6, 5, 4, 3, 8, 7,
                      2, 1, 0, 8, 7, 6, 5, 4, 3]
-        sweight = np.asarray(sweight, dtype=np.float64)
+        sweight = np.asarray(sweight, dtype=config.dtype_np)
         sweight *= 0.5
     elif sngi == 19:
         # toms612_19, 19 points, degree of precision = 9
@@ -237,7 +237,7 @@ def _gi_pnts_tri(sngi):
             3.68384120547362581E-002,  0.22196298916076573,
             0.22196298916076573     ,  0.74119859878449801,
             0.22196298916076573     ,  3.68384120547362581E-002
-        ], dtype=np.float64).reshape((sngi, 2))
+        ], dtype=config.dtype_np).reshape((sngi, 2))
         pnts3 = 1 - np.sum(pnts, axis=1)
         pnts = np.concatenate((pnts, pnts3.reshape(sngi, 1)), axis=1)
         sweight = np.asarray([
@@ -260,7 +260,7 @@ def _gi_pnts_tri(sngi):
             4.32835393772893970E-002,
             4.32835393772893970E-002,
             4.32835393772893970E-002,
-        ], dtype=np.float64)
+        ], dtype=config.dtype_np)
         sweight *= 0.5
         alignment = np.asarray([
             1,2,4,3,5,  7,6,8,10,9,  11,13,12,15,14,  17,16,19,18,
@@ -283,7 +283,7 @@ def _gi_pnts_tri(sngi):
             0.310352451033785,  0.053145049844816,
             0.053145049844816,  0.636502499121399,
             0.053145049844816,  0.310352451033785,
-        ], dtype=np.float64).reshape((sngi, 2))
+        ], dtype=config.dtype_np).reshape((sngi, 2))
         pnts3 = 1 - np.sum(pnts, axis=1)
         pnts = np.concatenate((pnts, pnts3.reshape(sngi, 1)), axis=1)
         sweight = np.asarray([
@@ -299,7 +299,7 @@ def _gi_pnts_tri(sngi):
             0.082851075618374,
             0.082851075618374,
             0.082851075618374,
-        ], dtype=np.float64)
+        ], dtype=config.dtype_np)
         sweight *= 0.5
         alignment = np.asarray([
             1, 3, 2, 4, 6, 5, 8, 7, 10, 9, 12, 11,
@@ -320,7 +320,7 @@ def _gi_pnts_tri(sngi):
             c, d, d,
             d, c, d,
             d, d, c,
-        ], dtype=np.float64).reshape((sngi, 3))
+        ], dtype=config.dtype_np).reshape((sngi, 3))
         sweight = [0.109951743655322, 0.109951743655322, 0.109951743655322,
                    0.223381589678011, 0.223381589678011, 0.223381589678011]
         alignment = [
@@ -328,21 +328,21 @@ def _gi_pnts_tri(sngi):
             1, 0, 2, 4, 3, 5,
             2, 1, 0, 5, 4, 3,
         ]
-        sweight = np.asarray(sweight, dtype=np.float64)
+        sweight = np.asarray(sweight, dtype=config.dtype_np)
         sweight *= 0.5
     elif sngi == 3:
         # 3 pnts triangle quadrature rule, 2 degree precision
         # strang2
         pnts = np.asarray([0.5, 0, 0.5,
                            0.5, 0.5, 0,
-                           0, 0.5, 0.5], dtype=np.float64).reshape((sngi, 3))
+                           0, 0.5, 0.5], dtype=config.dtype_np).reshape((sngi, 3))
         sweight = [1. / 3., 1. / 3., 1. / 3.]
         alignment = [
             1, 0, 2,
             2, 1, 0,
             0, 2, 1,
         ]
-        sweight = np.asarray(sweight, dtype=np.float64)
+        sweight = np.asarray(sweight, dtype=config.dtype_np)
         sweight *= 0.5
     else:
         raise Exception('ngi ', sngi, 'for triangle is not implemented or existed!')
@@ -378,7 +378,7 @@ def _gi_pnts_line(ngi):
             c1, 1-c1,
         ])
         pnts = pnts.reshape((ngi, 2))
-        sweight = np.zeros(ngi, dtype=np.float64)
+        sweight = np.zeros(ngi, dtype=config.dtype_np)
         sweight[0] = f
         sweight[1] = e
         sweight[2] = d
@@ -407,7 +407,7 @@ def _gi_pnts_line(ngi):
             b1, 1-b1,
         ])
         pnts = pnts.reshape((ngi,2))
-        sweight = np.zeros(ngi, dtype=np.float64)
+        sweight = np.zeros(ngi, dtype=config.dtype_np)
         #
         sweight[0] = w2
         sweight[1] = w1
@@ -456,7 +456,8 @@ def _gi_pnts_line(ngi):
 
 
 @torch.jit.ignore
-def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: int)\
+def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: int,
+              dtype: torch.dtype)\
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     '''
     shape functions on a reference element
@@ -724,7 +725,7 @@ def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: in
             pnts, sweight, alignment = _gi_pnts_tri(sngi)
             # sf_nd_nb.set_data(gi_align=torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi))
             gi_align = torch.tensor(alignment, device=dev, dtype=torch.int64).view(ndim, sngi)
-            SL = np.zeros((nface, sngi, 4), dtype=np.float64)
+            SL = np.zeros((nface, sngi, 4), dtype=config.dtype_np)
             # face1  triangle 3-2-4, l1 = 0
             SL[0, :, 0] = 0
             SL[0, :, 1] = pnts[:, 1]
@@ -880,7 +881,7 @@ def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: in
             gi_align = torch.tensor(alignment,
                                     device=dev,
                                     dtype=torch.int64).view(ndim, sngi)
-            SL = np.zeros((nface, sngi, 4), dtype=np.float64)
+            SL = np.zeros((nface, sngi, 4), dtype=config.dtype_np)
             # face1  triangle 2-1-3, l1 = 0
             SL[0, :, 0] = 0
             SL[0, :, 1] = pnts[:, 1]
@@ -967,7 +968,7 @@ def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: in
             gi_align = torch.tensor(alignment,
                                     device=dev,
                                     dtype=torch.int64).view(ndim, sngi)
-            SL = np.zeros((nface, sngi, 4), dtype=np.float64)
+            SL = np.zeros((nface, sngi, 4), dtype=config.dtype_np)
             # face1  triangle 2-1-3, l1 = 0
             SL[0, :, 0] = 0
             SL[0, :, 1] = pnts[:, 1]
@@ -1025,12 +1026,12 @@ def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: in
         snlx_all = np.stack([snlx, snly, snlz], axis=1)
 
         # transform output to torch tensor on designated device
-        n = torch.tensor(n, device=dev, dtype=torch.float64)
-        nlx_all = torch.tensor(nlx_all, device=dev, dtype=torch.float64)
-        weight = torch.tensor(weight, device=dev, dtype=torch.float64)
-        sn = torch.tensor(sn, device=dev, dtype=torch.float64)
-        snlx_all = torch.tensor(snlx_all, device=dev, dtype=torch.float64)
-        sweight = torch.tensor(sweight, device=dev, dtype=torch.float64)
+        n = torch.tensor(n, device=dev, dtype=dtype)
+        nlx_all = torch.tensor(nlx_all, device=dev, dtype=dtype)
+        weight = torch.tensor(weight, device=dev, dtype=dtype)
+        sn = torch.tensor(sn, device=dev, dtype=dtype)
+        snlx_all = torch.tensor(snlx_all, device=dev, dtype=dtype)
+        sweight = torch.tensor(sweight, device=dev, dtype=dtype)
 
         return n, nlx_all, weight, sn, snlx_all, sweight, gi_align
     # ================== FROM here on, its 2D shape functions.==============================
@@ -1306,12 +1307,12 @@ def SHATRInew(nloc:int , ngi: int, ndim: int, snloc: int, sngi: int, dev_idx: in
     snlx_all=np.stack([snlx,snly],axis=1)
 
     # transform everything to torch tensor on designated device
-    n = torch.tensor(n, device=dev, dtype=torch.float64)
-    nlx_all = torch.tensor(nlx_all, device=dev, dtype=torch.float64)
-    weight = torch.tensor(weight, device=dev, dtype=torch.float64)
-    sn = torch.tensor(sn, device=dev, dtype=torch.float64)
-    snlx_all = torch.tensor(snlx_all, device=dev, dtype=torch.float64)
-    sweight = torch.tensor(sweight, device=dev, dtype=torch.float64)
+    n = torch.tensor(n, device=dev, dtype=dtype)
+    nlx_all = torch.tensor(nlx_all, device=dev, dtype=dtype)
+    weight = torch.tensor(weight, device=dev, dtype=dtype)
+    sn = torch.tensor(sn, device=dev, dtype=dtype)
+    snlx_all = torch.tensor(snlx_all, device=dev, dtype=dtype)
+    sweight = torch.tensor(sweight, device=dev, dtype=dtype)
 
     return n, nlx_all, weight, sn, snlx_all, sweight, gi_align
 
@@ -1333,7 +1334,7 @@ def get_s_jac(snlx, x_loc) -> torch.Tensor:
     #   d x/d chi,  dy/d chi,   dz/d chi]
     # output: each component of jacobi
     # (nface, sngi, batch_in)
-    j = torch.zeros(ndim, ndim, batch_in, nface, sngi, device=dev, dtype=torch.float64)
+    j = torch.zeros(ndim, ndim, batch_in, nface, sngi, device=dev, dtype=snlx.dtype)
     # snlx_new = snlx.permute(1, 0, 3, 2).contiguous()  # (ndim, nface, sngi, nloc)
     for idim in range(ndim):
         for jdim in range(ndim):
@@ -1367,7 +1368,7 @@ def get_v_jac(nlx, x_loc):
     #   d x/d chi,  dy/d chi,   dz/d chi]
     # output: each component of jacobi
     # (batch_size , ngi)
-    j = torch.zeros(ndim, ndim, batch_in, ngi, device=dev, dtype=torch.float64)
+    j = torch.zeros(ndim, ndim, batch_in, ngi, device=dev, dtype=nlx.dtype)
     for idim in range(ndim):
         for jdim in range(ndim):
             j[idim, jdim, ...] = torch.matmul(
@@ -1388,11 +1389,14 @@ def sdet_snlx(snlx, x_loc, sweight, nloc: int, sngi: int,
               sn: torch.Tensor,
               real_snlx: Optional[torch.Tensor],
               is_get_f_det_normal: bool,
-              j: torch.Tensor)\
+              j: torch.Tensor,
+              drst_duv: torch.Tensor)\
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     # local shape function on element face
     can pass in multiple elements in a batch
+
+    FOR 2D ELEMENT
     
     # input: 
     
@@ -1451,25 +1455,33 @@ def sdet_snlx(snlx, x_loc, sweight, nloc: int, sngi: int,
         j = get_s_jac(snlx, x_loc)
 
     # calculate inverse of jacobian
-    invj = torch.linalg.inv(j)
+    # invj = torch.linalg.inv(j)
+    # use hand-expanded formula to calculate inverse of jacobian
+    det = j[0, 0] * j[1, 1] - j[0, 1] * j[1, 0]
+    invj = torch.zeros_like(j)
+    invj[0, 0] = j[1, 1] / det
+    invj[0, 1] = -j[0, 1] / det
+    invj[1, 0] = -j[1, 0] / det
+    invj[1, 1] = j[0, 0] / det
 
     # calculate snx
     if real_snlx is None:
-        snx = torch.einsum('bfgij,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
+        snx = torch.einsum('ijbfg,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
                            invj,
                            snlx)
     else:
-        snx = torch.einsum('bfgij,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
+        snx = torch.einsum('ijbfg,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
                            invj,
                            real_snlx)
-
+    if not is_get_f_det_normal:
+        return snx, torch.tensor(0), torch.tensor(0)
     if not config.isoparametric:
         # now we calculate surface det
         # IMPORTANT: we are assuming straight edges
         x = x_loc[:, 0, :].view(batch_in, 1, nloc)
         y = x_loc[:, 1, :].view(batch_in, 1, nloc)
 
-        sdet = torch.zeros(batch_in,nface,device=dev, dtype=torch.float64)
+        sdet = torch.zeros(batch_in,nface,device=dev, dtype=snlx.dtype)
         sdet[:,0] = torch.linalg.vector_norm(x_loc[:,:,0]-x_loc[:,:,1], dim=1) # # face 0, local node 0 and 1
         sdet[:,1] = torch.linalg.vector_norm(x_loc[:,:,1]-x_loc[:,:,2], dim=1) # # face 1, local node 1 and 2
         sdet[:,2] = torch.linalg.vector_norm(x_loc[:,:,2]-x_loc[:,:,0], dim=1) # # face 2, local node 2 and 0
@@ -1484,7 +1496,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc: int, sngi: int,
             torch.tensor(sweight, device=dev).unsqueeze(0).unsqueeze(1).expand(batch_in,nface,sngi)) # sdetwei
 
         # surface normal
-        snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=torch.float64)
+        snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=snlx.dtype)
         # face 0
         iface = 0
         idim = 0; snormal[:,iface,idim] = y[:,0,1] - y[:,0,0]
@@ -1501,19 +1513,27 @@ def sdet_snlx(snlx, x_loc, sweight, nloc: int, sngi: int,
         snormal = snormal/sdet.unsqueeze(-1).expand(batch_in,nface,ndim)
         snormal = snormal.unsqueeze(-1).expand(batch_in, nface, ndim, sngi)
     else:  # iso-parametric geometry
-        deta_dlam = torch.tensor(
-            [[-1., 1. ],
-             [0.,   -1.],
-             [1.,  0. ]],
-            device=dev, dtype=torch.float64
-        )
+        # deta_dlam = torch.tensor(
+        #     [[-1., 1. ],
+        #      [0.,   -1.],
+        #      [1.,  0. ]],
+        #     device=dev, dtype=torch.float64
+        # )  # this is now stored in func_space and passed in to avoid creation at every call -- cause sync
         # surface det (det on line)
+        # the following is not reuse Jacobian and is slow.
+        # ddu = torch.einsum(
+        #     'fjng,bin,fn,fj->bfig',  # (nele, nface, ndim, sngi)
+        #     snlx,  # (nface, ndim, nloc, sngi)
+        #     x_loc,  # (nele, ndim, nloc)
+        #     (sn.sum(-1) != 0).to(snlx.dtype),  # a mask to select nodes on face (nface, nloc)
+        #     deta_dlam,  # (nface, ndim)
+        # )
+        # reuse Jacobian
         ddu = torch.einsum(
-            'fjng,bin,fn,fj->bfig',  # (nele, nface, ndim, sngi)
-            snlx,  # (nface, ndim, nloc, sngi)
-            x_loc,  # (nele, ndim, nloc)
-            (sn.sum(-1) != 0).to(torch.float64),  # a mask to select nodes on face (nface, nloc)
-            deta_dlam,  # (nface, ndim)
+            'jibfg,fj->bfig',  # (nele, nface, ndim, sngi)
+            j,
+            # (sn.sum(-1) != 0).to(snlx.dtype),  # a mask to select nodes on face (nface, nloc)
+            drst_duv,  # (nface, ndim)
         )
         abs_ddu = torch.linalg.vector_norm(ddu, dim=-2)  # (nele, nface, sngi)
         sdetwei = torch.einsum(
@@ -1526,7 +1546,7 @@ def sdet_snlx(snlx, x_loc, sweight, nloc: int, sngi: int,
             'bfig,bfg,ij->bfjg',
             ddu,
             1./abs_ddu,
-            torch.tensor([[0,-1],[1,0]], device=dev, dtype=torch.float64)
+            torch.tensor([[0,-1],[1,0]], device=dev, dtype=snlx.dtype)
         )
     
     # print(snx.shape, sdetwei.shape)
@@ -1658,13 +1678,15 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
     if j.shape[0] == 0:
         j = get_v_jac(nlx, x_loc)
 
+    det = torch.empty(0)
+    invj = torch.empty(0)
     if False:  # use torch det/inv to compute det/inv. this cause synchronisation and is slow.
         # calculate determinant of jacobian
         det = torch.det(j)
         # det = torch.mul(j11, j22) - torch.mul(j21, j12)
         # calculate inv jacobian
         invj = torch.linalg.inv(j)
-    else:  # use arithmetric operations to compute det/inv. this is faster.
+    elif ndim == 3:  # use arithmetric operations to compute det/inv. this is faster.
         det = j[0, 0] * (j[1, 1] * j[2, 2] - j[1, 2] * j[2, 1]) \
                - j[0, 1] * (j[1, 0] * j[2, 2] - j[1, 2] * j[2, 0]) \
                + j[0, 2] * (j[1, 0] * j[2, 1] - j[1, 1] * j[2, 0])
@@ -1678,6 +1700,13 @@ def get_det_nlx_3d(nlx, x_loc, weight, nloc: int, ngi: int, real_nlx: Optional[t
         invj[2, 0] = (j[1, 0] * j[2, 1] - j[1, 1] * j[2, 0]) / det
         invj[2, 1] = (j[0, 1] * j[2, 0] - j[0, 0] * j[2, 1]) / det
         invj[2, 2] = (j[0, 0] * j[1, 1] - j[0, 1] * j[1, 0]) / det
+    elif ndim == 2:
+        det = j[0, 0] * j[1, 1] - j[0, 1] * j[1, 0]
+        invj = torch.zeros_like(j)
+        invj[0, 0] = j[1, 1] / det
+        invj[0, 1] = -j[0, 1] / det
+        invj[1, 0] = -j[1, 0] / det
+        invj[1, 1] = j[0, 0] / det
     # calculate detwei
     det = det.view(batch_in, ngi)
     # invdet = torch.div(1.0, det)
@@ -1817,7 +1846,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
     if not config_isoparametric:
         # now we calculate surface det
         # IMPORTANT: we are assuming straight edges
-        sdet = torch.zeros(batch_in, nface, device=dev, dtype=torch.float64)
+        sdet = torch.zeros(batch_in, nface, device=dev, dtype=snlx.dtype)
         # face 0 node 2-1-3
         sdet[:, 0] = torch.linalg.vector_norm(torch.linalg.cross(
             x_loc[..., 1] - x_loc[..., 2], x_loc[..., 3] - x_loc[..., 2]
@@ -1846,7 +1875,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
         #                                                                                        sngi))  # sdetwei
         sdetwei = torch.einsum('bf,g->bfg', sdet, sweight)
         # surface normal
-        snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=torch.float64)
+        snormal = torch.zeros(batch_in, nface, ndim, device=dev, dtype=snlx.dtype)
         # face 0 node 2-1-3
         snormal[:, 0, :] = torch.linalg.cross(
             x_loc[..., 1] - x_loc[..., 2], x_loc[..., 3] - x_loc[..., 2]
@@ -1872,7 +1901,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
                 'fjng,bin,fn,fjk->bfigk',
                 snlx,
                 x_loc,
-                (sn.sum(-1) != 0).to(torch.float64),
+                (sn.sum(-1) != 0).to(snlx.dtype),
                 drst_duv,
             )
         else:  # reuse Jacobian on face quadrature points
@@ -1882,7 +1911,7 @@ def sdet_snlx_3d(snlx, x_loc, sweight, nloc: int, sngi: int,
                 drst_duv,
             )
         # # unwrap einsum into bmm and *
-        # snlx_ = snlx * (sn.sum(-1) != 0).to(torch.float64).unsqueeze(1).unsqueeze(-1).expand(nface, ndim, nloc, sngi)
+        # snlx_ = snlx * (sn.sum(-1) != 0).to(snlx.dtype).unsqueeze(1).unsqueeze(-1).expand(nface, ndim, nloc, sngi)
         #     # select nodes on face
         ddu_x_ddv = torch.linalg.cross(
             ddu_and_ddv[..., 0],

@@ -12,6 +12,8 @@ from parse_terminal_input import args
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
 disabletqdm = False
+dtype = torch.float64  # overall data type
+dtype_np = np.float64  # overall data type
 #
 # device
 dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -41,8 +43,9 @@ solver = 'iterative'  # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename = 'z23-nozzle/nozzle.msh'  # directory to mesh file (gmsh)
-# filename = 'z21-cube-mesh/cube_ho_poi.msh'
+filename = 'z23-nozzle/nozzle_more_elements_d8D8.msh'  # directory to mesh file (gmsh)
+filename = 'z21-cube-mesh/cube_ho_poi_r4.msh'
+filename = 'z20-square-mesh/square_high_order.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -158,7 +161,7 @@ sf_nd_nb.relax_coeff = relax_coeff
 ####################
 # material property
 ####################
-problem = 'nozzle'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'diff-test'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -173,8 +176,8 @@ lam_s = 8e6
 mu_s = 2e6
 E = mu_s * (3 * lam_s + 2 * mu_s) / (lam_s + mu_s)
 nu = lam_s / 2 / (lam_s + mu_s)
-lam_s = torch.tensor(lam_s, device=dev, dtype=torch.float64)
-mu_s = torch.tensor(mu_s, device=dev, dtype=torch.float64)
+lam_s = torch.tensor(lam_s, device=dev, dtype=dtype)
+mu_s = torch.tensor(mu_s, device=dev, dtype=dtype)
 print('Lame coefficient: lamda, mu', lam_s, mu_s)
 # lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
@@ -182,7 +185,7 @@ kdiff = 1.0
 rho_f = 1.
 if isFSI:
     rho_s = 1.e3  # solid density at initial configuration
-a = torch.eye(ndim, device=dev, dtype=torch.float64)
+a = torch.eye(ndim, device=dev, dtype=dtype)
 kijkl = torch.einsum('ik,jl->ijkl', a, a)  # k tensor for double diffusion
 cijkl = lam_s * torch.einsum('ij,kl->ijkl', a, a) \
         + mu_s * torch.einsum('ik,jl->ijkl', a, a) \

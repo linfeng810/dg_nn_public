@@ -50,7 +50,7 @@ print('computation on ', dev)
 
 # define element
 quad_degree = config.ele_p*2
-vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev)
+vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev, dtype=config.dtype)
 print('quadrature degree: ', quad_degree)
 
 if True:  # scale mesh
@@ -113,13 +113,13 @@ if config.solver == 'iterative':
     r0l2all = []
     # time loop
     r0 = torch.zeros(no_total_dof,
-                     device=dev, dtype=torch.float64)
+                     device=dev, dtype=config.dtype)
 
-    x_i = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
-    x_rhs = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
+    x_i = torch.zeros(no_total_dof, device=dev, dtype=config.dtype)
+    x_rhs = torch.zeros(no_total_dof, device=dev, dtype=config.dtype)
     # let's create a list of tensors to store J+1 previoius timestep values
     # for time integrator
-    x_all_previous = [torch.zeros(no_total_dof, dtype=torch.float64, device=dev)
+    x_all_previous = [torch.zeros(no_total_dof, dtype=config.dtype, device=dev)
                       for _ in range(config.time_order+1)]
 
     # solve a stokes problem as initial velocity
@@ -143,7 +143,7 @@ if config.solver == 'iterative':
 
     t = tstart  # physical time (start time)
 
-    alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64).view(nele, -1, ndim)
+    alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=config.dtype).view(nele, -1, ndim)
 
     # if config.is_store_jacobian, compute and store jacobian here
     if config.is_store_jacobian:
@@ -187,7 +187,7 @@ if config.solver == 'iterative':
         x_i *= 0
         x_i += x_all_previous[0]  # use last timestep p as start value
 
-        r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
+        r0l2 = torch.tensor(1, device=dev, dtype=config.dtype)  # linear solver residual l2 norm
         its = 0  # linear solver iteration
         nr0l2 = 1  # non-linear solver residual l2 norm
         sf_nd_nb.nits = 0  # newton iteration step

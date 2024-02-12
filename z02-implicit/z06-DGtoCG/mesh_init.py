@@ -232,13 +232,13 @@ def init_2d(mesh, nele, nonods, nloc, nface):
         [1. / 3, 0, 2. / 3],
         [2. / 3, 0, 1. / 3],
         [1. / 3, 1. / 3, 1. / 3]
-    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator)
+    ], device=config.dev, dtype=config.dtype)  # P1DG to P3DG, element-wise prolongation operator)
     if nloc == 3:  # linear element
         prolongator_from_p1dg = torch.tensor([
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
-        ], device=config.dev, dtype=torch.float64)
+        ], device=config.dev, dtype=config.dtype)
     elif nloc == 6:  # quadratic element
         prolongator_from_p1dg = torch.tensor([
             [1, 0, 0],
@@ -247,7 +247,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
             [1 / 2, 1 / 2, 0],
             [0, 1 / 2, 1 / 2],
             [1 / 2, 0, 1 / 2],
-        ], device=config.dev, dtype=torch.float64)
+        ], device=config.dev, dtype=config.dtype)
 
     cg_ndglno = cg_ndglno.reshape((nele * x_nloc))
 
@@ -628,14 +628,14 @@ def init_3d(mesh, nele, nonods, nloc, nface):
         [1 / 3, 1 / 3, 1 / 3, 0],
         [1 / 3, 0, 1 / 3, 1 / 3],
         [1 / 3, 1 / 3, 0, 1 / 3]
-    ], device=config.dev, dtype=torch.float64)  # P1DG to P3DG, element-wise prolongation operator
+    ], device=config.dev, dtype=config.dtype)  # P1DG to P3DG, element-wise prolongation operator
     if nloc == 4:  # linear element
         prolongator_from_p1dg = torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
-        ], device=config.dev, dtype=torch.float64)  # P1DG to P1DG, element-wise prolongation operator
+        ], device=config.dev, dtype=config.dtype)  # P1DG to P1DG, element-wise prolongation operator
     elif nloc == 10:  # quadratic element
         prolongator_from_p1dg = torch.tensor([
             [1, 0, 0, 0],
@@ -648,7 +648,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
             [1 / 2, 0, 0, 1 / 2],
             [0, 1 / 2, 0, 1 / 2],
             [0, 0, 1 / 2, 1 / 2],
-        ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise prolongation operator
+        ], device=config.dev, dtype=config.dtype)  # P2DG to P1DG, element-wise prolongation operator
 
     cg_ndglno = cg_ndglno.reshape((nele * x_nloc))
 

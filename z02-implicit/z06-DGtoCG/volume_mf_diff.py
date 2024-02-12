@@ -59,11 +59,11 @@ def _solve_diffusion(
         x_i, f, u_bc, alpha_x_i
 ):
     x_i = x_i.view(nele, -1)
-    x_rhs = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+    x_rhs = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
 
     if False:  # test integration speed
         import time
-        r0 = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+        r0 = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
         starttime = time.time()
         for i in tqdm(range(1000)):
             r0, x_i = get_residual_or_smooth(
@@ -77,13 +77,13 @@ def _solve_diffusion(
     if False:  # test integration speed
         # import time
         from torch.profiler import profile, record_function, ProfilerActivity
-        r0 = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+        r0 = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
         # starttime = time.time()
         # for ii in tqdm(range(20)):
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=1, warmup=2, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/ef191bb_d8D8_cpu'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/9461d43_d8D8_gpu_FP32'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
@@ -105,7 +105,7 @@ def _solve_diffusion(
 
     if False:  # use torch.utils.benchmark to time get_residual_or_smooth
         import torch.utils.benchmark as benchmark
-        r0 = torch.zeros_like(x_i, device=dev, dtype=torch.float64)
+        r0 = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
         get_residual_or_smooth(
             r0, x_i, x_rhs,
             do_smooth=True,
@@ -452,7 +452,7 @@ def get_residual_or_smooth(
                           'norm bdiagK:', torch.linalg.norm(bdiagK1 - bdiagK))
                     exit(0)
 
-                c_i = torch.zeros_like(x_i, device=dev, dtype=torch.float64)  # correction to x_i
+                c_i = torch.zeros_like(x_i, device=dev, dtype=config.dtype)  # correction to x_i
                 c_i = c_i.view(nele, u_nloc)
                 for it in range(3):
                     # we need proper relaxing coefficient here as well! 1.0 simply doesn't work.
@@ -837,7 +837,7 @@ def _s_res_fi_all_face(
     )
         # torch.cuda.synchronize()
     # with torch.profiler.record_function("FI internal"):
-    Au = torch.zeros(nele, nface, u_nloc, device=dev, dtype=torch.float64)
+    Au = torch.zeros(nele, nface, u_nloc, device=dev, dtype=snx.dtype)
     # this side
     # without fetching faces, we will do for all faces,
     # and use a flag to make bc face be 0.
@@ -938,7 +938,7 @@ def _s_res_fi_all_face(
     # K = K.view(nele * nface, u_nloc, u_nloc)
     # K *= (func_space.glb_bcface_type < 0).view(-1, 1, 1).to(torch.float64)
     Au = Au.view(nele * nface, u_nloc)
-    Au *= (func_space.glb_bcface_type < 0).view(-1, 1).to(torch.float64)
+    Au *= (func_space.glb_bcface_type < 0).view(-1, 1).to(snx.dtype)
 
     # put them to r0, diagK and bdiagK (SCATTER)
     # K = K.view(nele, nface, u_nloc, u_nloc)
@@ -950,7 +950,7 @@ def _s_res_fi_all_face(
     # with torch.profiler.record_function("FI external"):
     # other side (we don't need K anymore)
     # we can get residual only. no contribution to diagK or bdiagK
-    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=torch.float64)
+    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=snx.dtype)
     u_inb = x_i[E_F_inb, ...]
 
     # get faces we want
@@ -1199,7 +1199,7 @@ def _s_res_fb_all_face(
     # vec
     x_i_b = x_i[E_F_b, ...]
     # mat-vec
-    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=torch.float64)
+    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=snx.dtype)
     # [vi nj] {du_i / dx_j}  consistent term
     snx_u = torch.mul(
         snx,  # (batch_in, ndim, nloc, sngi)
@@ -1397,19 +1397,19 @@ def _calc_RAR_mf_color(
     u_nloc = sf_nd_nb.vel_func_space.element.nloc
     nonods = nele * u_nloc
 
-    value = torch.zeros(ncola, device=dev, dtype=torch.float64)  # NNZ entry values
-    dummy = torch.zeros(nonods, device=dev, dtype=torch.float64)  # dummy variable of same length as PnDG
-    Rm = torch.zeros_like(dummy, device=dev, dtype=torch.float64)
-    ARm = torch.zeros_like(dummy, device=dev, dtype=torch.float64)
-    RARm = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
-    mask = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)  # color vec
+    value = torch.zeros(ncola, device=dev, dtype=config.dtype)  # NNZ entry values
+    dummy = torch.zeros(nonods, device=dev, dtype=config.dtype)  # dummy variable of same length as PnDG
+    Rm = torch.zeros_like(dummy, device=dev, dtype=config.dtype)
+    ARm = torch.zeros_like(dummy, device=dev, dtype=config.dtype)
+    RARm = torch.zeros(cg_nonods, device=dev, dtype=config.dtype)
+    mask = torch.zeros(cg_nonods, device=dev, dtype=config.dtype)  # color vec
     for color in tqdm(range(1, ncolor + 1), disable=config.disabletqdm):
         # print('color: ', color)
 
         mask *= 0
         mask += torch.tensor((whichc == color),
                              device=dev,
-                             dtype=torch.float64)  # 1 if true; 0 if false
+                             dtype=config.dtype)  # 1 if true; 0 if false
         Rm *= 0
         Rm += \
             (mg.vel_p1dg_to_pndg_prolongator(
@@ -1451,16 +1451,16 @@ def _gmres_mg_solver(
     real_nonods = nele_f * u_nloc
 
     m = config.gmres_m  # TODO: maybe we can use smaller number for this
-    v_m = torch.zeros(m + 1, real_nonods, device=dev, dtype=torch.float64)
-    v_m_j = torch.zeros(total_nonods, device=dev, dtype=torch.float64)
-    h_m = torch.zeros(m + 1, m, device=dev, dtype=torch.float64)
-    r0 = torch.zeros(total_nonods, device=dev, dtype=torch.float64)
+    v_m = torch.zeros(m + 1, real_nonods, device=dev, dtype=config.dtype)
+    v_m_j = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+    h_m = torch.zeros(m + 1, m, device=dev, dtype=config.dtype)
+    r0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
 
-    x_dummy = torch.zeros_like(r0, device=dev, dtype=torch.float64)
+    x_dummy = torch.zeros_like(r0, device=dev, dtype=config.dtype)
 
     r0l2 = 1.
     sf_nd_nb.its = 0
-    e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)
+    e_1 = torch.zeros(m + 1, device=dev, dtype=config.dtype)
     e_1[0] += 1
     # cudart.cudaProfilerStart()
     while r0l2 > tol and sf_nd_nb.its < config.gmres_its:  # TODO: maybe we can use smaller number for this
@@ -1538,7 +1538,7 @@ def _um_left_precond(x_i, x_rhs):
     total_no_dofs = nele * u_nloc
     real_no_dofs = nele_f * u_nloc
 
-    r0 = torch.zeros(nele, u_nloc, device=dev, dtype=torch.float64)
+    r0 = torch.zeros(nele, u_nloc, device=dev, dtype=config.dtype)
 
     cg_nonods = sf_nd_nb.sparse_f.cg_nonods
 
@@ -1557,7 +1557,7 @@ def _um_left_precond(x_i, x_rhs):
     )
 
     if not config.is_pmg:  # PnDG to P1CG
-        r1 = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+        r1 = torch.zeros(cg_nonods, device=dev, dtype=config.dtype)
         r0 = r0.view(nele, u_nloc)
         r1 += torch.mv(
             sf_nd_nb.sparse_f.I_cf,
@@ -1567,20 +1567,20 @@ def _um_left_precond(x_i, x_rhs):
         raise NotImplementedError('pmg not implemented!')
 
     if config.mg_opt_D == 1:  # directly solve on P1CG
-        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+        e_i = torch.zeros(cg_nonods, device=dev, dtype=config.dtype)
         e_direct = sp.sparse.linalg.spsolve(
             sf_nd_nb.RARmat_Um,
             r1.contiguous().view(-1).cpu().numpy())
         e_direct = np.reshape(e_direct, (cg_nonods))
-        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+        e_i += torch.tensor(e_direct, device=dev, dtype=config.dtype)
     elif config.mg_opt_D == 3:  # use pyamg to smooth on P1CG
-        e_i = torch.zeros(cg_nonods, device=dev, dtype=torch.float64)
+        e_i = torch.zeros(cg_nonods, device=dev, dtype=config.dtype)
         e_direct = sf_nd_nb.RARmat_Um.solve(
             r1.contiguous().view(-1).cpu().numpy(),
             maxiter=1,
             tol=1e-10)
         # e_direct = np.reshape(e_direct, (cg_nonods))
-        e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+        e_i += torch.tensor(e_direct, device=dev, dtype=config.dtype)
     elif config.mg_opt_D == 4:  # SA wrapped with pytorch -- will be computing on torch device.
         e_i = sf_nd_nb.RARmat_Um.solve(
             r1.contiguous().view(-1),
@@ -1606,7 +1606,7 @@ def _um_left_precond(x_i, x_rhs):
         e_i = e_i[sf_nd_nb.sfc_data_Um.space_filling_curve_numbering[:, 0] - 1].view(cg_nonods)
     if not config.is_pmg:  # from P1CG to P3DG
         # prolongate error to fine grid
-        e_i0 = torch.zeros(nele_f * u_nloc, device=dev, dtype=torch.float64)
+        e_i0 = torch.zeros(nele_f * u_nloc, device=dev, dtype=config.dtype)
         e_i0 += mg.vel_p1dg_to_pndg_prolongator(torch.mv(
             sf_nd_nb.sparse_f.I_fc,
             e_i))
