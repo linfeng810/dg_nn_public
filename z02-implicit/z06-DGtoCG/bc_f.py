@@ -33,14 +33,14 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             # takes in coordinates numpy array (nonods, ndim)
             # output body force: torch tensor (nele*nloc, ndim)
             mu = mu.cpu().numpy()
-            f = np.zeros((nonods, ndim), dtype=np.float64)
+            f = np.zeros((nonods, ndim), dtype=config.dtype_np)
             f[:, 0] += -2.0 * mu * np.power(np.pi, 3) * \
                     np.cos(np.pi * x_all[:, 1]) * np.sin(np.pi * x_all[:, 1]) \
                     * (2 * np.cos(2 * np.pi * x_all[:, 0]) - 1)
             f[:, 1] += 2.0 * mu * np.power(np.pi, 3) * \
                     np.cos(np.pi * x_all[:, 0]) * np.sin(np.pi * x_all[:, 0]) \
                     * (2 * np.cos(2 * np.pi * x_all[:, 1]) - 1)
-            f = torch.tensor(f, device=dev, dtype=torch.float64)
+            f = torch.tensor(f, device=dev, dtype=config.dtype)
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
 
         else:
@@ -49,7 +49,7 @@ def bc_f(ndim, bc, u, x_all, prob: str):
                     x_inod = sf_nd_nb.x_ref_in[inod // nloc, :, inod % nloc]
                     # u[inod//nloc, inod%nloc, :] = 0.
                     u[inod // nloc, inod % nloc, :] = torch.exp(x_inod[0] + x_inod[1] + x_inod[2])
-            f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+            f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
             mu = config.mu_s
             lam = config.lam_s
             x = torch.tensor(x_all[:, 0], device=dev)
@@ -135,7 +135,7 @@ def bc_f(ndim, bc, u, x_all, prob: str):
             x = torch.tensor(x_all[:, 0], device=dev)
             y = torch.tensor(x_all[:, 1], device=dev)
             z = torch.tensor(x_all[:, 2], device=dev)
-            f = torch.zeros(nonods, ndim, device=dev, dtype=torch.float64)
+            f = torch.zeros(nonods, ndim, device=dev, dtype=config.dtype)
             # problem 1 Abbas 2018
             f[:, 0] = mu * alpha * torch.pi ** 2 * torch.sin(torch.pi * y)
             f[:, 1] = 0.
@@ -162,8 +162,8 @@ def bc_f(ndim, bc, u, x_all, prob: str):
 def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
     nloc = sf_nd_nb.vel_func_space.element.nloc
     nonods = sf_nd_nb.vel_func_space.nonods
-    u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=torch.float64) for _ in bc_node_list]
-    f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+    u_bc = [torch.zeros(config.nele, nloc, ndim, device=dev, dtype=config.dtype) for _ in bc_node_list]
+    f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
     if prob == 'stokes':
         if ndim == 2:
             # apply boundary conditions (4 Dirichlet bcs)
@@ -198,9 +198,9 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     continue
                 u_bc[ibc][inod // nloc, inod % nloc, :] = 0.  # 0 stress out-flow condition
 
-            f = np.zeros((nonods, ndim), dtype=np.float64)
+            f = np.zeros((nonods, ndim), dtype=config.dtype_np)
 
-            f = torch.tensor(f, device=dev, dtype=torch.float64)
+            f = torch.tensor(f, device=dev, dtype=config.dtype)
             fNorm = torch.linalg.norm(f.view(-1), dim=0)
 
         else:  # ndim == 3
@@ -238,7 +238,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     #     torch.sin(x) * (3 * torch.cos(x) ** 2 + 3 * y * torch.cos(x) * torch.sin(x) - 1)
                     # u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
                     # u_bc[ibc][inod // nloc, inod % nloc, 2] = torch.sin(x) * (torch.sin(2 * x) - 1)
-            f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+            f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
             x = torch.tensor(x_all[:, 0], device=dev)
             y = torch.tensor(x_all[:, 1], device=dev)
@@ -287,9 +287,9 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     continue
                 u_bc[ibc][inod // nloc, inod % nloc, :] = 0.  # 0 stress out-flow condition
 
-        f = np.zeros((nonods, ndim), dtype=np.float64)
+        f = np.zeros((nonods, ndim), dtype=config.dtype_np)
 
-        f = torch.tensor(f, device=dev, dtype=torch.float64)
+        f = torch.tensor(f, device=dev, dtype=config.dtype)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'poiseuille' and ndim == 3:
         # poiseuille flow
@@ -329,10 +329,10 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 0] = 1 - x_inod[1] ** 2
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
                 u_bc[ibc][inod // nloc, inod % nloc, 2] = 0
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'ns' and ndim == 3:
-        t = torch.tensor(0, device=dev, dtype=torch.float64)
+        t = torch.tensor(0, device=dev, dtype=config.dtype)
         for ibc in range(1):
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
@@ -372,7 +372,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                         y + 1) * torch.sin(x + 1) * torch.exp(x + y) + torch.sin(y + 1) * torch.exp(x + 1) * torch.cos(
                         x + y))
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         # t = 0
         x = torch.tensor(x_all[:, 0], device=dev)
         y = torch.tensor(x_all[:, 1], device=dev)
@@ -385,7 +385,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
         f[:, 2] = - torch.exp(y - t)*torch.cos(x + z) - torch.exp(z - t)*torch.sin(x + y)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'ns' and ndim == 2:
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         for ibc in range(1):
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
@@ -410,7 +410,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 0] = \
                     (y ** 2 * (y ** 4 - 2 * y ** 2 + 8)) / 128 - (8 * y) / (5 * Re) + 8 / (5 * Re) - 1408 / 33075
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = (y**2*(y**2 - 4))/(4*Re)
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         # t = 0
         x = torch.tensor(x_all[:, 0], device=dev)
         y = torch.tensor(x_all[:, 1], device=dev)
@@ -441,7 +441,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                                                                                         x ** 2 - 3 * x + 2)) / 4
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'kovasznay' and ndim == 2:
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         for ibc in range(1):
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
@@ -477,7 +477,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                             Re / 2 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2)) * (
                              Re / 4 - (Re ** 2 / 4 + 4 * torch.pi ** 2) ** (1 / 2) / 2)) / (Re * torch.pi)
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'ldc' and ndim == 2:  # lid-driven cavity
@@ -511,13 +511,13 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'tgv' and ndim == 2:  # taylor-green vortex
         if t is None:
             raise ValueError('should provide time when getting bc condition for taylor-green vortex problem.')
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         for ibc in range(1):
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
@@ -547,13 +547,13 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = \
                     (torch.pi * torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * np.cos(torch.pi)) / Re
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'tgv10' and ndim == 2:  # taylor-green vortex
         if t is None:
             raise ValueError('should provide time when getting bc condition for taylor-green vortex problem.')
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         u_m = 10.
         for ibc in range(1):
             bci = bc_node_list[ibc]
@@ -584,7 +584,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = \
                     u_m * (torch.pi * torch.exp(-(2 * torch.pi ** 2 * t) / Re) * torch.cos(torch.pi * y) * np.cos(torch.pi)) / Re
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'bfs' and ndim == 2:
@@ -614,7 +614,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'nozzle' and ndim == 3:
@@ -631,7 +631,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     u_bc[0][inod // nloc, inod % nloc, 2] = 1
                 # u_bc[0][inod // nloc, inod % nloc, 2] = ibc + 1
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'fpc' and ndim == 2:  # flow-past cylinder
@@ -651,7 +651,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     u_bc[0][inod // nloc, inod % nloc, 0] = \
                         u_m * 4 * y * (0.41 - y) / 0.41**2
                         # * torch.sin(
-                        #     torch.tensor(torch.pi * t / T, device=dev, dtype=torch.float64))
+                        #     torch.tensor(torch.pi * t / T, device=dev, dtype=config.dtype))
                 else:
                     u_bc[0][inod // nloc, inod % nloc, 0] = 0
                 u_bc[0][inod // nloc, inod % nloc, 1] = 0
@@ -669,11 +669,11 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 0] = 0
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = 0
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'fsi-test' and ndim == 3:
-        t = torch.tensor(t, device=dev, dtype=torch.float64)
+        t = torch.tensor(t, device=dev, dtype=config.dtype)
         for ibc in range(len(bc_node_list)):
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
@@ -689,7 +689,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
                 u_bc[ibc][inod // nloc, inod % nloc, 2] = ibc+1
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         # t = 0
         x = torch.tensor(x_all[:, 0], device=dev)
         y = torch.tensor(x_all[:, 1], device=dev)
@@ -702,7 +702,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
         f[:, 2] = - torch.exp(y - t)*torch.cos(x + z) - torch.exp(z - t)*torch.sin(x + y)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'fsi-test' and ndim == 2:
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         for ibc in range(len(bc_node_list)):
             bci = bc_node_list[ibc]
             for inod in range(bci.shape[0]):
@@ -714,7 +714,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc][inod // nloc, inod % nloc, 0] = ibc+1
                 u_bc[ibc][inod // nloc, inod % nloc, 1] = ibc+1
 
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
 
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'fsi-poiseuille' and ndim == 2:
@@ -736,7 +736,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     pass
         # neumann bc are all zero
         # solid diri bc is also zero
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'turek' and ndim == 2:
         # turek benchmark
@@ -759,7 +759,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
         # neumann bc are all zero
         # solid diri bc is also zero
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'seeweed' and ndim == 2:
         # seeweed in channel flow
@@ -781,7 +781,7 @@ def fsi_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 u_bc[ibc] *= (1 - np.cos(np.pi * t / 2.0)) / 2.0
         # neumann bc are all zero
         # solid diri bc is also zero
-        f = torch.zeros((nonods, ndim), device=dev, dtype=torch.float64)
+        f = torch.zeros((nonods, ndim), device=dev, dtype=config.dtype)
         fNorm = torch.linalg.norm(f.view(-1), dim=0)
     elif prob == 'hyper-elastic' and ndim == 3:
         # analytical solution from Abbas 2018
@@ -893,8 +893,8 @@ def diff_bc(ndim, bc_node_list, x_all, prob: str, t=None):
     """ get boundary condition and force for diffusion problems"""
     nloc = sf_nd_nb.vel_func_space.element.nloc
     nonods = sf_nd_nb.vel_func_space.nonods
-    u_bc = [torch.zeros(config.nele, nloc, device=dev, dtype=torch.float64) for _ in bc_node_list]
-    f = torch.zeros((nonods), device=dev, dtype=torch.float64)
+    u_bc = [torch.zeros(config.nele, nloc, device=dev, dtype=config.dtype) for _ in bc_node_list]
+    f = torch.zeros((nonods), device=dev, dtype=config.dtype)
     if prob == 'diff-test' and ndim == 3:
         for ibc in range(1):
             bci = bc_node_list[ibc]
@@ -936,6 +936,21 @@ def diff_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                     u_bc[0][inod // nloc, inod % nloc] = 1
 
         # neumann bc is 0
+    elif prob == 'diff-test' and ndim == 2:
+        for ibc in range(1):
+            bci = bc_node_list[ibc]
+            for inod in range(bci.shape[0]):
+                if not bci[inod]:  # this is not a boundary node
+                    continue
+                x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+                x = x_inod[0]
+                y = x_inod[1]
+                # if torch.abs(x) < 1e-6:
+                #     u_bc[0][inod // nloc, inod % nloc] = 1
+                u_bc[0][inod // nloc, inod % nloc] = torch.exp(-x - y)
+        for inod in range(nonods):
+            x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+            f[inod] = -2 * config.mu_f * torch.exp(-x_inod[0] - x_inod[1])
     else:
         raise Exception('the problem ', prob, ' is not defined in bc_f.py')
     fNorm = torch.linalg.norm(f.view(-1), dim=0)
@@ -951,7 +966,7 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         for inod in range(u_nonods):
@@ -985,7 +1000,7 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         for inod in range(u_nonods):
@@ -1002,11 +1017,11 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods * ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods * ndim:u_nonods * ndim + u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
-        t = torch.tensor(0, device=dev, dtype=torch.float64)
+        t = torch.tensor(0, device=dev, dtype=config.dtype)
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
@@ -1029,7 +1044,7 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods * ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods * ndim:u_nonods * ndim + u_nonods].view(nele, u_nloc))
         for inod in range(u_nonods):
@@ -1047,11 +1062,11 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
-        t = torch.tensor(0, device=dev, dtype=torch.float64)
+        t = torch.tensor(0, device=dev, dtype=config.dtype)
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
@@ -1081,11 +1096,11 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
-        Re = torch.tensor(1./config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1./config.mu_f, device=dev, dtype=config.dtype)
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
@@ -1109,11 +1124,11 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         # t = 0  # steady sln
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
@@ -1138,7 +1153,7 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
     elif problem == 'tgv' and ndim == 2:
         # taylor green vortex
         u_nloc = sf_nd_nb.vel_func_space.element.nloc
@@ -1146,12 +1161,12 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         if t is None:
             raise ValueError('should provide t when using taylor-green vortex analytical soln')
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
             x = x_inod[0]
@@ -1175,12 +1190,12 @@ def ana_soln(problem, t=None):
         nele = config.nele
         u_nonods = u_nloc * nele
         p_nonods = p_nloc * nele
-        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(u_nonods * ndim + u_nonods, device=dev, dtype=config.dtype)
         u, p = (u_ana[0:u_nonods*ndim].view(nele, u_nloc, ndim),
                 u_ana[u_nonods*ndim:u_nonods*ndim+u_nonods].view(nele, u_nloc))
         if t is None:
             raise ValueError('should provide t when using taylor-green vortex analytical soln')
-        Re = torch.tensor(1/config.mu_f, device=dev, dtype=torch.float64)
+        Re = torch.tensor(1/config.mu_f, device=dev, dtype=config.dtype)
         u_m = 10.
         for inod in range(u_nonods):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // u_nloc, :, inod % u_nloc]
@@ -1200,15 +1215,21 @@ def ana_soln(problem, t=None):
                     2 * torch.pi * y) / 4) * u_m**2
     elif problem == 'diff-test' and ndim == 3:
         nloc = sf_nd_nb.vel_func_space.element.nloc
-        u_ana = torch.zeros(config.nele, nloc, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(config.nele, nloc, device=dev, dtype=config.dtype)
         for inod in range(config.nele * nloc):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
             u_ana[inod // nloc, inod % nloc] = \
                 torch.exp(-x_inod[0] - x_inod[1] - x_inod[2])
+    elif problem == 'diff-test' and ndim == 2:
+        nloc = sf_nd_nb.vel_func_space.element.nloc
+        u_ana = torch.zeros(config.nele, nloc, device=dev, dtype=torch.float64)
+        for inod in range(config.nele * nloc):
+            x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+            u_ana[inod // nloc, inod % nloc] = torch.exp(-x_inod[0] - x_inod[1])
     elif problem == 'nozzle' and ndim == 3:
         print('**WARNING** no analytical solution for nozzle problem')
         nloc = sf_nd_nb.vel_func_space.element.nloc
-        u_ana = torch.zeros(config.nele, nloc, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(config.nele, nloc, device=dev, dtype=config.dtype)
     else:
         raise Exception('problem analytical solution not defined for '+problem)
     return u_ana
@@ -1227,7 +1248,7 @@ def he_ana_sln(prob, t=None):
         lam = config.lam_s
         mu = config.mu_s
         nloc = sf_nd_nb.disp_func_space.element.nloc
-        u_ana = torch.zeros(config.nele * nloc * ndim, device=dev, dtype=torch.float64)
+        u_ana = torch.zeros(config.nele * nloc * ndim, device=dev, dtype=config.dtype)
         for inod in range(config.nele_f * nloc, config.nele * nloc):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
             theta = alpha * torch.sin(torch.pi * x_inod[1])  # alpha sin(pi Y)

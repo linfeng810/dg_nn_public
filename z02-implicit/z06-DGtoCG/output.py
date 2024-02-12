@@ -36,7 +36,7 @@ class File():
 
     def write_head(self, func_space: FuncSpace):
         # write a vector field (e.g. displacement)
-        x_all = func_space.x_all
+        x_all = func_space.x_ref_in.permute(0, 2, 1).contiguous().reshape(-1, ndim).cpu().numpy()
         nonods = func_space.nonods
         nloc = func_space.element.nloc
         perm = func_space.ref_node_order
@@ -98,7 +98,7 @@ class File():
 
     def write_vector(self, u, name, func_space: FuncSpace):
         # write a vector field (e.g. displacement)
-        x_all = func_space.x_all
+        x_all = x_all = func_space.x_ref_in.permute(0, 2, 1).contiguous().reshape(-1, ndim).cpu().numpy()
         nonods = func_space.nonods
         nloc = func_space.element.nloc
         perm = func_space.ref_node_order
@@ -133,7 +133,7 @@ class File():
 
     def write_scalar(self, p, name, func_space: FuncSpace):
         # write a scaler field (e.g. pressure)
-        x_all = func_space.x_all
+        x_all = func_space.x_ref_in.permute(0, 2, 1).contiguous().reshape(-1, ndim).cpu().numpy()
         nonods = func_space.nonods
         nloc = func_space.element.nloc
         perm = func_space.ref_node_order

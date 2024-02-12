@@ -2,6 +2,7 @@
 import meshio
 import numpy as np
 import torch
+import pyamg
 import sys
 import cmmn_data
 import time
@@ -11,6 +12,8 @@ from parse_terminal_input import args
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
 disabletqdm = False
+dtype = torch.float64  # overall data type
+dtype_np = np.float64  # overall data type
 #
 # device
 dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -40,7 +43,9 @@ solver = 'iterative'  # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename = 'z23-nozzle/nozzle_ho_r1.msh'  # directory to mesh file (gmsh)
+filename = 'z23-nozzle/nozzle_more_elements_d8D8.msh'  # directory to mesh file (gmsh)
+filename = 'z21-cube-mesh/cube_ho_poi_r4.msh'
+filename = 'z20-square-mesh/square_high_order.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -64,6 +69,8 @@ print('element order: ', ele_p)
 ele_key_3d = ['tetra', 'tetra10', 'tetra20', 'tetra35', 'tetra56']
 ele_key_2d = ['triangle', 'triangle6', 'triangle10']
 ele_key_1d = ['line', 'line3', 'line4', 'line5', 'line6', 'line7', 'line8', 'line9', 'line10', 'line11', 'line12',]
+
+is_store_jacobian = False  # store element jacobian matrix on quadrature points (face and volume)
 
 # mesh info
 # Check the dimension of the mesh
@@ -91,6 +98,7 @@ else:
     # nele_f = mesh.cell_data['gmsh:geometrical'][-2].shape[0]
     # nele_s = mesh.cell_data['gmsh:geometrical'][-1].shape[0]
     nele = nele_f + nele_s
+    print('nele, nele_f, nele_s', nele, nele_f, nele_s, 'ndim', ndim)
 
 linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
 tol = 1.e-5  # convergence tolerance for linear solver (e.g. MG)
@@ -109,14 +117,33 @@ everywhere smooth_start_level is used."""
 # smooth_start_level = -1  # choose a level to directly solve on. then we'll iterate from there and levels up
 
 is_mass_weighted = False  # mass-weighted SFC-level restriction/prolongation
-blk_solver = 'direct'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
+blk_solver = 'jacobian'  # block Jacobian iteration's block (10x10) -- 'direct' direct inverse
 # 'jacobi' do 3 jacobi iteration (approx. inverse)
 is_pmg = False  # whether visiting each order DG grid (p-multigrid)
-is_sfc = True  # whether visiting SFC levels (otherwise will directly solve on P1CG)
-print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
-      'with PMG?', is_pmg,
-      'with SFC?', is_sfc)
+# is_sfc = False  # whether visiting SFC levels (otherwise will directly solve on P1CG)
+# is_amg = True  # whether using algebraic multigrid (AMG) as smoother
+# if both is_sfc and is_amg are false, then direct solve on P1CG is used.
+# print('MG parameters: \n this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its),
+#       'with PMG?', is_pmg,
+#       'with SFC?', is_sfc,
+#       'with pyAMG', is_amg)
 print('jacobi block solver is: ', blk_solver)
+# new options:
+# 1 -- direct inverse on P1CG
+# 2 -- use SFC-mg as smoother on P1CG
+# 3 -- use pyAMG as smoother on P1CG
+# 4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.
+mg_opt_D = 4  # diffusion block
+pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.air_solver  # pyAMG smoother
+# pyAMGsmoother = pyamg.ruge_stuben_solver
+print('===MG on P1CG parameters===')
+print('this is V(%d,%d) cycle' % (pre_smooth_its, post_smooth_its))
+print(f'1 -- direct inverse on P1CG, \n'
+      f'2 -- use SFC-mg as smoother on P1CG, \n'
+      f'3 -- use pyAMG as smoother on P1CG: \n'
+      f'4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.')
+print('diffusion block: ', mg_opt_D)
 
 # gmres parameters
 gmres_m = 20  # restart
@@ -134,7 +161,7 @@ sf_nd_nb.relax_coeff = relax_coeff
 ####################
 # material property
 ####################
-problem = 'nozzle'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'diff-test'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
@@ -149,8 +176,8 @@ lam_s = 8e6
 mu_s = 2e6
 E = mu_s * (3 * lam_s + 2 * mu_s) / (lam_s + mu_s)
 nu = lam_s / 2 / (lam_s + mu_s)
-lam_s = torch.tensor(lam_s, device=dev, dtype=torch.float64)
-mu_s = torch.tensor(mu_s, device=dev, dtype=torch.float64)
+lam_s = torch.tensor(lam_s, device=dev, dtype=dtype)
+mu_s = torch.tensor(mu_s, device=dev, dtype=dtype)
 print('Lame coefficient: lamda, mu', lam_s, mu_s)
 # lam_s = 1.0; mu_s = 1.0
 kdiff = 1.0
@@ -158,7 +185,7 @@ kdiff = 1.0
 rho_f = 1.
 if isFSI:
     rho_s = 1.e3  # solid density at initial configuration
-a = torch.eye(ndim, device=dev, dtype=torch.float64)
+a = torch.eye(ndim, device=dev, dtype=dtype)
 kijkl = torch.einsum('ik,jl->ijkl', a, a)  # k tensor for double diffusion
 cijkl = lam_s * torch.einsum('ij,kl->ijkl', a, a) \
         + mu_s * torch.einsum('ik,jl->ijkl', a, a) \
@@ -223,6 +250,7 @@ no_batch = 1
 print('No of batch: ', no_batch)
 
 case_name = '_' + problem + 'Re' + str(_Re) + '_p' + str(ele_p) + 'p' + str(ele_p_pressure) + \
-            '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
+            '_' + '00000000-000000'  # when debugging, use this to avoid generating too many files
+            # '_' + time.strftime("%Y%m%d-%H%M%S")  # this is used in output vtk.
 # case_name = '_bfsRe109_p3p2_20230828-190846'
-print('case name is: ' + case_name)
+print('case name is: ' + filename + case_name)

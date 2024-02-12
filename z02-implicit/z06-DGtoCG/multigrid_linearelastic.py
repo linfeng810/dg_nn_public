@@ -27,7 +27,7 @@ def mg_smooth_one_level(level, e_i, b, variables_sfc):
     do one smooth step on mg level = level
     """
     e_i = e_i.view(variables_sfc[level][2])
-    rr_i = torch.zeros_like(e_i, device=config.dev, dtype=torch.float64)
+    rr_i = torch.zeros_like(e_i, device=config.dev, dtype=config.dtype)
     a_sfc_sparse, diagA, _ = variables_sfc[level]
 
     rr_i += torch.mv(a_sfc_sparse, e_i)
@@ -82,7 +82,7 @@ def get_a_diaga(level,
     end_index = fin_sfc_nonods[level + 1] - 1
     nonods = end_index - start_index
 
-    diagonal = torch.zeros((1, nonods), dtype=torch.float64, device=config.dev)
+    diagonal = torch.zeros((1, nonods), dtype=config.dtype, device=config.dev)
     a_indices = []
     a_values = []
     for i in range(start_index, end_index):
@@ -91,13 +91,13 @@ def get_a_diaga(level,
             a_values.append(a_sfc[j])
     a_indices = np.asarray(a_indices).transpose()
     a_values = np.asarray(a_values)  # now a_values has shape (nonods)
-    a_values = torch.tensor(a_values, dtype=torch.float64, device=config.dev)
+    a_values = torch.tensor(a_values, dtype=config.dtype, device=config.dev)
     # convert to sparse
     a_sfc_level_sparse = torch.sparse_coo_tensor(
                 a_indices,
                 a_values,
                 (nonods, nonods),
-                dtype=torch.float64,
+                dtype=config.dtype,
                 device=config.dev).to_sparse_csr()
     # find diagonal
     for i in range(nonods):
@@ -122,13 +122,13 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level, cg_nonods):
                                      out_channels=1, kernel_size=2,
                                      stride=2, padding='valid', bias=False)
     sfc_restrictor.weight.data = torch.tensor([[1., 1.]],
-                                              dtype=torch.float64,
+                                              dtype=config.dtype,
                                               device=config.dev).view(1, 1, 2)
 
     smooth_start_level = nlevel - 1
     r0 = r0.view(1, 1, cg_nonods)
     r_s = [r0]  # collection of r
-    e_s = [torch.zeros(1, 1, cg_nonods, device=config.dev, dtype=torch.float64)]  # collec. of e
+    e_s = [torch.zeros(1, 1, cg_nonods, device=config.dev, dtype=config.dtype)]  # collec. of e
     for level in range(0, smooth_start_level):
         # pre-smooth
         for its1 in range(config.pre_smooth_its):
@@ -157,7 +157,7 @@ def mg_on_P1CG(r0, variables_sfc, nlevel, nodes_per_level, cg_nonods):
             a_on_l = variables_sfc[level][0]
             e_i_direct = linalg.spsolve(a_on_l.tocsr(),
                                         r_s[level].view(-1).cpu().numpy())
-            e_s[level] = torch.tensor(e_i_direct, device=config.dev, dtype=torch.float64)
+            e_s[level] = torch.tensor(e_i_direct, device=config.dev, dtype=config.dtype)
         else:  # smooth
             # prolongation
             CNN1D_prol_odd = nn.Upsample(scale_factor=nodes_per_level[level] / nodes_per_level[level + 1])
@@ -275,7 +275,7 @@ def mg_on_P1CG_prep(fina, cola, RARvalues, sparse_in: Sparsity):
     a_sfc_l = variables_sfc[level][0]  # this is a torch csr tensors.
     cola = a_sfc_l.col_indices().detach().clone().cpu().numpy()
     fina = a_sfc_l.crow_indices().detach().clone().cpu().numpy()
-    vals = np.zeros((cola.shape[0]), dtype=np.float64)
+    vals = np.zeros((cola.shape[0]), dtype=config.dtype_np)
     vals += a_sfc_l.values().detach().clone().cpu().numpy()
     a_on_l = csr_matrix((vals, cola, fina),
                         shape=(nodes_per_level[level], nodes_per_level[level]))
@@ -322,10 +322,10 @@ def get_p1cg_lumped_mass(x_ref_in):
     x_ref_in = x_ref_in.view(-1, config.ndim, config.nloc)
     cg_n, cg_nlx, cg_wt, cg_sn, cg_snlx, cg_swt = \
         shape_function.SHATRInew(nloc=3, ngi=3, ndim=2, snloc=2, sngi=2)
-    cg_n = torch.tensor(cg_n, device=config.dev, dtype=torch.float64)
-    cg_nlx = torch.tensor(cg_nlx, device=config.dev, dtype=torch.float64)
-    cg_wt = torch.tensor(cg_wt, device=config.dev, dtype=torch.float64)
-    ml = torch.zeros(cg_nonods, device=config.dev, dtype=torch.float64)
+    cg_n = torch.tensor(cg_n, device=config.dev, dtype=config.dtype)
+    cg_nlx = torch.tensor(cg_nlx, device=config.dev, dtype=config.dtype)
+    cg_wt = torch.tensor(cg_wt, device=config.dev, dtype=config.dtype)
+    ml = torch.zeros(cg_nonods, device=config.dev, dtype=config.dtype)
     for ele in range(config.nele):
         nx, detwei = shape_function.get_det_nlx(cg_nlx,
                                                 x_ref_in[ele,:,0:3].view(-1,config.ndim,3),
@@ -351,13 +351,13 @@ def p_mg_pre(r0):
     """
     ele_p = config.ele_p
     r_p = [r0]  # store residaul on each p level
-    e_p = [torch.zeros_like(r0, device=config.dev, dtype=torch.float64)]  # store error on each p level
+    e_p = [torch.zeros_like(r0, device=config.dev, dtype=config.dtype)]  # store error on each p level
     rr_i = r0  # residual of error equation Ae=r. rr_i := r_p - A e_i
     for p in range(ele_p-1, 0, -1):
         ilevel = ele_p - p
         # restrict r and e
-        r_i = torch.zeros(config.nele*p_nloc(p), ndim, device=config.dev, dtype=torch.float64)
-        e_i = torch.zeros(config.nele*p_nloc(p), ndim, device=config.dev, dtype=torch.float64)
+        r_i = torch.zeros(config.nele*p_nloc(p), ndim, device=config.dev, dtype=config.dtype)
+        e_i = torch.zeros(config.nele*p_nloc(p), ndim, device=config.dev, dtype=config.dtype)
         for idim in range(ndim):
             r_i[:, idim] += p_restrict(rr_i[:, idim], p+1, p)
             e_i[:, idim] += p_restrict(e_p[ilevel-1][:, idim], p+1, p)
@@ -486,7 +486,7 @@ def _p_prolongator_1level(p_in):
                 [-1 / 9, -1 / 9, -1 / 9, 0, 4 / 9, 4 / 9, 4 / 9, 0, 0, 0],
                 [-1 / 9, 0, -1 / 9, -1 / 9, 0, 4 / 9, 0, 4 / 9, 0, 4 / 9],
                 [-1 / 9, -1 / 9, 0, -1 / 9, 0, 0, 4 / 9, 4 / 9, 4 / 9, 0],
-            ], device=config.dev, dtype=torch.float64)  # P2DG to P3DG, element-wise prolongation operator
+            ], device=config.dev, dtype=config.dtype)  # P2DG to P3DG, element-wise prolongation operator
         elif p_in == 1:
             I = torch.tensor([
                 [1, 0, 0, 0],
@@ -499,7 +499,7 @@ def _p_prolongator_1level(p_in):
                 [1 / 2, 0, 0, 1 / 2],
                 [0, 1 / 2, 0, 1 / 2],
                 [0, 0, 1 / 2, 1 / 2],
-            ], device=config.dev, dtype=torch.float64)  # P1DG to P2DG, element-wise prolongation operator
+            ], device=config.dev, dtype=config.dtype)  # P1DG to P2DG, element-wise prolongation operator
         else:
             raise Exception('input order for prolongator should be 1 or 2!')
     # otherwise its 2D
@@ -516,7 +516,7 @@ def _p_prolongator_1level(p_in):
                 [-1 / 9, 0, 2 / 9, 0, 8 / 9, 0],
                 [2 / 9, 0, -1 / 9, 0, 8 / 9, 0],
                 [-1 / 9, -1 / 9, -1 / 9, 4 / 9, 4 / 9, 4 / 9]
-            ], device=config.dev, dtype=torch.float64)  # P2DG to P3DG, element-wise prolongation operator
+            ], device=config.dev, dtype=config.dtype)  # P2DG to P3DG, element-wise prolongation operator
         elif p_in == 1:
             I = torch.tensor([
                 [1, 0, 0],
@@ -525,7 +525,7 @@ def _p_prolongator_1level(p_in):
                 [1 / 2, 1 / 2, 0],
                 [1 / 2, 0, 1 / 2],
                 [0, 1 / 2, 1 / 2]
-            ], device=config.dev, dtype=torch.float64)  # P1DG to P2DG, element-wise prolongation operator
+            ], device=config.dev, dtype=config.dtype)  # P1DG to P2DG, element-wise prolongation operator
         else:
             raise Exception('input order for prolongator should be 1 or 2!')
     return I
@@ -548,14 +548,14 @@ def _p_restrictor_1level(p_in):
                 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 0, 0, 4 / 9, 4 / 9],
                 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 4 / 9, 0, 0, 4 / 9],
                 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 4 / 9, 0, 4 / 9, 0],
-            ], device=config.dev, dtype=torch.float64)  # P3DG to P2DG, element-wise restriction operator
+            ], device=config.dev, dtype=config.dtype)  # P3DG to P2DG, element-wise restriction operator
         elif p_in == 2:
             I = torch.tensor([
                 [1, 0, 0, 0, 0, 1 / 2, 1 / 2, 1 / 2, 0, 0],
                 [0, 1, 0, 0, 1 / 2, 0, 1 / 2, 0, 1 / 2, 0],
                 [0, 0, 1, 0, 1 / 2, 1 / 2, 0, 0, 0, 1 / 2],
                 [0, 0, 0, 1, 0, 0, 0, 1 / 2, 1 / 2, 1 / 2],
-            ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise restriction operator
+            ], device=config.dev, dtype=config.dtype)  # P2DG to P1DG, element-wise restriction operator
         else:
             raise Exception('input order for restrictor should be 3 or 2!')
     else:  # otherwise its 2D
@@ -567,13 +567,13 @@ def _p_restrictor_1level(p_in):
                 [0, 0, 0, 8 / 9, 8 / 9, 0, 0, 0, 0, 4 / 9],
                 [0, 0, 0, 0, 0, 0, 0, 8 / 9, 8 / 9, 4 / 9],
                 [0, 0, 0, 0, 0, 8 / 9, 8 / 9, 0, 0, 4 / 9]
-            ], device=config.dev, dtype=torch.float64)  # P3DG to P2DG, element-wise restriction operator
+            ], device=config.dev, dtype=config.dtype)  # P3DG to P2DG, element-wise restriction operator
         elif p_in == 2:
             I = torch.tensor([
                 [1, 0, 0, 1 / 2, 1 / 2, 0],
                 [0, 1, 0, 1 / 2, 0, 1 / 2],
                 [0, 0, 1, 0, 1 / 2, 1 / 2]
-            ], device=config.dev, dtype=torch.float64)  # P2DG to P1DG, element-wise restriction operator
+            ], device=config.dev, dtype=config.dtype)  # P2DG to P1DG, element-wise restriction operator
         else:
             raise Exception('input order for restrictor should be 3 or 2!')
     return I

@@ -6,24 +6,26 @@
 # import
 import numpy as np
 import torch
-from torch.nn import Conv1d,Sequential,Module
-import scipy as sp
+# from torch.nn import Conv1d,Sequential,Module
+# import scipy as sp
 # import time
-from scipy.sparse import coo_matrix, bsr_matrix
-from tqdm import tqdm
+# from scipy.sparse import coo_matrix, bsr_matrix
+# from tqdm import tqdm
 
 import cmmn_data
 import config
 import fsi_output
-import output
+import function_space
+# import output
 import shape_function
 import sparsity
 import volume_mf_diff
 from function_space import FuncSpace, Element
 from config import sf_nd_nb
+from get_bdiag_diag import get_bdiag_diag
 import mesh_init
-from color import color2
-import multigrid_linearelastic as mg
+# from color import color2
+# import multigrid_linearelastic as mg
 import bc_f
 import time
 
@@ -33,6 +35,7 @@ starttime = time.time()
 # torch.set_printoptions(sci_mode=False)
 torch.set_printoptions(precision=16)
 np.set_printoptions(precision=16)
+torch.set_grad_enabled(False)
 
 dev = config.dev
 nele = config.nele
@@ -43,19 +46,22 @@ dt = config.dt
 tend = config.tend
 tstart = config.tstart
 
-print('computation on ',dev)
+print('computation on ', dev)
 
 # define element
 quad_degree = config.ele_p*2
-vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev)
+vel_ele = Element(ele_order=config.ele_p, gi_order=quad_degree, edim=ndim, dev=dev, dtype=config.dtype)
 print('quadrature degree: ', quad_degree)
 
 if True:  # scale mesh
     mesh_init.scale_mesh(mesh=config.mesh, origin=np.zeros(3), scale=np.asarray([1, 1, 1]))
 
 vel_func_space = FuncSpace(vel_ele, name="Velocity", mesh=config.mesh, dev=dev)
-sf_nd_nb.set_data(vel_func_space=vel_func_space,
-                  p1cg_nonods=vel_func_space.cg_nonods)
+vel_func_space_ts = function_space.create_funcspacets_from_funcspace(
+    funcspace=vel_func_space,
+)
+sf_nd_nb.set_data(vel_func_space=vel_func_space_ts,
+                  p1cg_nonods=vel_func_space_ts.cg_nonods)
 
 fluid_spar, solid_spar = sparsity.get_subdomain_sparsity(
     vel_func_space.cg_ndglno,
@@ -78,7 +84,7 @@ if False:  # output CG1 nodes and space-filling curve index
 
 print('nele=', nele)
 
-print('1. time elapsed, ',time.time()-starttime)
+print('1. time elapsed, ', time.time()-starttime)
 
 """getting boundary condition and rhs force, all problem are defined in fsi_bc"""
 u_bc, f, fNorm = bc_f.diff_bc(
@@ -101,19 +107,19 @@ u_nloc = sf_nd_nb.vel_func_space.element.nloc
 no_total_dof = nele * vel_ele.nloc
 if config.solver == 'iterative':
     print('i am going to time loop')
-    print('8. time elapsed, ',time.time()-starttime)
+    print('8. time elapsed, ', time.time()-starttime)
     # print("Using quit()")
     # quit()
     r0l2all = []
     # time loop
     r0 = torch.zeros(no_total_dof,
-                     device=dev, dtype=torch.float64)
+                     device=dev, dtype=config.dtype)
 
-    x_i = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
-    x_rhs = torch.zeros(no_total_dof, device=dev, dtype=torch.float64)
+    x_i = torch.zeros(no_total_dof, device=dev, dtype=config.dtype)
+    x_rhs = torch.zeros(no_total_dof, device=dev, dtype=config.dtype)
     # let's create a list of tensors to store J+1 previoius timestep values
     # for time integrator
-    x_all_previous = [torch.zeros(no_total_dof, dtype=torch.float64, device=dev)
+    x_all_previous = [torch.zeros(no_total_dof, dtype=config.dtype, device=dev)
                       for _ in range(config.time_order+1)]
 
     # solve a stokes problem as initial velocity
@@ -137,7 +143,14 @@ if config.solver == 'iterative':
 
     t = tstart  # physical time (start time)
 
-    alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64).view(nele, -1, ndim)
+    alpha_u_n = torch.zeros(u_nonods, ndim, device=dev, dtype=config.dtype).view(nele, -1, ndim)
+
+    # if config.is_store_jacobian, compute and store jacobian here
+    if config.is_store_jacobian:
+        sf_nd_nb.vel_func_space.store_jacobian(
+            jac_v=shape_function.get_v_jac(vel_func_space.element.nlx, vel_func_space.x_ref_in),
+            jac_s=shape_function.get_s_jac(vel_func_space.element.snlx, vel_func_space.x_ref_in)
+        )
 
     for itime in range(1, tstep):  # time loop
         wall_time_start = time.time()
@@ -174,7 +187,7 @@ if config.solver == 'iterative':
         x_i *= 0
         x_i += x_all_previous[0]  # use last timestep p as start value
 
-        r0l2 = torch.tensor(1, device=dev, dtype=torch.float64)  # linear solver residual l2 norm
+        r0l2 = torch.tensor(1, device=dev, dtype=config.dtype)  # linear solver residual l2 norm
         its = 0  # linear solver iteration
         nr0l2 = 1  # non-linear solver residual l2 norm
         sf_nd_nb.nits = 0  # newton iteration step
@@ -185,6 +198,8 @@ if config.solver == 'iterative':
         sf_nd_nb.nits += 1
         print('============')  # start new non-linear iteration
         sf_nd_nb.Kmatinv = None
+        print('getting block diagonal and diagonal of lhs matrix...')
+        get_bdiag_diag()
 
         # print('going to solve for mesh displacement and move the mesh...')
         x_i = volume_mf_diff.solve_for_diff(x_i, f, u_bc, alpha_u_n,
@@ -223,4 +238,3 @@ if config.solver == 'iterative':
     # END OF TIME LOOP
 
 print('10. done output, time elaspsed: ', time.time()-starttime)
-

@@ -33,7 +33,7 @@ nele_s = config.nele_s
 #     """
 #     u_nonods = sf_nd_nb.vel_func_space.nonods
 #     p_nonods = sf_nd_nb.pre_func_space.nonods
-#     r0 = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+#     r0 = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=config.dtype)
 #     r0_list = [r0[0:u_nonods*ndim],
 #                r0[u_nonods*ndim:u_nonods*ndim+p_nonods]]
 #     # u_i = u_i.view(nonods, ndim)
@@ -54,24 +54,24 @@ nele_s = config.nele_s
 #         x_i, x_rhs)
 #
 #     if not config.is_pmg:  # PnDG to P1CG
-#         r1 = torch.zeros(cg_nonods, ndim+1, device=dev, dtype=torch.float64)
+#         r1 = torch.zeros(cg_nonods, ndim+1, device=dev, dtype=config.dtype)
 #         for idim in range(ndim):
 #             r1[:, idim] += torch.mv(sf_nd_nb.I_cd, mg.vel_pndg_to_p1dg_restrictor(r0_list[0][:, idim]))
 #         r1[:, -1] += torch.mv(sf_nd_nb.I_cd, mg.pre_pndg_to_p1dg_restrictor(r0_list[1]))
 #     else:  # PnDG down one order each time, eventually go to P1CG
 #         raise NotImplemented('P-multigrid down 1 order each time is not implemented for Stokes.')
 #         # r_p, e_p = mg.p_mg_pre(r0)
-#         # r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=torch.float64)
+#         # r1 = torch.zeros(cg_nonods, ndim, device=dev, dtype=config.dtype)
 #         # ilevel = config.ele_p - 1
 #         # for idim in range(ndim):
 #         #     r1[:, idim] += torch.mv(sf_nd_nb.I_cf, r_p[ilevel][:, idim])
 #     if not config.is_sfc:  # two-grid method
-#         e_i = torch.zeros(cg_nonods, ndim+1, device=dev, dtype=torch.float64)
+#         e_i = torch.zeros(cg_nonods, ndim+1, device=dev, dtype=config.dtype)
 #         e_direct = sp.sparse.linalg.spsolve(
 #             sf_nd_nb.RARmat,
 #             r1.contiguous().view(-1).cpu().numpy())
 #         e_direct = np.reshape(e_direct, (cg_nonods, ndim))
-#         e_i += torch.tensor(e_direct, device=dev, dtype=torch.float64)
+#         e_i += torch.tensor(e_direct, device=dev, dtype=config.dtype)
 #     else:  # multi-grid method
 #         ncurve = 1  # always use 1 sfc
 #         N = len(sf_nd_nb.sfc_data.space_filling_curve_numbering)
@@ -80,7 +80,7 @@ nele_s = config.nele_s
 #         r1_sfc = r1[inverse_numbering[:, 0], :].view(cg_nonods, ndim+1)
 #
 #         # # if we do the presmooth steps inside mg_on_P1CG, there's no need to pass in rr1 and e_i
-#         # e_i = torch.zeros((cg_nonods,1), device=dev, dtype=torch.float64)
+#         # e_i = torch.zeros((cg_nonods,1), device=dev, dtype=config.dtype)
 #         # rr1 = r1_sfc.detach().clone()
 #         # rr1_l2_0 = torch.linalg.norm(rr1.view(-1),dim=0)
 #         # rr1_l2 = 10.
@@ -95,8 +95,8 @@ nele_s = config.nele_s
 #         e_i = e_i[sf_nd_nb.sfc_data.space_filling_curve_numbering[:, 0] - 1, :].view(cg_nonods, ndim+1)
 #     if not config.is_pmg:  # from P1CG to P3DG
 #         # prolongate error to fine grid
-#         e_i0_vel = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
-#         e_i0_pre = torch.zeros(p_nonods, device=dev, dtype=torch.float64)
+#         e_i0_vel = torch.zeros(u_nonods, ndim, device=dev, dtype=config.dtype)
+#         e_i0_pre = torch.zeros(p_nonods, device=dev, dtype=config.dtype)
 #         for idim in range(ndim):
 #             e_i0_vel[:, idim] += mg.vel_p1dg_to_pndg_prolongator(torch.mv(sf_nd_nb.I_dc, e_i[:, idim]))
 #         e_i0_pre += mg.pre_p1dg_to_pndg_prolongator(torch.mv(sf_nd_nb.I_dc, e_i[:, -1]))
@@ -132,8 +132,8 @@ nele_s = config.nele_s
 #     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 #
 #     # first do one cycle to get initial residual
-#     r0_vel = torch.zeros(u_nonods, ndim, device=dev, dtype=torch.float64)
-#     r0_pre = torch.zeros(p_nonods, device=dev, dtype=torch.float64)
+#     r0_vel = torch.zeros(u_nonods, ndim, device=dev, dtype=config.dtype)
+#     r0_pre = torch.zeros(p_nonods, device=dev, dtype=config.dtype)
 #     r0 = [r0_vel, r0_pre]
 #     x_i, _ = _multigrid_one_cycle(x_i, x_rhs)
 #     x_rhs = update_rhs(x_rhs, x_i[1])
@@ -144,7 +144,7 @@ nele_s = config.nele_s
 #     r0 = get_residual_only(r0,
 #                            x_i, x_rhs)
 #     r0l2_init = get_r0_l2_norm(r0)
-#     r0l2 = torch.tensor([1.], device=dev, dtype=torch.float64)
+#     r0l2 = torch.tensor([1.], device=dev, dtype=config.dtype)
 #
 #     # now we do MG cycles
 #     its = 1
@@ -175,18 +175,18 @@ def gmres_mg_solver(x_i, x_rhs,
     total_no_dofs = nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim
 
     m = config.gmres_m
-    v_m = torch.zeros(m+1, real_no_dofs, device=dev, dtype=torch.float64)  # V_m
-    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # full length v vector
-    h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
-    r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
-    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+    v_m = torch.zeros(m+1, real_no_dofs, device=dev, dtype=config.dtype)  # V_m
+    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)  # full length v vector
+    h_m = torch.zeros(m+1, m, device=dev, dtype=config.dtype)  # \bar H_m
+    r0 = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)
+    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=config.dtype)
     r0_dict = volume_mf_st.slicing_x_i(r0)
 
-    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)
 
     r0l2 = 1.
     sf_nd_nb.its = 0
-    e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
+    e_1 = torch.zeros(m + 1, device=dev, dtype=config.dtype)  # this is a unit vector in the least square prob.
     e_1[0] += 1
     while r0l2 > tol and sf_nd_nb.its < config.gmres_its:
         h_m *= 0
@@ -295,18 +295,18 @@ def partitioned_solver(x_i, x_rhs,
     total_no_dofs = nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim
 
     m = config.gmres_m
-    v_m = torch.zeros(m+1, real_no_dofs, device=dev, dtype=torch.float64)  # V_m
-    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # full length v vector
-    h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
-    r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
-    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+    v_m = torch.zeros(m+1, real_no_dofs, device=dev, dtype=config.dtype)  # V_m
+    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)  # full length v vector
+    h_m = torch.zeros(m+1, m, device=dev, dtype=config.dtype)  # \bar H_m
+    r0 = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)
+    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=config.dtype)
     r0_dict = volume_mf_st.slicing_x_i(r0)
 
-    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)
 
     r0l2 = 1.
     sf_nd_nb.its = 0
-    e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
+    e_1 = torch.zeros(m + 1, device=dev, dtype=config.dtype)  # this is a unit vector in the least square prob.
     e_1[0] += 1
     while r0l2 > tol and sf_nd_nb.its < config.gmres_its * sf_nd_nb.nits:
         h_m *= 0
@@ -415,18 +415,18 @@ def fluid_gmres_mg_solver(x_i, x_rhs,
     total_no_dofs = nele * u_nloc * ndim + nele * p_nloc + nele * u_nloc * ndim
 
     m = config.gmres_m
-    v_m = torch.zeros(m + 1, real_no_dofs, device=dev, dtype=torch.float64)  # V_m
-    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)  # full length v vector
-    h_m = torch.zeros(m + 1, m, device=dev, dtype=torch.float64)  # \bar H_m
-    r0 = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
-    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=torch.float64)
+    v_m = torch.zeros(m + 1, real_no_dofs, device=dev, dtype=config.dtype)  # V_m
+    v_m_j_full_length = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)  # full length v vector
+    h_m = torch.zeros(m + 1, m, device=dev, dtype=config.dtype)  # \bar H_m
+    r0 = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)
+    r0_real = torch.zeros(real_no_dofs, device=dev, dtype=config.dtype)
     r0_dict = volume_mf_st.slicing_x_i(r0)
 
-    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=torch.float64)
+    x_dummy = torch.zeros(total_no_dofs, device=dev, dtype=config.dtype)
 
     r0l2 = 1.
     sf_nd_nb.its = 0
-    e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
+    e_1 = torch.zeros(m + 1, device=dev, dtype=config.dtype)  # this is a unit vector in the least square prob.
     e_1[0] += 1
 
     while r0l2 > tol and sf_nd_nb.its < config.gmres_its * sf_nd_nb.nits:
@@ -532,15 +532,15 @@ def solid_gmres_mg_solver():
 #     p_nloc = sf_nd_nb.pre_func_space.element.nloc
 #
 #     m = config.gmres_m
-#     v_m = torch.zeros(m+1, u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)  # V_m
-#     h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
-#     r0 = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+#     v_m = torch.zeros(m+1, u_nonods * ndim + p_nonods, device=dev, dtype=config.dtype)  # V_m
+#     h_m = torch.zeros(m+1, m, device=dev, dtype=config.dtype)  # \bar H_m
+#     r0 = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=config.dtype)
 #     r0_u, r0_p = volume_mf_st.slicing_x_i(r0)
-#     x_dummy = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64)
+#     x_dummy = torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=config.dtype)
 #     x_u_dummy, x_p_dummy = volume_mf_st.slicing_x_i(x_dummy)
 #     r0l2 = 1.
 #     its = 0
-#     e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)  # this is a unit vector in the least square prob.
+#     e_1 = torch.zeros(m + 1, device=dev, dtype=config.dtype)  # this is a unit vector in the least square prob.
 #     e_1[0] += 1
 #     while r0l2 > tol and its < config.gmres_its:
 #         h_m *= 0
@@ -580,7 +580,7 @@ def solid_gmres_mg_solver():
 #             x_dummy *= 0
 #             x_dummy = get_residual_only(
 #                 r0=x_dummy,
-#                 x_i=torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=torch.float64),
+#                 x_i=torch.zeros(u_nonods * ndim + p_nonods, device=dev, dtype=config.dtype),
 #                 x_rhs=w)  # providing rhs=0, b-Ax is -Ax
 #             x_dummy *= -1.
 #             w *= 0
@@ -630,13 +630,13 @@ def solid_gmres_mg_solver():
 #     raise Exception('GMRES solver not implemented!')
 #     c_i = c_i.view(-1)
 #     m = config.gmres_m
-#     v_m = torch.zeros(m+1, nonods, device=dev, dtype=torch.float64)  # V_m
-#     h_m = torch.zeros(m+1, m, device=dev, dtype=torch.float64)  # \bar H_m
-#     r0 = torch.zeros(nonods, device=dev, dtype=torch.float64)
-#     dummy = torch.zeros(nonods, device=dev, dtype=torch.float64)
+#     v_m = torch.zeros(m+1, nonods, device=dev, dtype=config.dtype)  # V_m
+#     h_m = torch.zeros(m+1, m, device=dev, dtype=config.dtype)  # \bar H_m
+#     r0 = torch.zeros(nonods, device=dev, dtype=config.dtype)
+#     dummy = torch.zeros(nonods, device=dev, dtype=config.dtype)
 #     r0l2 = 1.
 #     its = 0
-#     e_1 = torch.zeros(m + 1, device=dev, dtype=torch.float64)
+#     e_1 = torch.zeros(m + 1, device=dev, dtype=config.dtype)
 #     e_1[0] += 1
 #     while r0l2 > tol and its < config.gmres_its:
 #         h_m *= 0
