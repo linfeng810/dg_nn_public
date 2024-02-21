@@ -61,17 +61,27 @@ def _solve_diffusion(
     x_i = x_i.view(nele, -1)
     x_rhs = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
 
-    if False:  # test integration speed
+    if True:  # test integration speed
         import time
         r0 = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
-        starttime = time.time()
-        for i in tqdm(range(1000)):
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        starttime = 0  # useless.
+        for i in range(10):
+            if i == 5:  # warm-up 5 steps (need to jit compile), time last 5 steps
+                starttime = time.time()
+                start.record()
             r0, x_i = get_residual_or_smooth(
                 r0, x_i, x_rhs,
                 do_smooth=False,
             )
+        end.record()
+
+        # Waits for everything to finish running
+        torch.cuda.synchronize()
         endtime = time.time()
-        print('time for 1000 integration: ', endtime - starttime)
+        print('time for 5 integration: ', endtime - starttime)
+        print('time for 5 integration (sync timing, in ms): ', start.elapsed_time(end))
         exit(0)
 
     if False:  # test integration speed
@@ -472,40 +482,120 @@ def _k_res_one_batch(
         func_space: function_space.FuncSpaceTS,
         mu_f: float, nele_f: int,
 ) -> None:  # Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    u_nloc = func_space.element.nloc
-    nele = func_space.nele
-    dev = func_space.dev
-    ngi = func_space.element.ngi
-    ndim = func_space.element.ndim
+    # u_nloc = func_space.element.nloc
+    # nele = func_space.nele
+    # dev = func_space.dev
+    # ngi = func_space.element.ngi
+    # ndim = func_space.element.ndim
+    #
+    # r0 = r0.view(nele, u_nloc)
+    # x_i = x_i.view(nele, u_nloc)
+    # # with torch.profiler.record_function("GETTING VOLUME SF"):
+    # # get shape function and derivatives
+    # # n = sf_nd_nb.vel_func_space.element.n
+    # nx, ndetwei = get_det_nlx(
+    #     nlx=func_space.element.nlx,
+    #     x_loc=func_space.x_ref_in,
+    #     weight=func_space.element.weight,
+    #     nloc=u_nloc,
+    #     ngi=func_space.element.ngi,
+    #     real_nlx=None,
+    #     j=func_space.jac_v,
+    # )
+    # # torch.cuda.synchronize()
+    #
+    # nx_u = torch.mul(
+    #     nx,  # (nele, ndim, u_nloc, ngi)
+    #     x_i.view(nele, 1, u_nloc, 1)
+    # ).sum(2)  # (nele, ndim, ngi)
+    # nx_u_nx = torch.mul(
+    #     nx_u.view(nele, ndim, 1, ngi),  # (nele, ndim, ngi)
+    #     nx  # (nele, ndim, u_nloc, ngi)
+    # ).sum(1)  # (nele, u_nloc, ngi)
+    # r0 -= torch.bmm(
+    #     nx_u_nx,  # (nele, u_nloc, ngi)
+    #     ndetwei.view(nele, ngi, 1)  # (nele, ngi, 1)
+    # ).squeeze() * mu_f
 
-    r0 = r0.view(nele, u_nloc)
-    x_i = x_i.view(nele, u_nloc)
-    # with torch.profiler.record_function("GETTING VOLUME SF"):
-    # get shape function and derivatives
-    # n = sf_nd_nb.vel_func_space.element.n
-    nx, ndetwei = get_det_nlx(
-        nlx=func_space.element.nlx,
-        x_loc=func_space.x_ref_in,
-        weight=func_space.element.weight,
-        nloc=u_nloc,
-        ngi=func_space.element.ngi,
-        real_nlx=None,
-        j=func_space.jac_v,
+    D = func_space.element.ndim
+    x_loc = func_space.x_ref_in
+    B = nele_f
+    VG = func_space.element.ngi
+    N = func_space.element.nloc
+    nlx = func_space.element.nlx
+    w = func_space.element.weight
+    device = func_space.dev
+    dtype = nlx.dtype
+
+    j = [[] for _ in range(D)]
+    for idim in range(D):
+        for jdim in range(D):
+            j[idim].append(
+                torch.nn.functional.conv1d(
+                    input=x_loc[:, jdim, :].reshape(1, 1, B * N),
+                    weight=nlx[idim, :, :].transpose(0, 1).view(VG, 1, N),
+                    stride=N,
+                )
+            )
+    detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
+           - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
+           + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
+    invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
+    invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
+    invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
+    invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
+    invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
+    invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
+    invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
+    invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
+    invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
+    invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
+    invJ = torch.zeros(D, D, VG, B, device=device, dtype=dtype)
+    for idim in range(D):
+        for jdim in range(D):
+            invJ[idim, jdim] = invj[idim][jdim].view(VG, B)
+    # nlx T
+    Tx = (
+        torch.nn.functional.conv1d(
+            input=x_i.view(1, 1, B * N),
+            weight=nlx.transpose(1, 2).reshape(D * VG, 1, N),
+            stride=N,
+        )
+    ).view(D, VG, B)
+    # Tx = Tx.permute(2, 1, 0).reshape(1, 1 * B * VG, D)  # (1, in_channels * groups, iW)
+    # invJ Tx
+    nx_T = torch.mul(
+        Tx.view(1, D, VG, B),
+        invJ
+    ).sum(dim=1)
+    # invJ nx_T
+    invJ_nx_T = torch.mul(
+        invJ,
+        nx_T.view(D, 1, VG, B)
+    ).sum(dim=0)
+    # nx nx_T, I decide not to use conv1d because ndim dimension is not in contiguous memory
+    nx_nx_T = torch.mul(
+        invJ_nx_T.view(D, 1, VG, B),
+        nlx.view(D, N, VG, 1)
+    ).sum(dim=0)  # (N, VG, B)
+    # # TODO: can we still use conv1d... not sure it's doable!
+    # nx_nx_T = torch.nn.functional.conv1d(
+    #     input=invJ_nx_T.permute(1, 2, 0).reshape(VG, B * D),
+    #     weight=nlx.permute(1, 2, 0).reshape(N, VG, D),
+    #     stride=D,
+    # )  # (N, VG, B)
+    # above * sdetwei
+    nx_nx_T_detj = torch.mul(
+        nx_nx_T,
+        detj.view(1, VG, B)
     )
-    # torch.cuda.synchronize()
+    # above * weight
+    nx_nx_T_detj_weight = torch.mul(
+        nx_nx_T_detj,
+        w.view(1, VG, 1)
+    ).sum(1)
 
-    nx_u = torch.mul(
-        nx,  # (nele, ndim, u_nloc, ngi)
-        x_i.view(nele, 1, u_nloc, 1)
-    ).sum(2)  # (nele, ndim, ngi)
-    nx_u_nx = torch.mul(
-        nx_u.view(nele, ndim, 1, ngi),  # (nele, ndim, ngi)
-        nx  # (nele, ndim, u_nloc, ngi)
-    ).sum(1)  # (nele, u_nloc, ngi)
-    r0 -= torch.bmm(
-        nx_u_nx,  # (nele, u_nloc, ngi)
-        ndetwei.view(nele, ngi, 1)  # (nele, ngi, 1)
-    ).squeeze() * mu_f
+    r0 -= nx_nx_T_detj_weight.transpose(0, 1).view(r0.shape) * mu_f
 
 
 # @torch.jit.optimize_for_inference
