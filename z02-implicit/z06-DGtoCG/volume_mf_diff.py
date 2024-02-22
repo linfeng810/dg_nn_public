@@ -64,14 +64,24 @@ def _solve_diffusion(
     if False:  # test integration speed
         import time
         r0 = torch.zeros_like(x_i, device=dev, dtype=config.dtype)
-        starttime = time.time()
-        for i in tqdm(range(1000)):
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        starttime = 0  # useless.
+        for i in range(10):
+            if i == 5:  # warm-up 5 steps (need to jit compile), time last 5 steps
+                starttime = time.time()
+                start.record()
             r0, x_i = get_residual_or_smooth(
                 r0, x_i, x_rhs,
                 do_smooth=False,
             )
+        end.record()
+
+        # Waits for everything to finish running
+        torch.cuda.synchronize()
         endtime = time.time()
-        print('time for 1000 integration: ', endtime - starttime)
+        print('time for 5 integration: ', endtime - starttime)
+        print('time for 5 integration (sync timing, in ms): ', start.elapsed_time(end))
         exit(0)
 
     if False:  # test integration speed
@@ -83,7 +93,7 @@ def _solve_diffusion(
         with profile(activities=[
             ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=1, warmup=2, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/9461d43_d8D8_gpu_FP32'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/e3982d4_126449_conv1d'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True) as prof:
@@ -472,40 +482,120 @@ def _k_res_one_batch(
         func_space: function_space.FuncSpaceTS,
         mu_f: float, nele_f: int,
 ) -> None:  # Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    u_nloc = func_space.element.nloc
-    nele = func_space.nele
-    dev = func_space.dev
-    ngi = func_space.element.ngi
-    ndim = func_space.element.ndim
+    # u_nloc = func_space.element.nloc
+    # nele = func_space.nele
+    # dev = func_space.dev
+    # ngi = func_space.element.ngi
+    # ndim = func_space.element.ndim
+    #
+    # r0 = r0.view(nele, u_nloc)
+    # x_i = x_i.view(nele, u_nloc)
+    # # with torch.profiler.record_function("GETTING VOLUME SF"):
+    # # get shape function and derivatives
+    # # n = sf_nd_nb.vel_func_space.element.n
+    # nx, ndetwei = get_det_nlx(
+    #     nlx=func_space.element.nlx,
+    #     x_loc=func_space.x_ref_in,
+    #     weight=func_space.element.weight,
+    #     nloc=u_nloc,
+    #     ngi=func_space.element.ngi,
+    #     real_nlx=None,
+    #     j=func_space.jac_v,
+    # )
+    # # torch.cuda.synchronize()
+    #
+    # nx_u = torch.mul(
+    #     nx,  # (nele, ndim, u_nloc, ngi)
+    #     x_i.view(nele, 1, u_nloc, 1)
+    # ).sum(2)  # (nele, ndim, ngi)
+    # nx_u_nx = torch.mul(
+    #     nx_u.view(nele, ndim, 1, ngi),  # (nele, ndim, ngi)
+    #     nx  # (nele, ndim, u_nloc, ngi)
+    # ).sum(1)  # (nele, u_nloc, ngi)
+    # r0 -= torch.bmm(
+    #     nx_u_nx,  # (nele, u_nloc, ngi)
+    #     ndetwei.view(nele, ngi, 1)  # (nele, ngi, 1)
+    # ).squeeze() * mu_f
 
-    r0 = r0.view(nele, u_nloc)
-    x_i = x_i.view(nele, u_nloc)
-    # with torch.profiler.record_function("GETTING VOLUME SF"):
-    # get shape function and derivatives
-    # n = sf_nd_nb.vel_func_space.element.n
-    nx, ndetwei = get_det_nlx(
-        nlx=func_space.element.nlx,
-        x_loc=func_space.x_ref_in,
-        weight=func_space.element.weight,
-        nloc=u_nloc,
-        ngi=func_space.element.ngi,
-        real_nlx=None,
-        j=func_space.jac_v,
+    D = func_space.element.ndim
+    x_loc = func_space.x_ref_in
+    B = nele_f
+    VG = func_space.element.ngi
+    N = func_space.element.nloc
+    nlx = func_space.element.nlx
+    w = func_space.element.weight
+    device = func_space.dev
+    dtype = nlx.dtype
+
+    j = [[] for _ in range(D)]
+    for idim in range(D):
+        for jdim in range(D):
+            j[idim].append(
+                torch.nn.functional.conv1d(
+                    input=x_loc[:, jdim, :].reshape(1, 1, B * N),
+                    weight=nlx[idim, :, :].transpose(0, 1).view(VG, 1, N),
+                    stride=N,
+                )
+            )
+    detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
+           - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
+           + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
+    invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
+    invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
+    invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
+    invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
+    invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
+    invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
+    invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
+    invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
+    invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
+    invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
+    invJ = torch.zeros(D, D, VG, B, device=device, dtype=dtype)
+    for idim in range(D):
+        for jdim in range(D):
+            invJ[idim, jdim] = invj[idim][jdim].view(VG, B)
+    # nlx T
+    Tx = (
+        torch.nn.functional.conv1d(
+            input=x_i.view(1, 1, B * N),
+            weight=nlx.transpose(1, 2).reshape(D * VG, 1, N),
+            stride=N,
+        )
+    ).view(D, VG, B)
+    # Tx = Tx.permute(2, 1, 0).reshape(1, 1 * B * VG, D)  # (1, in_channels * groups, iW)
+    # invJ Tx
+    nx_T = torch.mul(
+        Tx.view(1, D, VG, B),
+        invJ
+    ).sum(dim=1)
+    # invJ nx_T
+    invJ_nx_T = torch.mul(
+        invJ,
+        nx_T.view(D, 1, VG, B)
+    ).sum(dim=0)
+    # nx nx_T, I decide not to use conv1d because ndim dimension is not in contiguous memory
+    nx_nx_T = torch.mul(
+        invJ_nx_T.view(D, 1, VG, B),
+        nlx.view(D, N, VG, 1)
+    ).sum(dim=0)  # (N, VG, B)
+    # # TODO: can we still use conv1d... not sure it's doable!
+    # nx_nx_T = torch.nn.functional.conv1d(
+    #     input=invJ_nx_T.permute(1, 2, 0).reshape(VG, B * D),
+    #     weight=nlx.permute(1, 2, 0).reshape(N, VG, D),
+    #     stride=D,
+    # )  # (N, VG, B)
+    # above * sdetwei
+    nx_nx_T_detj = torch.mul(
+        nx_nx_T,
+        detj.view(1, VG, B)
     )
-    # torch.cuda.synchronize()
+    # above * weight
+    nx_nx_T_detj_weight = torch.mul(
+        nx_nx_T_detj,
+        w.view(1, VG, 1)
+    ).sum(1)
 
-    nx_u = torch.mul(
-        nx,  # (nele, ndim, u_nloc, ngi)
-        x_i.view(nele, 1, u_nloc, 1)
-    ).sum(2)  # (nele, ndim, ngi)
-    nx_u_nx = torch.mul(
-        nx_u.view(nele, ndim, 1, ngi),  # (nele, ndim, ngi)
-        nx  # (nele, ndim, u_nloc, ngi)
-    ).sum(1)  # (nele, u_nloc, ngi)
-    r0 -= torch.bmm(
-        nx_u_nx,  # (nele, u_nloc, ngi)
-        ndetwei.view(nele, ngi, 1)  # (nele, ngi, 1)
-    ).squeeze() * mu_f
+    r0 -= nx_nx_T_detj_weight.transpose(0, 1).view(r0.shape) * mu_f
 
 
 # @torch.jit.optimize_for_inference
@@ -818,199 +908,364 @@ def _s_res_fi_all_face(
     dummy_idx = torch.arange(0, batch_in, device=dev, dtype=torch.int64)
     # get element parameters
     u_nloc = func_space.element.nloc
+    sngi = func_space.element.sngi
+    B, N, VG, SG, D = nele, u_nloc, func_space.element.ngi, func_space.element.sngi, ndim
+    F = D + 1
+    x_loc = func_space.x_ref_in
+    snlx = func_space.element.snlx
+    sn = func_space.element.sn
+    drst_duv = func_space.drst_duv
+    sw = func_space.element.sweight
     r0 = r0.view(nele, u_nloc)
     x_i = x_i.view(nele, u_nloc)
 
-    # with torch.profiler.record_function("GETTING FI SURFACE SF"):
-    # shape function on this side
-    snx, sdetwei, snormal = sdet_snlx(
-        snlx=func_space.element.snlx,
-        x_loc=func_space.x_ref_in,
-        sweight=func_space.element.sweight,
-        nloc=func_space.element.nloc,
-        sngi=func_space.element.sngi,
-        sn=func_space.element.sn,
-        real_snlx=None,
-        is_get_f_det_normal=True,
-        j=func_space.jac_s,
-        drst_duv=func_space.drst_duv,
-    )
-        # torch.cuda.synchronize()
-    # with torch.profiler.record_function("FI internal"):
-    Au = torch.zeros(nele, nface, u_nloc, device=dev, dtype=snx.dtype)
-    # this side
-    # without fetching faces, we will do for all faces,
-    # and use a flag to make bc face be 0.
+    # # with torch.profiler.record_function("GETTING FI SURFACE SF"):
+    # # shape function on this side
+    # snx, sdetwei, snormal = sdet_snlx(
+    #     snlx=func_space.element.snlx,
+    #     x_loc=func_space.x_ref_in,
+    #     sweight=func_space.element.sweight,
+    #     nloc=func_space.element.nloc,
+    #     sngi=func_space.element.sngi,
+    #     sn=func_space.element.sn,
+    #     real_snlx=None,
+    #     is_get_f_det_normal=True,
+    #     j=func_space.jac_s,
+    #     drst_duv=func_space.drst_duv,
+    # )
+    #     # torch.cuda.synchronize()
+    # # with torch.profiler.record_function("FI internal"):
+    # Au = torch.zeros(nele, nface, u_nloc, device=dev, dtype=snx.dtype)
+    # # this side
+    # # without fetching faces, we will do for all faces,
+    # # and use a flag to make bc face be 0.
+    #
+    # # shape:
+    # # sn (nface, nloc, sngi)
+    # # snx (nele, nface, ndim, nloc, sngi)
+    # # sdetwei (nele, nface, sngi)
+    # # snormal (nele, nface, ndim, sngi)
+    # sn = func_space.element.sn
+    # sngi = func_space.element.sngi
+    # h = torch.sum(sdetwei, -1)
+    # if ndim == 3:
+    #     h = torch.sqrt(h)
+    # gamma_e = eta_e / h  # (nele, nface)
+    #
+    # snx_u = torch.mul(
+    #     snx,  # (nele, nface, ndim, nloc, sngi)
+    #     x_i.view(nele, 1, 1, u_nloc, 1)  # (nele, 1, 1, u_nloc, 1)
+    # ).sum(3)  # (nele, nface, ndim, sngi)
+    # snx_u_snormal = torch.mul(
+    #     snx_u,  # (nele, nface, ndim, sngi)
+    #     snormal  # (nele, nface, ndim, sngi)
+    # ).sum(2)  # (nele, nface, sngi)
+    # snx_u_snormal_sn = torch.mul(
+    #     snx_u_snormal.view(nele, nface, 1, sngi),  # (nele, nface, 1, sngi)
+    #     sn.view(1, nface, u_nloc, sngi)  # (1, nface, nloc, sngi)
+    # )
+    # snx_u_snormal_sn_sdetwei = torch.mul(
+    #     snx_u_snormal_sn,  # (nele, nface, nloc, sngi)
+    #     sdetwei.view(nele, nface, 1, sngi),  # (nele, nface, sngi)
+    # ).sum(3)  # (nele, nface, nloc)
+    # Au += snx_u_snormal_sn_sdetwei * (-0.5)  # consistent term
+    #
+    # sn_u = torch.mul(
+    #     sn.view(1, nface, u_nloc, sngi),  # (1, nface, nloc, sngi)
+    #     x_i.view(nele, 1, u_nloc, 1)  # (nele, 1, nloc, 1)
+    # ).sum(2)  # (nele, nface, sngi)
+    # sn_u_snormal = torch.mul(
+    #     sn_u.view(nele, nface, 1, sngi),
+    #     snormal.view(nele, nface, ndim, sngi)
+    # )
+    # sn_u_snormal_snx = torch.mul(
+    #     sn_u_snormal.view(nele, nface, ndim, 1, sngi),  # (nele, nface, ndim, 1, sngi)
+    #     snx,  # (nele, nface, ndim, nloc, sngi)
+    # ).sum(2)  # (nele, nface, nloc, sngi)
+    # sn_u_snormal_snx_sdetwei = torch.mul(
+    #     sn_u_snormal_snx,  # (nele, nface, nloc, sngi)
+    #     sdetwei.view(nele, nface, 1, sngi),  # (nele, nface, sngi)
+    # ).sum(3)
+    # Au += sn_u_snormal_snx_sdetwei * (-0.5)  # symmetry term
+    #
+    # sn_u_sn = sn_u.view(nele, nface, 1, sngi) * sn.view(1, nface, u_nloc, sngi)
+    # sn_u_sn_sdetwei = (sn_u_sn * sdetwei.view(nele, nface, 1, sngi)).sum(3)
+    # Au += sn_u_sn_sdetwei * gamma_e.view(nele, nface, 1)  # penalty term
+    #
+    # Au *= mu_f
 
-    # shape:
-    # sn (nface, nloc, sngi)
-    # snx (nele, nface, ndim, nloc, sngi)
-    # sdetwei (nele, nface, sngi)
-    # snormal (nele, nface, ndim, sngi)
-    sn = func_space.element.sn
-    sngi = func_space.element.sngi
-    h = torch.sum(sdetwei, -1)
-    if ndim == 3:
+    j = [[] for _ in range(D)]
+    for idim in range(D):
+        for jdim in range(D):
+            j[idim].append(
+                torch.nn.functional.conv1d(
+                    input=x_loc[:, jdim, :].reshape(1, 1, B * N),
+                    weight=snlx[:, idim, :, :].transpose(1, 2).reshape(F * SG, 1, N),
+                    stride=N,
+                )
+            )  # out shape: (1, F*SG, B)
+    detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
+           - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
+           + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
+    invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
+    invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
+    invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
+    invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
+    invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
+    invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
+    invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
+    invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
+    invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
+    invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
+    invJ = torch.zeros(D, D, F * SG, B, device=dev, dtype=snlx.dtype)
+    for idim in range(D):
+        for jdim in range(D):
+            invJ[idim, jdim] = invj[idim][jdim].view(F * SG, B)
+    # after here, detj is useless
+    ddu_and_ddv = torch.zeros(D, D-1, F, SG, B, device=dev, dtype=snlx.dtype)
+    for jdim in range(D):
+        for idim in range(D):
+            ddu_and_ddv[jdim] += torch.mul(
+                j[idim][jdim].view(1, F, SG, B),
+                drst_duv[:, idim, :].transpose(0, 1).view(D - 1, F, 1, 1)
+            )
+    # cross product
+    ddu_x_ddv = torch.zeros(D, F, SG, B, device=dev, dtype=snlx.dtype)
+    ddu_x_ddv[0] = ddu_and_ddv[1, 0] * ddu_and_ddv[2, 1] - ddu_and_ddv[2, 0] * ddu_and_ddv[1, 1]
+    ddu_x_ddv[1] = ddu_and_ddv[2, 0] * ddu_and_ddv[0, 1] - ddu_and_ddv[0, 0] * ddu_and_ddv[2, 1]
+    ddu_x_ddv[2] = ddu_and_ddv[0, 0] * ddu_and_ddv[1, 1] - ddu_and_ddv[1, 0] * ddu_and_ddv[0, 1]
+    sdet = torch.sqrt(
+        (ddu_x_ddv * ddu_x_ddv).sum(dim=0)
+    )  # (F, SG, B)
+    snormal = ddu_x_ddv / sdet.view(1, F, SG, B)
+
+    # consistent term
+    Tx = torch.nn.functional.conv1d(
+        input=x_i.view(1, 1, B * N),
+        weight=snlx.permute(1, 0, 3, 2).reshape(D * F * SG, 1, N),
+        stride=N,
+    ).view(D, F, SG, B)
+    invj_Tx = torch.mul(
+        invJ.view(D, D, F, SG, B),
+        Tx.view(1, D, F, SG, B)
+    ).sum(dim=1)  # (D, F, SG, B)
+    invj_Tx_snormal = torch.mul(
+        invj_Tx,
+        snormal.view(D, F, SG, B)
+    ).sum(dim=0)  # (F, SG, B)
+    sdetwei = sw.view(1, SG, 1) * sdet  # (F, SG, B)
+    invj_Tx_snormal_sdetwei = torch.mul(
+        invj_Tx_snormal,
+        sdetwei
+    )
+    invj_Tx_snormal_sdetwei_sn = torch.bmm(
+        sn,
+        invj_Tx_snormal_sdetwei
+    )  # (F, N, B)
+
+    # symmetry term
+    Tq = torch.nn.functional.conv1d(  # Tq is T on quadrature point
+        input=x_i.view(1, 1, B * N),
+        weight=sn.permute(0, 2, 1).reshape(F * SG, 1, N),
+        stride=N,
+    ).view(F, SG, B)
+    Tq_snormal = torch.mul(
+        Tq.view(1, F, SG, B),
+        snormal.view(D, F, SG, B)
+    )
+    invj_Tq_snormal = torch.mul(
+        invJ.view(D, D, F, SG, B),
+        Tq_snormal.view(D, 1, F, SG, B)
+    ).sum(0)  # (D, F, SG, B)
+    invj_Tq_snormal_sdetwei = torch.mul(
+        invj_Tq_snormal,
+        sdetwei.view(1, F, SG, B)
+    )  # (D, F, SG, B)
+    invj_Tq_snormal_sdetwei_snx = torch.mul(
+        invj_Tq_snormal_sdetwei.view(D, F, SG, 1, B),
+        snlx.permute(1, 0, 3, 2).view(D, F, SG, N, 1)
+    ).sum(2).sum(0)  # (F, N, B)
+
+    # penalty term
+    Tq_sdetwei = torch.mul(
+        Tq,
+        sdetwei
+    )  # (F, SG, B)
+    Tq_sdetwei_sn = torch.bmm(
+        sn,
+        Tq_sdetwei
+    )  # (F, N, B)
+    h = torch.sum(sdetwei, 1)
+    if D == 3:
         h = torch.sqrt(h)
-    gamma_e = eta_e / h  # (nele, nface)
-
-    snx_u = torch.mul(
-        snx,  # (nele, nface, ndim, nloc, sngi)
-        x_i.view(nele, 1, 1, u_nloc, 1)  # (nele, 1, 1, u_nloc, 1)
-    ).sum(3)  # (nele, nface, ndim, sngi)
-    snx_u_snormal = torch.mul(
-        snx_u,  # (nele, nface, ndim, sngi)
-        snormal  # (nele, nface, ndim, sngi)
-    ).sum(2)  # (nele, nface, sngi)
-    snx_u_snormal_sn = torch.mul(
-        snx_u_snormal.view(nele, nface, 1, sngi),  # (nele, nface, 1, sngi)
-        sn.view(1, nface, u_nloc, sngi)  # (1, nface, nloc, sngi)
+    gamma_e = eta_e / h  # (F, B)
+    gamma_e_Tq_sdetwei_sn = torch.mul(
+        gamma_e.view(F, 1, B),
+        Tq_sdetwei_sn
     )
-    snx_u_snormal_sn_sdetwei = torch.mul(
-        snx_u_snormal_sn,  # (nele, nface, nloc, sngi)
-        sdetwei.view(nele, nface, 1, sngi),  # (nele, nface, sngi)
-    ).sum(3)  # (nele, nface, nloc)
-    Au += snx_u_snormal_sn_sdetwei * (-0.5)  # consistent term
-
-    sn_u = torch.mul(
-        sn.view(1, nface, u_nloc, sngi),  # (1, nface, nloc, sngi)
-        x_i.view(nele, 1, u_nloc, 1)  # (nele, 1, nloc, 1)
-    ).sum(2)  # (nele, nface, sngi)
-    sn_u_snormal = torch.mul(
-        sn_u.view(nele, nface, 1, sngi),
-        snormal.view(nele, nface, ndim, sngi)
-    )
-    sn_u_snormal_snx = torch.mul(
-        sn_u_snormal.view(nele, nface, ndim, 1, sngi),  # (nele, nface, ndim, 1, sngi)
-        snx,  # (nele, nface, ndim, nloc, sngi)
-    ).sum(2)  # (nele, nface, nloc, sngi)
-    sn_u_snormal_snx_sdetwei = torch.mul(
-        sn_u_snormal_snx,  # (nele, nface, nloc, sngi)
-        sdetwei.view(nele, nface, 1, sngi),  # (nele, nface, sngi)
-    ).sum(3)
-    Au += sn_u_snormal_snx_sdetwei * (-0.5)  # symmetry term
-
-    sn_u_sn = sn_u.view(nele, nface, 1, sngi) * sn.view(1, nface, u_nloc, sngi)
-    sn_u_sn_sdetwei = (sn_u_sn * sdetwei.view(nele, nface, 1, sngi)).sum(3)
-    Au += sn_u_sn_sdetwei * gamma_e.view(nele, nface, 1)  # penalty term
-
-    # snx_snormal = torch.bmm(
-    #     snx.permute(0, 1, 4, 3, 2).reshape(-1, u_nloc, ndim),
-    #     snormal.permute(0, 1, 3, 2).reshape(-1, ndim, 1)
-    # )  # (nele * nface * sngi, u_nloc, 1)
-    # if False:
-    #     snx_snormal_sn = torch.einsum(
-    #         'fng,bfgm->bfmng',
-    #         sn.view(nface, u_nloc, sngi),
-    #         snx_snormal.view(nele, nface, sngi, u_nloc)
-    #     )
-    #     snx_snormal_sn_sdetwei = torch.einsum(
-    #         'bfmng,bfg->bfmn',
-    #         snx_snormal_sn,  # (nele, nface, nloc, nloc, sngi)
-    #         sdetwei  # .view(nele, nface, sngi)
-    #     )
-    # else:  # let's switch multiply sequence to save memory
-    #     snx_snormal_sdetwei = torch.mul(
-    #         snx_snormal.view(nele, nface, sngi, u_nloc),
-    #         sdetwei.view(nele, nface, sngi, 1)
-    #     )
-    #     snx_snormal_sn_sdetwei = torch.einsum(
-    #         'bfgm,fng->bfmn',
-    #         snx_snormal_sdetwei,  # (nele, nface, sngi, nloc)
-    #         sn.view(nface, u_nloc, sngi),
-    #     )
-    # K += snx_snormal_sn_sdetwei * (-0.5)  # consistent term
-    # K += snx_snormal_sn_sdetwei.transpose(2, 3) * (-0.5)  # symmetry term
-    # sn_sn = torch.einsum(
-    #     'fmg,fng->fmng',
-    #     sn, sn,  # (nface, nloc, sngi)
-    # )
-    # sn_sn_sdetwei = torch.einsum(
-    #     'fmng,bfg->bfmn',  # (nele, nface, nloc, nloc)
-    #     sn_sn, sdetwei  # (nele, nface, sngi)
-    # )
-    # K += sn_sn_sdetwei * gamma_e.unsqueeze(2).unsqueeze(3)  # penalty term
-
-    Au *= mu_f
-    # K *= mu_f
+    Au = (
+        invj_Tx_snormal_sdetwei_sn * (-0.5)
+        + invj_Tq_snormal_sdetwei_snx * (-0.5)
+        + gamma_e_Tq_sdetwei_sn
+    ) * mu_f
 
     # set boundary face to 0
-    # K = K.view(nele * nface, u_nloc, u_nloc)
-    # K *= (func_space.glb_bcface_type < 0).view(-1, 1, 1).to(torch.float64)
-    Au = Au.view(nele * nface, u_nloc)
-    Au *= (func_space.glb_bcface_type < 0).view(-1, 1).to(snx.dtype)
+    Au *= (func_space.glb_bcface_type < 0).view(B, F).transpose(0, 1).to(snlx.dtype).view(F, 1, B)
 
     # put them to r0, diagK and bdiagK (SCATTER)
-    # K = K.view(nele, nface, u_nloc, u_nloc)
-    Au = Au.view(nele, nface, u_nloc)
-    # x_i = x_i.view(nele, u_nloc)
-    for iface in range(nface):
-        r0 -= Au[:, iface, :]
-    # torch.cuda.synchronize()
-    # with torch.profiler.record_function("FI external"):
-    # other side (we don't need K anymore)
-    # we can get residual only. no contribution to diagK or bdiagK
-    Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=snx.dtype)
-    u_inb = x_i[E_F_inb, ...]
+    r0 -= Au.sum(0).transpose(0, 1)
+    # return
+    if False:  # use new array shape -- put BF to the last dim
+        # other side (we don't need K anymore)
+        # we can get residual only. no contribution to diagK or bdiagK
+        u_inb = x_i[E_F_inb, ...].transpose(0, 1).contiguous()  # (N, BF)
+        BF = batch_in
+        # get faces we want
+        sn_th = sn.permute(1, 2, 0)[:, :, f_i]  # (N, SG, BF)
+        sn_nb = sn.permute(1, 2, 0)[:, :, f_inb]  # (N, SG, BF)
+        invJ_th = invJ.view(D, D, F, SG, B)[:, :, f_i, :, E_F_i].permute(1, 2, 3, 0).contiguous()  # (D, D, SG, BF)
+        snlx_th = snlx.permute(1, 2, 3, 0)[:, :, :, f_i]  # (D, N, SG, BF)
+        invJ_nb = invJ.view(D, D, F, SG, B)[:, :, f_inb, :, E_F_inb].permute(1, 2, 3, 0).contiguous()  # (D, D, SG, BF)
+        snlx_nb = snlx.permute(1, 2, 3, 0)[:, :, :, f_inb]  # (D, N, SG, BF)
+        snormal_th = snormal[:, f_i, :, E_F_i].permute(1, 2, 0).contiguous()  # (D, SG, BF)
+        sdetwei_th = sdetwei[f_i, :, E_F_i].transpose(0, 1).contiguous()  # (SG, BF)
+        # change gaussian points order on other side
+        # ===== new ======
+        for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
+            idx = func_space.alnmt[E_F_i * nface + f_i] == nb_gi_aln
+            nb_aln = func_space.element.gi_align[nb_gi_aln, :]
+            invJ_nb[:, :, :, idx] = invJ_nb[:, :, :, idx][:, :, nb_aln, :]
+            sn_nb[:, :, idx] = sn_nb[:, :, idx][:, nb_aln, :]
+            snlx_nb[:, :, :, idx] = snlx_nb[:, :, :, idx][:, :, nb_aln, :]
 
-    # get faces we want
-    sn_th = func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
-    sn_nb = func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
-    snx_nb = snx[E_F_inb, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
-    # snormal_nb = snormal_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, sngi)
-    snormal_th = snormal[E_F_i, f_i, ...]  # (batch_in, ndim, sngi)
-    sdetwei_th = sdetwei[E_F_i, f_i, ...]  # (batch_in, sngi)
-    # change gaussian points order on other side
-    # ===== new ======
-    for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
-        idx = func_space.alnmt[E_F_i * nface + f_i] == nb_gi_aln
-        nb_aln = func_space.element.gi_align[nb_gi_aln, :]
-        snx_nb[idx, :, :, :] = snx_nb[idx][:, :, :, nb_aln]
-        # snormal_nb[idx, ...] = snormal_nb[idx][..., nb_aln]
-        sn_nb[idx, :, :] = sn_nb[idx][:, :, nb_aln]
-    if False:
-        # *consistent term
-        snx_ui = torch.einsum(
-            'bing,bn->big',
-            snx_nb,  # (batch_in, ndim, nloc, sngi)
-            u_inb,  # (batch_in, nloc)
+        # consistent term
+        Tx = torch.mul(
+            u_inb.view(1, N, 1, BF),
+            snlx_nb
+        ).sum(1)  # (D, SG, BF)
+        invj_Tx = torch.mul(
+            invJ_nb,
+            Tx.view(1, D, SG, BF)
+        ).sum(1)  # (D, SG, BF)
+        invj_Tx_snormal = torch.mul(
+            invj_Tx,
+            snormal_th
+        ).sum(0)  # (SG, BF)
+        invj_Tx_snormal_sdetwei = torch.mul(
+            invj_Tx_snormal,
+            sdetwei_th
+        )  # (SG, BF)
+        invj_Tx_snormal_sdetwei_sn = torch.mul(
+            sn_th,
+            invj_Tx_snormal_sdetwei.view(1, SG, BF)
+        ).sum(1)  # (N, BF)
+        # snx_ui = torch.mul(
+        #     snx_nb,
+        #     u_inb.view(batch_in, 1, u_nloc, 1)
+        # ).sum(2)  # (batch_in, ndim, sngi)
+        # snx_ui_snormal = torch.mul(
+        #     snx_ui,
+        #     snormal_th,
+        # ).sum(1)  # (batch_in, sngi)
+        # snx_ui_snormal_sn = torch.mul(
+        #     snx_ui_snormal.view(batch_in, 1, sngi),
+        #     sn_th,
+        # )  # (batch_in, nloc, sngi)
+        # Au += torch.bmm(
+        #     snx_ui_snormal_sn,
+        #     sdetwei_th.view(batch_in, sngi, 1),
+        # ).squeeze() * (-0.5)
+        # symmetry term
+        Tq = torch.mul(
+            sn_nb,
+            u_inb.view(N, 1, BF)
+        ).sum(0)  # (SG, BF)
+        Tq_sdetwei = torch.mul(
+            Tq,
+            sdetwei_th
+        )  # (SG, BF)
+        invj_snormal = torch.mul(
+            invJ_th,
+            -snormal_th.view(D, 1, SG, BF)
+        ).sum(0)  # (D, SG, BF)
+        invj_snormal_Tq_sdetwei = torch.mul(
+            invj_snormal,
+            Tq_sdetwei.view(1, SG, BF)
+        )  # (D, SG, BF)
+        invj_snormal_Tq_sdetwei_snx = torch.mul(
+            invj_snormal_Tq_sdetwei.view(D, 1, SG, BF),
+            snlx_th.view(D, N, SG, BF)
+        ).sum(2).sum(0)  # (N, BF)
+        # sn_ui = torch.bmm(
+        #     u_inb.view(batch_in, 1, u_nloc),
+        #     sn_nb  # (batch_in, nloc, sngi)
+        # )
+        # sn_ui_snormal = sn_ui.view(batch_in, 1, sngi) * snormal_th * (-1.)  # mul -1 to be snormal_nb
+        # sn_ui_snormal_snx = torch.mul(
+        #     sn_ui_snormal.view(batch_in, ndim, 1, sngi),  # (batch_in, ndim, sngi)
+        #     snx[E_F_i, f_i, ...],  # (batch_in, ndim, nloc, sngi)
+        # ).sum(1)  # (batch_in, nloc, sngi)
+        # Au += torch.bmm(
+        #     sn_ui_snormal_snx,
+        #     sdetwei_th.view(batch_in, sngi, 1),
+        # ).squeeze() * (-0.5)
+        # penalty term
+        Tq_sdetwei_sn = torch.mul(
+            Tq_sdetwei.view(1, SG, BF),
+            sn_th,
+        ).sum(1)  # (N, BF)
+        h = torch.sum(sdetwei_th, 0)
+        if D == 3:
+            h = torch.sqrt(h)
+        gamma_e = eta_e / h
+        Tq_sdetwei_sn_gamma_e = torch.mul(
+            Tq_sdetwei_sn,
+            gamma_e.view(1, BF),
         )
-        snx_ui_snormal = torch.einsum(
-            'big,big->bg',
-            snx_ui,  # (batch_in, ndim, sngi)
-            snormal_th,  # (batch_in, ndim, sngi)
+        # sn_ui_sn = sn_ui.view(batch_in, 1, sngi) * sn_th
+        # Au += torch.bmm(
+        #     sn_ui_sn,
+        #     sdetwei_th.view(batch_in, sngi, 1),
+        # ).squeeze() * (-gamma_e[E_F_i, f_i].view(batch_in, 1))
+        Au = (
+            invj_Tx_snormal_sdetwei_sn * (-0.5)
+            + invj_snormal_Tq_sdetwei_snx * (-0.5)
+            - Tq_sdetwei_sn_gamma_e
+        ) * mu_f
+        Au = Au.transpose(0, 1)  # (BF, N)
+        # update residual
+        # scatter
+        for iface in range(nface):
+            idx_iface = (f_i == iface)
+            r0[E_F_i[idx_iface], :] -= Au[idx_iface, :]
+        # torch.cuda.synchronize()
+        # return r0, diagK, bdiagK
+    else:  # old approach for other side
+        Au = torch.zeros(batch_in, u_nloc, device=dev, dtype=snlx.dtype)
+        u_inb = x_i[E_F_inb, ...]
+
+        snx = torch.einsum(
+            'ijfgb,fjng->bfing',  # b-batch_in, f-nface, g-sngi, i-ndim, j-ndim, n-nloc
+            invJ.view(D, D, F, SG, B),
+            snlx
         )
-        snx_ui_snormal_sn = snx_ui_snormal.view(batch_in, 1, sngi) * sn_th
-        Au -= torch.einsum(
-            'bmg,bg->bm',
-            snx_ui_snormal_sn,  # (batch_in, nloc, sngi)
-            sdetwei_th,  # (batch_in, sngi)
-        ) * (-0.5)
-        # *symmetry term
-        sn_ui = torch.einsum(
-            'bng,bn->bg',
-            sn_nb,  # (batch_in, nloc, sngi)
-            u_inb,  # (batch_in, nloc)
-        )  # this will be reused later in penalty term
-        sn_ui_snormal = sn_ui.view(batch_in, 1, sngi) * snormal_th * (-1.)  # mul -1 to be snormal_nb
-        sn_ui_snormal_snx = torch.einsum(
-            'big,bimg->bmg',
-            sn_ui_snormal,  # (batch_in, ndim, sngi)
-            snx[E_F_i, f_i, ...],  # (batch_in, ndim, nloc, sngi)
-        )
-        Au -= torch.einsum(
-            'bmg,bg->bm',
-            sn_ui_snormal_snx,
-            sdetwei_th,
-        ) * (-0.5)
-        # *penalty term
-        sn_ui_sn = sn_ui.view(batch_in, 1, sngi) * sn_th
-        Au -= torch.einsum(
-            'bmg,bg->bm',
-            sn_ui_sn,  # (batch_in, nloc, sngi)
-            sdetwei_th,  # (batch_in, sngi)
-        ) * (-gamma_e[E_F_i, f_i].view(batch_in, 1))
-    else:  # replace einsum with bmm, mul, sum etc.
+
+        # get faces we want
+        sn_th = func_space.element.sn[f_i, ...]  # (batch_in, nloc, sngi)
+        sn_nb = func_space.element.sn[f_inb, ...]  # (batch_in, nloc, sngi)
+        snx_nb = snx[E_F_inb, f_inb, ...]  # (batch_in, ndim, nloc, sngi)
+        # snormal_nb = snormal_nb[E_F_inb, f_inb, ...]  # (batch_in, ndim, sngi)
+        snormal_th = snormal[:, f_i, :, E_F_i]  # (batch_in, ndim, sngi)
+        sdetwei_th = sdetwei[f_i, :, E_F_i]  # (batch_in, sngi)
+        # change gaussian points order on other side
+        # ===== new ======
+        for nb_gi_aln in range(ndim):  # 'ndim' alignnment of GI points on neighbour faces
+            idx = func_space.alnmt[E_F_i * nface + f_i] == nb_gi_aln
+            nb_aln = func_space.element.gi_align[nb_gi_aln, :]
+            snx_nb[idx, :, :, :] = snx_nb[idx][:, :, :, nb_aln]
+            # snormal_nb[idx, ...] = snormal_nb[idx][..., nb_aln]
+            sn_nb[idx, :, :] = sn_nb[idx][:, :, nb_aln]
+
         # consistent term
         snx_ui = torch.mul(
             snx_nb,
@@ -1047,15 +1302,13 @@ def _s_res_fi_all_face(
         Au += torch.bmm(
             sn_ui_sn,
             sdetwei_th.view(batch_in, sngi, 1),
-        ).squeeze() * (-gamma_e[E_F_i, f_i].view(batch_in, 1))
+        ).squeeze() * (-gamma_e[f_i, E_F_i].view(batch_in, 1))
 
-    # update residual
-    # scatter
-    for iface in range(nface):
-        idx_iface = (f_i == iface)
-        r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
-    # torch.cuda.synchronize()
-    # return r0, diagK, bdiagK
+        # update residual
+        # scatter
+        for iface in range(nface):
+            idx_iface = (f_i == iface)
+            r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
 
 
 # @torch.jit.optimize_for_inference
