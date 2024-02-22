@@ -209,7 +209,7 @@ def init_2d(mesh, nele, nonods, nloc, nface):
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
-    np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
+    # np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
     # sf_nd_nb.set_data(cg_nonods=cg_nonods)
     x_all = mesh.points[cg_ndglno.reshape(-1)][:, :2]
     # print('x_all shape: ', x_all.shape)
@@ -595,7 +595,7 @@ def init_3d(mesh, nele, nonods, nloc, nface):
     else:
         raise Exception('nloc %d is not accepted in mesh init' % nloc)
     cg_nonods = mesh.points.shape[0]
-    np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
+    # np.savetxt('x_all_cg.txt', mesh.points, delimiter=',')
     # sf_nd_nb.set_data(cg_nonods=cg_nonods)
     x_all = mesh.points[cg_ndglno.reshape((-1))]
     # print('x_all shape: ', x_all.shape)
