@@ -134,6 +134,7 @@ def _solve_diffusion(
     x_rhs = _get_rhs(x_rhs, f, u_bc, alpha_x_i)
 
     # solve with left-preconditionerd GMRES
+    # if one wishes to use cg solver, change _gmres_mg_solver to _cg_mg_solver
     x_i, its = _gmres_mg_solver(
         x_i, x_rhs, tol=config.tol
     )
@@ -1782,6 +1783,64 @@ def _gmres_mg_solver(
     # cudart.cudaProfilerStop()
     return x_i, sf_nd_nb.its
 
+
+def _cg_mg_solver(
+        x_i, x_rhs, tol
+):
+    """conjugate gradient solver with multi-grid preconditioner
+    """
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    total_nonods = nele * u_nloc
+    real_nonods = nele_f * u_nloc
+
+    r0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+    z0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+    p0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+    Ap0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+
+    x_dummy = torch.zeros_like(r0, device=dev, dtype=config.dtype)
+
+    r0l2 = 1.
+    sf_nd_nb.its = 0
+    r0, _ = get_residual_or_smooth(
+        r0, x_i, x_rhs,
+        do_smooth=False)
+    z0 *= 0
+    z0 = _um_left_precond(z0, r0)
+    p0 *= 0
+    p0 += z0
+    while r0l2 > tol and sf_nd_nb.its < config.gmres_its:
+        # A p_j
+        Ap0 *= 0
+        Ap0, _ = get_residual_or_smooth(
+            r0=Ap0,
+            x_i=p0,  # p_j
+            x_rhs=0,
+            do_smooth=False)
+        Ap0 *= -1.  # providing rhs=0, b-Ax is -Ax
+        r0z0 = (r0 * z0).sum()  # (r_j, z_j)
+        alpha = r0z0 / (Ap0 * p0).sum()  # alpha_j
+        x_i += alpha * p0.view(x_i.shape)  # x_j+1
+        r0 -= alpha * Ap0  # r_j+1
+        z0 *= 0
+        z0 = _um_left_precond(z0, r0)  # z_j+1
+        r0l2 = torch.linalg.norm(r0.view(-1))
+        # print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2)
+        beta = (r0 * z0).sum() / r0z0  # beta_j
+        p0 *= beta
+        p0 += z0  # p_j+1
+        sf_nd_nb.its += 1
+
+    # r0l2 = torch.linalg.norm(q[:, m:m+1].T @ e_1)
+    r0 *= 0
+    # get residual
+    r0, _ = get_residual_or_smooth(
+        r0, x_i, x_rhs,
+        do_smooth=False)
+    r0 = r0.view(nele, u_nloc)
+    r0l2 = torch.linalg.norm(r0[0:nele_f, :].view(-1))
+    print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
+    return x_i, sf_nd_nb.its
 
 def _um_left_precond(x_i, x_rhs):
     """
