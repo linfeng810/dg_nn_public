@@ -134,10 +134,18 @@ def _solve_diffusion(
     x_rhs = _get_rhs(x_rhs, f, u_bc, alpha_x_i)
 
     # solve with left-preconditionerd GMRES
-    # if one wishes to use cg solver, change _gmres_mg_solver to _cg_mg_solver
-    x_i, its = _gmres_mg_solver(
-        x_i, x_rhs, tol=config.tol
-    )
+    if config.linear_solver == 'mg':
+        x_i, its = _mg_solver(
+            x_i, x_rhs, tol=config.tol
+        )
+    elif config.linear_solver == 'gmres-mg':
+        x_i, its = _gmres_mg_solver(
+            x_i, x_rhs, tol=config.tol
+        )
+    if config.linear_solver == 'cg-mg':
+        x_i, its = _cg_mg_solver(
+            x_i, x_rhs, tol=config.tol
+        )
 
     return x_i
 
@@ -538,19 +546,29 @@ def _k_res_one_batch(
                     stride=N,
                 )
             )
-    detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
-           - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
-           + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
-    invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
-    invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
-    invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
-    invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
-    invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
-    invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
-    invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
-    invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
-    invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
-    invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
+    if D == 3:  # 3D
+        detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
+               - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
+               + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
+        detwei = detj.view(VG, B) * w.view(VG, 1)  # (VG, B)
+        invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
+        invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
+        invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
+        invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
+        invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
+        invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
+        invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
+        invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
+        invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
+        invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
+    else:  # 2D
+        detj = j[0][0] * j[1][1] - j[0][1] * j[1][0]
+        detwei = detj.view(VG, B) * w.view(VG, 1)  # (VG, B)
+        invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
+        invj[0].append(j[1][1] / detj)
+        invj[0].append(-j[0][1] / detj)
+        invj[1].append(-j[1][0] / detj)
+        invj[1].append(j[0][0] / detj)
     invJ = torch.zeros(D, D, VG, B, device=device, dtype=dtype)
     for idim in range(D):
         for jdim in range(D):
@@ -1005,40 +1023,79 @@ def _s_res_fi_all_face(
                     stride=N,
                 )
             )  # out shape: (1, F*SG, B)
-    detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
-           - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
-           + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
-    invj = [[] for _ in range(D)]  # invj[D][D][VG, B]
-    invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
-    invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
-    invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
-    invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
-    invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
-    invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
-    invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
-    invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
-    invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
-    invJ = torch.zeros(D, D, F * SG, B, device=dev, dtype=snlx.dtype)
-    for idim in range(D):
-        for jdim in range(D):
-            invJ[idim, jdim] = invj[idim][jdim].view(F * SG, B)
-    # after here, detj is useless
-    ddu_and_ddv = torch.zeros(D, D-1, F, SG, B, device=dev, dtype=snlx.dtype)
-    for jdim in range(D):
+    if D == 3:  # 3D
+        detj = j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1]) \
+               - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0]) \
+               + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
+        invj = [[] for _ in range(D)]  # invj[D][D][F*SG, B]
+        invj[0].append((j[1][1] * j[2][2] - j[1][2] * j[2][1]) / detj)
+        invj[0].append((j[0][2] * j[2][1] - j[0][1] * j[2][2]) / detj)
+        invj[0].append((j[0][1] * j[1][2] - j[0][2] * j[1][1]) / detj)
+        invj[1].append((j[1][2] * j[2][0] - j[1][0] * j[2][2]) / detj)
+        invj[1].append((j[0][0] * j[2][2] - j[0][2] * j[2][0]) / detj)
+        invj[1].append((j[0][2] * j[1][0] - j[0][0] * j[1][2]) / detj)
+        invj[2].append((j[1][0] * j[2][1] - j[1][1] * j[2][0]) / detj)
+        invj[2].append((j[0][1] * j[2][0] - j[0][0] * j[2][1]) / detj)
+        invj[2].append((j[0][0] * j[1][1] - j[0][1] * j[1][0]) / detj)
+        invJ = torch.zeros(D, D, F * SG, B, device=dev, dtype=snlx.dtype)
         for idim in range(D):
-            ddu_and_ddv[jdim] += torch.mul(
-                j[idim][jdim].view(1, F, SG, B),
-                drst_duv[:, idim, :].transpose(0, 1).view(D - 1, F, 1, 1)
-            )
-    # cross product
-    ddu_x_ddv = torch.zeros(D, F, SG, B, device=dev, dtype=snlx.dtype)
-    ddu_x_ddv[0] = ddu_and_ddv[1, 0] * ddu_and_ddv[2, 1] - ddu_and_ddv[2, 0] * ddu_and_ddv[1, 1]
-    ddu_x_ddv[1] = ddu_and_ddv[2, 0] * ddu_and_ddv[0, 1] - ddu_and_ddv[0, 0] * ddu_and_ddv[2, 1]
-    ddu_x_ddv[2] = ddu_and_ddv[0, 0] * ddu_and_ddv[1, 1] - ddu_and_ddv[1, 0] * ddu_and_ddv[0, 1]
-    sdet = torch.sqrt(
-        (ddu_x_ddv * ddu_x_ddv).sum(dim=0)
-    )  # (F, SG, B)
-    snormal = ddu_x_ddv / sdet.view(1, F, SG, B)
+            for jdim in range(D):
+                invJ[idim, jdim] = invj[idim][jdim].view(F * SG, B)
+        # after here, detj is useless
+        ddu_and_ddv = torch.zeros(D, D - 1, F, SG, B, device=dev, dtype=snlx.dtype)
+        for jdim in range(D):
+            for idim in range(D):
+                ddu_and_ddv[jdim] += torch.mul(
+                    j[idim][jdim].view(1, F, SG, B),
+                    drst_duv[:, idim, :].transpose(0, 1).view(D - 1, F, 1, 1)
+                )
+        # cross product
+        ddu_x_ddv = torch.zeros(D, F, SG, B, device=dev, dtype=snlx.dtype)
+        ddu_x_ddv[0] = ddu_and_ddv[1, 0] * ddu_and_ddv[2, 1] - ddu_and_ddv[2, 0] * ddu_and_ddv[1, 1]
+        ddu_x_ddv[1] = ddu_and_ddv[2, 0] * ddu_and_ddv[0, 1] - ddu_and_ddv[0, 0] * ddu_and_ddv[2, 1]
+        ddu_x_ddv[2] = ddu_and_ddv[0, 0] * ddu_and_ddv[1, 1] - ddu_and_ddv[1, 0] * ddu_and_ddv[0, 1]
+        sdet = torch.sqrt(
+            (ddu_x_ddv * ddu_x_ddv).sum(dim=0)
+        )  # (F, SG, B)
+        snormal = ddu_x_ddv / sdet.view(1, F, SG, B)
+    else:  # 2D
+        detj = j[0][0] * j[1][1] - j[0][1] * j[1][0]
+        invj = [[] for _ in range(D)]  # invj[D][D][F*SG, B]
+        invj[0].append(j[1][1] / detj)
+        invj[0].append(-j[0][1] / detj)
+        invj[1].append(-j[1][0] / detj)
+        invj[1].append(j[0][0] / detj)
+        invJ = torch.zeros(D, D, F * SG, B, device=dev, dtype=snlx.dtype)
+        for idim in range(D):
+            for jdim in range(D):
+                invJ[idim, jdim] = invj[idim][jdim].view(F * SG, B)
+        # ddu = torch.einsum(
+        #     'jibfg,fj->bfig',  # (nele, nface, ndim, sngi)
+        #     j,
+        #     # (sn.sum(-1) != 0).to(snlx.dtype),  # a mask to select nodes on face (nface, nloc)
+        #     drst_duv,  # (nface, ndim)
+        # )
+        ddu = torch.zeros(D, F, SG, B, device=dev, dtype=snlx.dtype)
+        for jdim in range(D):
+            for idim in range(D):
+                ddu[jdim] += torch.mul(
+                    j[idim][jdim].view(F, SG, B),
+                    drst_duv[:, idim].view(F, 1, 1)
+                )
+        sdet = torch.sqrt(
+            (ddu * ddu).sum(0)
+        )  # (F, SG, B)
+        # abs_ddu = torch.linalg.vector_norm(ddu, dim=-2)  # (nele, nface, sngi)
+        # surface normal
+        snormal = torch.zeros(D, F, SG, B, device=dev, dtype=snlx.dtype)
+        snormal[0] += ddu[1] / sdet
+        snormal[1] -= ddu[0] / sdet
+        # snormal = torch.einsum(
+        #     'bfig,bfg,ij->bfjg',
+        #     ddu,
+        #     1. / abs_ddu,
+        #     torch.tensor([[0, -1], [1, 0]], device=dev, dtype=snlx.dtype)
+        # )
 
     # consistent term
     Tx = torch.nn.functional.conv1d(
@@ -1784,6 +1841,37 @@ def _gmres_mg_solver(
     return x_i, sf_nd_nb.its
 
 
+def _mg_solver(
+        x_i, x_rhs, tol
+):
+    """multigrid as a stand-alone solver
+    """
+    u_nloc = sf_nd_nb.vel_func_space.element.nloc
+    total_nonods = nele * u_nloc
+    real_nonods = nele_f * u_nloc
+
+    r0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+    e0 = torch.zeros(total_nonods, device=dev, dtype=config.dtype)
+    r0l2 = 1.
+    sf_nd_nb.its = 0
+    r0, _ = get_residual_or_smooth(
+        r0, x_i, x_rhs,
+        do_smooth=False)
+    while r0l2 > tol and sf_nd_nb.its < config.gmres_its:
+        e0 *= 0
+        e0 = _um_left_precond(e0, r0)  # correction
+        x_i += e0.view(x_i.shape)  # new x_i
+        r0 *= 0
+        r0, _ = get_residual_or_smooth(
+            r0, x_i, x_rhs,
+            do_smooth=False)
+        r0l2 = torch.linalg.norm(r0.view(-1))
+        print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2)
+        sf_nd_nb.its += 1
+
+    print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
+    return x_i, sf_nd_nb.its
+
 def _cg_mg_solver(
         x_i, x_rhs, tol
 ):
@@ -1841,6 +1929,7 @@ def _cg_mg_solver(
     r0l2 = torch.linalg.norm(r0[0:nele_f, :].view(-1))
     print('its=', sf_nd_nb.its, 'fine grid rel residual l2 norm=', r0l2.cpu().numpy())
     return x_i, sf_nd_nb.its
+
 
 def _um_left_precond(x_i, x_rhs):
     """
