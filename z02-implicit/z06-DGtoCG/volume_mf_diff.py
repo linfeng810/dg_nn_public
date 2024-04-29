@@ -1366,7 +1366,7 @@ def _s_res_fi_all_face(
         # scatter
         for iface in range(nface):
             idx_iface = (f_i == iface)
-            r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...]
+            r0[E_F_i[idx_iface], ...] -= Au[idx_iface, ...] * mu_f
 
 
 # @torch.jit.optimize_for_inference
