@@ -947,10 +947,11 @@ def diff_bc(ndim, bc_node_list, x_all, prob: str, t=None):
                 y = x_inod[1]
                 # if torch.abs(x) < 1e-6:
                 #     u_bc[0][inod // nloc, inod % nloc] = 1
-                u_bc[0][inod // nloc, inod % nloc] = torch.exp(-x - y)
-        for inod in range(nonods):
-            x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-            f[inod] = -2 * config.mu_f * torch.exp(-x_inod[0] - x_inod[1])
+                u_bc[0][inod // nloc, inod % nloc] = torch.sin(torch.pi * x) * torch.sinh(torch.pi * y) \
+                                                     / np.sinh(np.pi)
+        # for inod in range(nonods):
+        #     x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
+        #     f[inod] = -2 * config.mu_f * torch.exp(-x_inod[0] - x_inod[1])
     else:
         raise Exception('the problem ', prob, ' is not defined in bc_f.py')
     fNorm = torch.linalg.norm(f.view(-1), dim=0)
@@ -1225,7 +1226,8 @@ def ana_soln(problem, t=None):
         u_ana = torch.zeros(config.nele, nloc, device=dev, dtype=torch.float64)
         for inod in range(config.nele * nloc):
             x_inod = sf_nd_nb.vel_func_space.x_ref_in[inod // nloc, :, inod % nloc]
-            u_ana[inod // nloc, inod % nloc] = torch.exp(-x_inod[0] - x_inod[1])
+            u_ana[inod // nloc, inod % nloc] = torch.sin(torch.pi * x_inod[0]) * torch.sinh(torch.pi * x_inod[1]) \
+                                                     / np.sinh(np.pi)
     elif problem == 'nozzle' and ndim == 3:
         print('**WARNING** no analytical solution for nozzle problem')
         nloc = sf_nd_nb.vel_func_space.element.nloc

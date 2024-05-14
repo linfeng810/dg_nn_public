@@ -43,9 +43,9 @@ solver = 'iterative'  # 'direct' or 'iterative'
 #####################################################
 # read mesh and build connectivity
 #####################################################
-filename = 'z23-nozzle/nozzle_more_elements_d8D8.msh'  # directory to mesh file (gmsh)
-filename = 'z21-cube-mesh/cube_ho_poi_r4.msh'
-filename = 'z20-square-mesh/square_high_order.msh'
+filename = 'z23-nozzle/nozzle_D8d8.msh'  # directory to mesh file (gmsh)
+# filename = 'z21-cube-mesh/cube_ho_poi_r1.msh'
+# filename = 'z20-square-mesh/square_high_order_r4.msh'
 if args.filename is not None:
     filename = args.filename
 # if len(sys.argv) > 1:
@@ -100,8 +100,8 @@ else:
     nele = nele_f + nele_s
     print('nele, nele_f, nele_s', nele, nele_f, nele_s, 'ndim', ndim)
 
-linear_solver = 'gmres-mg'  # linear solver: either 'gmres' or 'mg' or 'gmres-mg' (preconditioned gmres)
-tol = 1.e-5  # convergence tolerance for linear solver (e.g. MG)
+linear_solver = 'cg-mg'  # linear solver: either 'gmres-mg' or 'mg' or 'cg-mg'
+tol = 1.e-9  # convergence tolerance for linear solver (e.g. MG)
 ######################
 jac_its = 500  # max jacobi iteration steps on PnDG (overall MG cycles)
 jac_resThres = tol  # convergence criteria
@@ -133,7 +133,7 @@ print('jacobi block solver is: ', blk_solver)
 # 2 -- use SFC-mg as smoother on P1CG
 # 3 -- use pyAMG as smoother on P1CG
 # 4 -- use SA-AMG as smoother. SA multi-levels are created with pyAMG but moved to pytorch device.
-mg_opt_D = 4  # diffusion block
+mg_opt_D = 3  # diffusion block
 pyAMGsmoother = pyamg.smoothed_aggregation_solver  # pyAMG smoother
 # pyAMGsmoother = pyamg.air_solver  # pyAMG smoother
 # pyAMGsmoother = pyamg.ruge_stuben_solver
@@ -146,7 +146,7 @@ print(f'1 -- direct inverse on P1CG, \n'
 print('diffusion block: ', mg_opt_D)
 
 # gmres parameters
-gmres_m = 20  # restart
+gmres_m = 10  # restart
 gmres_its = 400  # max GMRES steps
 print('linear solver is: ', linear_solver)
 if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
@@ -154,14 +154,14 @@ if linear_solver == 'gmres' or linear_solver == 'gmres-mg':
 
 # non-linear iteration parameters
 n_its_max = 10
-n_tol = 1.e-5
+n_tol = 1.e-9
 relax_coeff = 1.  # relaxation coefficient for non-linear iteration for displacement only
 sf_nd_nb.relax_coeff = relax_coeff
 
 ####################
 # material property
 ####################
-problem = 'diff-test'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
+problem = 'nozzle'  # 'hyper-elastic' or 'linear-elastic' or 'stokes' or 'ns' or 'kovasznay' or 'poiseuille'
 # or 'ldc' = lid-driven cavity or 'tgv' = taylor-green vortex
 # or 'bfs' = backward facing step
 # or 'fpc' = flow-past cylinder
