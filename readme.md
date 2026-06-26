@@ -48,7 +48,7 @@ Note that running a simulation for the first time will take longer due to intern
 
 ## Reference
 Papers in preparation / under review
-1.	Diffusion: Implementing the discontinuous-Galerkin finite element method using graph neural networks (under review, preprint link: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4698813)
+1.	Diffusion: Implementing the discontinuous-Galerkin finite element method using graph neural networks (publication: [Implementing the discontinuous-Galerkin finite element method using graph neural networks with application to diffusion equations](https://doi.org/10.1016/j.neunet.2024.107061))
 2.	Fluid dynamics: (in preparation)
 3.	Structure statics: (in preparation)
 4.	Fluid-structure interaction: (in preparation)
